@@ -3995,6 +3995,138 @@ function renderGuide() {
     <div class="guide-pass">
       <strong>What good paper trading looks like:</strong> Win rate 40–50%, average winner ≥ 1.8R, average loser ≤ 1.1R, no "rule broken" trades. If you see this in paper trading, you're ready for live trading at minimal size ($1,000–$2,000 per trade cap).
     </div>
+  </div>
+
+  <!-- 11. LIVE SIGNALS TABLE -->
+  <div class="guide-section">
+    <h2>11 — Live Signals table: every column explained</h2>
+    <p>After clicking <strong>REFRESH</strong> on the Dashboard, go to <strong>Live Signals</strong>. Each row is one stock from the watchlist. Here is what every column means:</p>
+
+    <h3>Tier column</h3>
+    <p>This is the <strong>20-EMA Pullback</strong> setup classification. It tells you what stage the stock is at today:</p>
+    <div class="guide-kv">
+      <span class="k"><span class="tag confirm">CONFIRMED</span></span>
+      <span class="v">The stock had a 20-day high recently, pulled back to the 20-EMA, and TODAY closed above the prior swing high on above-average volume. <strong>This is a buy signal.</strong> Enter a buy-stop order above today's high for tomorrow morning.</span>
+      <span class="k"><span class="tag armed">ARMED</span></span>
+      <span class="v">The pullback to the 20-EMA is happening right now — the setup is forming but today's bar hasn't confirmed yet. Watch it tomorrow. If the next day closes strong, it becomes CONFIRMED.</span>
+      <span class="k"><span class="tag qual">QUALIFYING</span></span>
+      <span class="v">The stock passes all quality filters (L1: above 200-SMA, liquid, near 52w high, outperforming SPY) but no active pullback setup is forming yet. Keep it on your radar — it could ARMED or CONFIRM in coming days.</span>
+      <span class="k"><span class="tag fail">FAIL</span></span>
+      <span class="v">The stock does NOT pass the 20-EMA pullback quality filters. Common reasons: below 200-SMA, >15% from 52w high, underperforming SPY, insufficient volume. <em>A FAIL on 20-EMA doesn't mean the stock is bad</em> — it might still have a Quality Dip or FVG signal (see tags in the Sector column).</span>
+    </div>
+
+    <h3>Ticker column</h3>
+    <p>The stock's symbol. Click <strong>expand ▾</strong> in the Detail column to see all the reasons it passed or failed each filter, plus a full trade plan if it's CONFIRMED.</p>
+
+    <h3>Sector + signals column</h3>
+    <p>Shows the sector ETF the stock belongs to, plus any extra signal tags:</p>
+    <div class="guide-kv">
+      <span class="k"><span class="tag top3">XLY ★</span></span>
+      <span class="v">The stock is in one of the top-3 ranked sectors by 20-day momentum. ★ = sector is hot right now. Higher-priority setups.</span>
+      <span class="k"><span class="tag">XLK</span></span>
+      <span class="v">Stock is in this sector but it's NOT in the top-3 ranked sectors. Lower priority.</span>
+      <span class="k"><span class="tag confirm">FVG↑</span></span>
+      <span class="v">Monthly Fair Value Gap — price is currently retesting a bullish monthly gap AND this month's candle is closing above the gap midpoint (bullish reaction). Strong confluence add-on.</span>
+      <span class="k"><span class="tag armed">FVG·</span></span>
+      <span class="v">Monthly FVG — price is retesting the gap zone but no bullish reaction yet. Watch for a monthly close above the midpoint.</span>
+      <span class="k"><span class="tag qual">DIP 14%</span></span>
+      <span class="v">Quality Dip signal — the stock is 14% below its 52-week high AND has stabilized (stopped falling). Could be a mean-reversion buy opportunity. The % number tells you how deep the dip is. 10–25% is the sweet spot.</span>
+      <span class="k"><span class="tag top3">LEAD#1</span></span>
+      <span class="v">This stock has the highest Relative Strength score in its sector — it's the sector leader. LEAD#2 and LEAD#3 are 2nd and 3rd strongest.</span>
+    </div>
+
+    <h3>Last column</h3>
+    <p>The most recent closing price (end-of-day). This is the price as of the last data refresh. <strong>Not a live quote</strong> — data is end-of-day only.</p>
+
+    <h3>20-EMA column</h3>
+    <p>The current value of the 20-period Exponential Moving Average. The 20-EMA is the core "support line" this strategy uses. When price pulls back to this level from above, that's the setup. If Last ≈ 20-EMA, the stock is touching the support zone right now.</p>
+
+    <h3>% from 52w hi column</h3>
+    <p>How far the stock's current price is below its 52-week high. Example: <strong>14.1%</strong> means the stock is 14.1% below where it peaked in the last year.</p>
+    <ul>
+      <li><strong>0–5%:</strong> Very close to all-time highs — strong momentum but less upside room.</li>
+      <li><strong>5–15%:</strong> The sweet spot for 20-EMA pullback entries. Still near highs, healthy pullback.</li>
+      <li><strong>10–25%:</strong> Quality Dip territory — mean reversion opportunity if the stock is still above 200-SMA.</li>
+      <li><strong>&gt;15%:</strong> Fails the 20-EMA strategy's quality filter (too far from highs = weakening trend).</li>
+    </ul>
+
+    <h3>RS 1m column</h3>
+    <p>The stock's <strong>1-month (21 trading day) price return</strong>. Shown in green if it beat SPY over that period, red if it lagged SPY. This is one of the L1 quality filters — a stock must be outperforming SPY over 1 month to qualify for the 20-EMA strategy. Example: <strong>23.94%</strong> means the stock rose 23.94% in the last month — well above SPY's typical 1–3%/month.</p>
+
+    <h3>RS score column</h3>
+    <p>The <strong>Composite Relative Strength score</strong> used for the Thematic RS strategy. It is the average of the stock's excess return vs SPY over three windows: 1 month (21 days), 3 months (63 days), and 6 months (126 days).</p>
+    <div class="guide-pass">
+      RS score = [(return_1m − spy_1m) + (return_3m − spy_3m) + (return_6m − spy_6m)] ÷ 3<br/>
+      Positive = outperforming SPY on average. Negative = underperforming.
+    </div>
+    <p>A stock with RS score <strong>+15%</strong> has been beating SPY by ~15% per window on average — a strong thematic leader. A score of <strong>−1.1%</strong> (like TSLA in the example) means it's barely underperforming SPY over the composite window.</p>
+
+    <h3>Conf. (Confluence) column</h3>
+    <p>A <strong>0–10 stacked score</strong> combining every independent signal for that stock. Higher = more reasons to trade it.</p>
+    <div class="guide-kv">
+      <span class="k">Score ≥ 7</span><span class="v" style="color:var(--green);font-weight:600;">Strong — multiple independent signals aligned. Take this trade.</span>
+      <span class="k">Score 5–6</span><span class="v" style="color:var(--amber);font-weight:600;">Moderate — solid setup. Normal sizing.</span>
+      <span class="k">Score 3–4</span><span class="v" style="color:var(--text-dim);">Weak — single signal only. Reduce size or skip.</span>
+      <span class="k">Score 0–2</span><span class="v" style="color:var(--text-mute);">Very weak — no real edge. Pass.</span>
+    </div>
+    <p>Example: TSLA with score <strong>3</strong> = DIP signal (2 pts) + in top-3 sector (1 pt). No 20-EMA setup, no FVG, not a sector leader — moderate-weak signal. You could take a small mean-reversion position on the dip, but don't oversize.</p>
+
+    <h3>ATR(14) column</h3>
+    <p><strong>Average True Range</strong> over 14 trading days. This measures how much the stock moves on an average day (in dollars). It is the core input for stop placement and position sizing.</p>
+    <ul>
+      <li><strong>Stop distance</strong> = 1.5 × ATR(14) below the entry price</li>
+      <li><strong>Chandelier trail</strong> = highest high since entry − 2.5 × ATR(14)</li>
+      <li>Example: ATR = $14.97 → initial stop is $14.97 × 1.5 = $22.46 below entry. A $400 stock with ATR $15 is moving ~3.7%/day on average.</li>
+    </ul>
+
+    <h3>Size column</h3>
+    <p>The suggested <strong>number of shares to buy and at what price</strong>, only shown for CONFIRMED signals. Example: <em>12 sh @ $432.10</em> means buy 12 shares if price trades above $432.10.</p>
+    <p>Calculated as: <code>shares = (account × 0.75%) ÷ (entry − stop)</code>. Capped at 25% of account value per position. If this column shows "—", the stock is not in a confirmed entry state today.</p>
+
+    <h3>Detail column (expand ▾)</h3>
+    <p>Click <strong>expand ▾</strong> to see the full breakdown for that stock:</p>
+    <ul>
+      <li><strong>Pass/Fail reasons:</strong> Every L1 quality filter result — exactly why it passed or failed each criterion.</li>
+      <li><strong>Trade plan:</strong> For CONFIRMED signals — exact buy-stop trigger, initial stop price, first target (2R), and position size in dollars and shares.</li>
+      <li><strong>FVG details:</strong> If a monthly FVG was detected, shows the gap zone and which monthly bar created it.</li>
+      <li><strong>Quality Dip details:</strong> If a dip was detected, shows the entry/stop/target plan and the % off 52w high.</li>
+      <li><strong>RS details:</strong> The exact 1m/3m/6m returns vs SPY.</li>
+    </ul>
+
+    <h3>Reading the TSLA example row</h3>
+    <div class="guide-warn">
+      <strong>FAIL | TSLA | XLY ★ DIP 14% | Last 428.35 | 20-EMA 389.34 | 14.1% from hi | RS 1m +23.94% | RS score −1.1% | Conf 3 | ATR 14.97</strong><br/><br/>
+      What this tells you: TSLA is in Consumer Discretionary (XLY), which IS a top-3 sector (★). It FAILS the 20-EMA pullback because it's 14.1% below its 52-week high (threshold is ≤15% — just barely failing) OR because another L1 filter failed (expand ▾ to see exactly which one). The Quality Dip scanner flagged it at 14% off highs. The 1-month return is a strong +23.94% — TSLA has been moving fast recently. But the composite RS score is −1.1%, meaning over 1m+3m+6m combined, it's barely lagging SPY (the 1-month spike is offset by weaker 3m and 6m periods). Confluence score of 3 means weak-moderate: only the DIP and sector signals are stacked. No 20-EMA setup, no FVG, not a sector leader. <br/><br/>
+      <strong>Verdict:</strong> TSLA is watchlist-worthy because of the sector ★ and DIP signal, but the confluence is low. If you like the mean-reversion thesis, you could take a small position using the Quality Dip trade plan (expand ▾ to see entry/stop/target). Don't oversize.
+    </div>
+  </div>
+
+  <!-- 12. FILTER ROW EXPLAINED -->
+  <div class="guide-section">
+    <h2>12 — Filter bar explained</h2>
+    <p>The filter bar at the top of Live Signals controls which rows appear in the table.</p>
+
+    <h3>Tier filters (top row)</h3>
+    <div class="guide-kv">
+      <span class="k">CONFIRMED</span><span class="v">Show stocks with a confirmed 20-EMA entry signal — ready to trade tomorrow.</span>
+      <span class="k">ARMED</span><span class="v">Show stocks where the pullback is happening but not yet confirmed. Watch these for tomorrow.</span>
+      <span class="k">QUALIFYING</span><span class="v">Show stocks that pass quality filters but have no active setup yet. Useful for building your watchlist.</span>
+      <span class="k">FAILED (errors)</span><span class="v">Show stocks that failed quality filters or had data fetch errors. Useful for debugging.</span>
+      <span class="k">top-3 sector only</span><span class="v">When checked, only shows stocks whose sector is in the top-3 by 20-day momentum. Narrows the list to hotter themes.</span>
+    </div>
+
+    <h3>Stack Signals filters (second row)</h3>
+    <p>These override the tier filters above — they show stocks matching ANY tier as long as the stack signal is present:</p>
+    <div class="guide-kv">
+      <span class="k">FVG retest only</span><span class="v">Only show stocks with an active monthly Fair Value Gap retest (FVG↑ or FVG·).</span>
+      <span class="k">Quality Dip only</span><span class="v">Only show stocks where the Quality Dip scanner triggered (10–25% off highs, stabilized).</span>
+      <span class="k">Sector Leaders only</span><span class="v">Only show stocks tagged LEAD#1, LEAD#2, or LEAD#3 in their sector.</span>
+      <span class="k">sort by confluence</span><span class="v">Shows ALL stocks with any signal, sorted by confluence score (highest first). Best way to find the highest-conviction setups regardless of which strategy triggered.</span>
+    </div>
+
+    <div class="guide-pass">
+      <strong>Recommended daily workflow:</strong> Start with defaults (CONFIRMED + ARMED + QUALIFYING visible). If you see 0–2 confirmed signals, expand ARMED to see what's setting up. Enable "sort by confluence" to quickly spot which stocks have the most stacked signals.
+    </div>
   </div>`;
 }
 
