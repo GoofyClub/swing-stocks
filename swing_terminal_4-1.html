@@ -2100,9 +2100,11 @@ const SECTOR_ETFS = ['XLK', 'XLV', 'XLF', 'XLY', 'XLC', 'XLI', 'XLP', 'XLE', 'XL
 const DEFAULT_ALPHA_VANTAGE_KEY = '';   // get a free key at https://www.alphavantage.co/support/#api-key (25 calls/day)
 const DEFAULT_FINNHUB_KEY        = '';   // get a free key at https://finnhub.io/register (60 calls/min)
 const DATA_SOURCE_ORDER = [
-  'alphavantage',   // most reliable when a key is set (CSV, native CORS)
-  'finnhub',        // also CORS-friendly; candle endpoint coverage varies
-  'stooq_direct',   // free, no key, but stooq does not always send CORS headers
+  'alphavantage',     // most reliable when a key is set (CSV, native CORS)
+  'finnhub',          // also CORS-friendly; candle endpoint coverage varies
+  'yahoo_direct',     // Yahoo Finance v8 — free, no key, best free source
+  'yahoo_corsproxy',  // Yahoo Finance via corsproxy.io fallback
+  'stooq_direct',     // free, no key, but stooq does not always send CORS headers
   'stooq_corsproxy',
   'stooq_allorigins',
   'stooq_codetabs',
@@ -2226,6 +2228,56 @@ async function fetchFinnhub(ticker) {
   return bars;
 }
 
+// ---- Source: Yahoo Finance v8 (JSON daily, no key, native CORS on most networks) ----
+function yahooSymbol(ticker) {
+  // Yahoo Finance uses the same symbol for most US stocks.
+  // Index symbols like ^VIX, ^GSPC are supported as-is.
+  return ticker; // e.g. "SPY", "^VIX", "AAPL"
+}
+async function fetchYahooFinanceViaUrl(url) {
+  const resp = await fetchWithTimeout(url, {}, 10000);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim());
+  const j = await resp.json();
+  const result = j?.chart?.result?.[0];
+  if (!result) {
+    const errMsg = j?.chart?.error?.description || 'no result in response';
+    throw new Error(`Yahoo Finance: ${errMsg}`);
+  }
+  const timestamps = result.timestamp;
+  if (!timestamps || timestamps.length === 0) throw new Error('Yahoo Finance: no timestamps');
+  const quote = result.indicators?.quote?.[0];
+  if (!quote) throw new Error('Yahoo Finance: missing quote indicators');
+  const { open, high, low, close, volume } = quote;
+  const bars = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (close[i] == null || isNaN(close[i])) continue;
+    const d = new Date(timestamps[i] * 1000);
+    const dateStr = d.toISOString().slice(0, 10);
+    bars.push({
+      date:   dateStr,
+      open:   open[i]   ?? close[i],
+      high:   high[i]   ?? close[i],
+      low:    low[i]    ?? close[i],
+      close:  close[i],
+      volume: volume[i] ?? 0,
+    });
+  }
+  if (bars.length < 30) throw new Error(`Yahoo Finance: only ${bars.length} bars returned`);
+  return bars;
+}
+async function fetchYahooDirect(ticker) {
+  const sym = encodeURIComponent(yahooSymbol(ticker));
+  // range=5y gives ~1250 bars — enough for all warmup periods
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5y&includePrePost=false`;
+  return fetchYahooFinanceViaUrl(url);
+}
+async function fetchYahooCorsproxy(ticker) {
+  const sym = encodeURIComponent(yahooSymbol(ticker));
+  const inner = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5y&includePrePost=false`;
+  const url = `https://corsproxy.io/?url=${encodeURIComponent(inner)}`;
+  return fetchYahooFinanceViaUrl(url);
+}
+
 // ---- Source: Stooq (CSV daily, no key, CORS depends on browser/network) ----
 function stooqUrl(ticker) {
   // Index symbols (e.g. ^VIX, ^GSPC) don't use the .us exchange suffix
@@ -2255,12 +2307,14 @@ async function fetchStooqCodetabs(ticker) {
 }
 
 const DATA_SOURCES = {
-  alphavantage:      { label: 'Alpha Vantage (CSV, key required)', needsKey: 'alphavantage', fetch: fetchAlphaVantage },
-  finnhub:           { label: 'Finnhub (JSON, key required)',      needsKey: 'finnhub',      fetch: fetchFinnhub },
-  stooq_direct:      { label: 'stooq.com (direct)',                needsKey: null,           fetch: fetchStooqDirect },
-  stooq_corsproxy:   { label: 'stooq.com via corsproxy.io',        needsKey: null,           fetch: fetchStooqCorsproxy },
-  stooq_allorigins:  { label: 'stooq.com via allorigins.win',      needsKey: null,           fetch: fetchStooqAllorigins },
-  stooq_codetabs:    { label: 'stooq.com via codetabs.com',        needsKey: null,           fetch: fetchStooqCodetabs },
+  alphavantage:      { label: 'Alpha Vantage (CSV, key required)',   needsKey: 'alphavantage', fetch: fetchAlphaVantage },
+  finnhub:           { label: 'Finnhub (JSON, key required)',        needsKey: 'finnhub',      fetch: fetchFinnhub },
+  yahoo_direct:      { label: 'Yahoo Finance (direct, no key)',      needsKey: null,           fetch: fetchYahooDirect },
+  yahoo_corsproxy:   { label: 'Yahoo Finance via corsproxy.io',      needsKey: null,           fetch: fetchYahooCorsproxy },
+  stooq_direct:      { label: 'stooq.com (direct)',                  needsKey: null,           fetch: fetchStooqDirect },
+  stooq_corsproxy:   { label: 'stooq.com via corsproxy.io',          needsKey: null,           fetch: fetchStooqCorsproxy },
+  stooq_allorigins:  { label: 'stooq.com via allorigins.win',        needsKey: null,           fetch: fetchStooqAllorigins },
+  stooq_codetabs:    { label: 'stooq.com via codetabs.com',          needsKey: null,           fetch: fetchStooqCodetabs },
 };
 
 // ----- Main fetcher: tries each source in priority order until one succeeds -----
@@ -2327,7 +2381,7 @@ async function fetchBars(ticker, opts = {}) {
   if (skipped.length === attempts.length) {
     cause = 'No data sources are configured. Open the Dashboard → "Data sources" panel and paste a free Alpha Vantage or Finnhub API key, or upload a CSV file from the Backtest tab.';
   } else if (networkOnly.length + skipped.length === attempts.length) {
-    cause = 'Every reachable source was blocked by network/CORS or timed out. Most likely cause: a corporate firewall, ad-blocker/privacy extension, or all the public proxies are down. The most reliable fix is to set an Alpha Vantage or Finnhub API key on the Dashboard — those endpoints support CORS natively and don\'t need a proxy.';
+    cause = 'Every reachable source was blocked by network/CORS or timed out. Most likely cause: a corporate firewall, ad-blocker/privacy extension, or all public proxies are down. Try: (1) disable any ad-blocker for this page, (2) set a free Alpha Vantage or Finnhub API key on the Dashboard — those endpoints support CORS natively.';
   } else if (bestPartial) {
     cause = `Sources reachable but only ${bestPartial.bars.length} historical bars available for ${ticker} (need 220 for full setup detection). Likely a recently-listed name. ${bestPartial.bars.length >= 30 ? 'Consider uploading a longer CSV manually.' : ''}`;
   } else {
