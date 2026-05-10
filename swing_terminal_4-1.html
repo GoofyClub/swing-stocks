@@ -829,11 +829,11 @@ details[open] summary { color: var(--text); }
       <div class="card">
         <div class="card-head"><h3>Filter</h3></div>
         <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
-          <label style="margin: 0;"><input type="checkbox" id="filter-confirm" checked /> show CONFIRMED only</label>
-          <label style="margin: 0;"><input type="checkbox" id="filter-armed" /> include ARMED (no confirmation yet)</label>
-          <label style="margin: 0;"><input type="checkbox" id="filter-qual" /> include QUALIFYING (L1 only)</label>
-          <label style="margin: 0;"><input type="checkbox" id="filter-fail" /> include FAILED</label>
-          <label style="margin: 0;"><input type="checkbox" id="filter-top3" checked /> require top-3 sector</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-confirm" checked /> CONFIRMED</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-armed" checked /> ARMED</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-qual" checked /> QUALIFYING</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-fail" /> FAILED (errors)</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-top3" /> top-3 sector only</label>
         </div>
         <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line);">
           <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-mute); letter-spacing: 0.15em;">STACK SIGNALS:</span>
@@ -2102,9 +2102,12 @@ const DEFAULT_FINNHUB_KEY        = '';   // get a free key at https://finnhub.io
 const DATA_SOURCE_ORDER = [
   'alphavantage',     // most reliable when a key is set (CSV, native CORS)
   'finnhub',          // also CORS-friendly; candle endpoint coverage varies
-  'yahoo_direct',     // Yahoo Finance v8 — free, no key, best free source
-  'yahoo_corsproxy',  // Yahoo Finance via corsproxy.io fallback
-  'stooq_direct',     // free, no key, but stooq does not always send CORS headers
+  'yahoo_v7_direct',  // Yahoo Finance v7 CSV — most stable free endpoint, no key
+  'yahoo_v7_proxy',   // Yahoo Finance v7 CSV via corsproxy.io
+  'yahoo_direct',     // Yahoo Finance v8 JSON direct
+  'yahoo_query2',     // Yahoo Finance v8 via query2 server
+  'yahoo_corsproxy',  // Yahoo Finance v8 via corsproxy.io
+  'stooq_direct',     // stooq.com (CORS blocked on most networks)
   'stooq_corsproxy',
   'stooq_allorigins',
   'stooq_codetabs',
@@ -2267,8 +2270,13 @@ async function fetchYahooFinanceViaUrl(url) {
 }
 async function fetchYahooDirect(ticker) {
   const sym = encodeURIComponent(yahooSymbol(ticker));
-  // range=5y gives ~1250 bars — enough for all warmup periods
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5y&includePrePost=false`;
+  return fetchYahooFinanceViaUrl(url);
+}
+async function fetchYahooQuery2(ticker) {
+  // query2 is Yahoo's secondary server — sometimes available when query1 is blocked
+  const sym = encodeURIComponent(yahooSymbol(ticker));
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5y&includePrePost=false`;
   return fetchYahooFinanceViaUrl(url);
 }
 async function fetchYahooCorsproxy(ticker) {
@@ -2276,6 +2284,56 @@ async function fetchYahooCorsproxy(ticker) {
   const inner = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5y&includePrePost=false`;
   const url = `https://corsproxy.io/?url=${encodeURIComponent(inner)}`;
   return fetchYahooFinanceViaUrl(url);
+}
+// Yahoo Finance v7 CSV download — most stable endpoint, no cookies/auth required
+async function fetchYahooV7Csv(ticker) {
+  const sym = encodeURIComponent(yahooSymbol(ticker));
+  const p2 = Math.floor(Date.now() / 1000) + 86400;
+  const p1 = p2 - 5 * 365 * 86400; // 5 years back
+  const url = `https://query1.finance.yahoo.com/v7/finance/download/${sym}?period1=${p1}&period2=${p2}&interval=1d&events=history`;
+  const resp = await fetchWithTimeout(url, 15000);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const text = await resp.text();
+  if (!text || text.length < 50) throw new Error('empty response');
+  if (text.startsWith('{')) {
+    let msg = text; try { const j = JSON.parse(text); msg = j.chart?.error?.description || j.message || text; } catch {}
+    throw new Error(`Yahoo v7: ${msg.slice(0, 200)}`);
+  }
+  // CSV: Date,Open,High,Low,Close,Adj Close,Volume
+  const lines = text.trim().split('\n').slice(1);
+  const bars = [];
+  for (const line of lines) {
+    const p = line.split(',');
+    if (p.length < 6 || p[4] === 'null' || p[4] === '') continue;
+    bars.push({
+      date: p[0].trim(),
+      open:   +p[1], high: +p[2], low: +p[3],
+      close:  +p[4], // use adjusted close for accuracy
+      volume: +p[6] || 0,
+    });
+  }
+  if (bars.length < 30) throw new Error(`Yahoo v7 CSV: only ${bars.length} rows`);
+  return bars;
+}
+async function fetchYahooV7Proxy(ticker) {
+  const sym = encodeURIComponent(yahooSymbol(ticker));
+  const p2 = Math.floor(Date.now() / 1000) + 86400;
+  const p1 = p2 - 5 * 365 * 86400;
+  const inner = `https://query1.finance.yahoo.com/v7/finance/download/${sym}?period1=${p1}&period2=${p2}&interval=1d&events=history`;
+  const url = `https://corsproxy.io/?url=${encodeURIComponent(inner)}`;
+  const resp = await fetchWithTimeout(url, 15000);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const text = await resp.text();
+  if (!text || text.length < 50 || text.startsWith('{')) throw new Error('bad response via proxy');
+  const lines = text.trim().split('\n').slice(1);
+  const bars = [];
+  for (const line of lines) {
+    const p = line.split(',');
+    if (p.length < 6 || p[4] === 'null' || p[4] === '') continue;
+    bars.push({ date: p[0].trim(), open: +p[1], high: +p[2], low: +p[3], close: +p[4], volume: +p[6] || 0 });
+  }
+  if (bars.length < 30) throw new Error(`only ${bars.length} rows via proxy`);
+  return bars;
 }
 
 // ---- Source: Stooq (CSV daily, no key, CORS depends on browser/network) ----
@@ -2307,14 +2365,17 @@ async function fetchStooqCodetabs(ticker) {
 }
 
 const DATA_SOURCES = {
-  alphavantage:      { label: 'Alpha Vantage (CSV, key required)',   needsKey: 'alphavantage', fetch: fetchAlphaVantage },
-  finnhub:           { label: 'Finnhub (JSON, key required)',        needsKey: 'finnhub',      fetch: fetchFinnhub },
-  yahoo_direct:      { label: 'Yahoo Finance (direct, no key)',      needsKey: null,           fetch: fetchYahooDirect },
-  yahoo_corsproxy:   { label: 'Yahoo Finance via corsproxy.io',      needsKey: null,           fetch: fetchYahooCorsproxy },
-  stooq_direct:      { label: 'stooq.com (direct)',                  needsKey: null,           fetch: fetchStooqDirect },
-  stooq_corsproxy:   { label: 'stooq.com via corsproxy.io',          needsKey: null,           fetch: fetchStooqCorsproxy },
-  stooq_allorigins:  { label: 'stooq.com via allorigins.win',        needsKey: null,           fetch: fetchStooqAllorigins },
-  stooq_codetabs:    { label: 'stooq.com via codetabs.com',          needsKey: null,           fetch: fetchStooqCodetabs },
+  alphavantage:      { label: 'Alpha Vantage (CSV, key required)',     needsKey: 'alphavantage', fetch: fetchAlphaVantage },
+  finnhub:           { label: 'Finnhub (JSON, key required)',          needsKey: 'finnhub',      fetch: fetchFinnhub },
+  yahoo_v7_direct:   { label: 'Yahoo Finance v7 CSV (direct)',         needsKey: null,           fetch: fetchYahooV7Csv },
+  yahoo_v7_proxy:    { label: 'Yahoo Finance v7 CSV via corsproxy.io', needsKey: null,           fetch: fetchYahooV7Proxy },
+  yahoo_direct:      { label: 'Yahoo Finance v8 (direct)',             needsKey: null,           fetch: fetchYahooDirect },
+  yahoo_query2:      { label: 'Yahoo Finance v8 query2 server',        needsKey: null,           fetch: fetchYahooQuery2 },
+  yahoo_corsproxy:   { label: 'Yahoo Finance v8 via corsproxy.io',     needsKey: null,           fetch: fetchYahooCorsproxy },
+  stooq_direct:      { label: 'stooq.com (direct)',                    needsKey: null,           fetch: fetchStooqDirect },
+  stooq_corsproxy:   { label: 'stooq.com via corsproxy.io',            needsKey: null,           fetch: fetchStooqCorsproxy },
+  stooq_allorigins:  { label: 'stooq.com via allorigins.win',          needsKey: null,           fetch: fetchStooqAllorigins },
+  stooq_codetabs:    { label: 'stooq.com via codetabs.com',            needsKey: null,           fetch: fetchStooqCodetabs },
 };
 
 // ----- Main fetcher: tries each source in priority order until one succeeds -----
@@ -2967,7 +3028,14 @@ function renderSignals() {
   document.getElementById('signal-count').textContent = rows.length;
 
   if (!rows.length) {
-    el.innerHTML = '<div class="empty">No rows match the active filters.</div>';
+    const total = state.signalRows.length;
+    const fails = state.signalRows.filter(r => r.tier === 'fail').length;
+    const hint = total === 0
+      ? 'No scan data yet — click <b>REFRESH</b> on the Dashboard first.'
+      : fails === total
+        ? `All ${total} tickers returned data errors or failed L1. Check the Dashboard log for details. Try enabling <b>FAILED (errors)</b> filter to see why.`
+        : 'No tickers match the active filters. Try enabling <b>ARMED</b> and <b>QUALIFYING</b> tiers, or uncheck <b>top-3 sector only</b>.';
+    el.innerHTML = `<div class="empty" style="padding:24px;line-height:1.8;">${hint}</div>`;
     return;
   }
 
