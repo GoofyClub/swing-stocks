@@ -2776,6 +2776,8 @@ function renderRegime(regime, sectorRanks) {
     : '—';
 
   const checksEl = document.getElementById('regime-checks');
+  // Save mmfi value BEFORE wiping the DOM (mmfi-input lives inside checksEl)
+  const mmfiVal = +(document.getElementById('mmfi-input')?.value ?? 55);
   checksEl.innerHTML = '';
   regime.checks.forEach(c => {
     const cls = c.pass === true ? 'pass' : c.pass === false ? 'fail' : 'unk';
@@ -2785,9 +2787,7 @@ function renderRegime(regime, sectorRanks) {
     div.innerHTML = `<span class="icon">${ic}</span><span>${c.name}</span><span class="note">${c.note}</span>`;
     checksEl.appendChild(div);
   });
-  // MMFI is manual — append latest input value note
-  const mmfiInp = document.getElementById('mmfi-input');
-  const mmfiVal = +mmfiInp.value;
+  // MMFI is manual — rebuild the input inside the last check row
   const lastCheck = checksEl.lastChild;
   if (lastCheck) {
     const cls = mmfiVal > 50 ? 'pass' : 'fail';
@@ -3148,7 +3148,7 @@ async function refreshAll() {
     state.sectorRanks = sectorRank(state.sectorBars);
     log(`Sectors ranked. Top 3: ${state.sectorRanks.slice(0,3).map(r => r.etf).join(', ')}`, 'ok');
 
-    const mmfi = +document.getElementById('mmfi-input').value;
+    const mmfi = +(document.getElementById('mmfi-input')?.value ?? 55);
     state.regime = regimeCheck(state.spyBars, state.vixBars, mmfi);
     renderRegime(state.regime, state.sectorRanks);
     log(`Regime: ${state.regime.tradeable ? 'TRADEABLE' : 'NOT TRADEABLE'}`, state.regime.tradeable ? 'ok' : 'warn');
