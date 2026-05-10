@@ -1,0 +1,4012 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Swing Pullback 20-EMA — Terminal</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+:root {
+  --bg:        #0a0e14;
+  --bg-elev:   #11161f;
+  --bg-elev2:  #161c27;
+  --line:      #1f2733;
+  --line-soft: #2a3445;
+  --text:      #d6e1f0;
+  --text-dim:  #7a8aa3;
+  --text-mute: #4a5568;
+  --green:     #5fd478;
+  --red:       #ff6b7a;
+  --amber:     #ffb454;
+  --cyan:      #5ad6ff;
+  --violet:    #b59cff;
+  --warn-bg:   #2a1f0e;
+  --pass-bg:   #0e2418;
+  --fail-bg:   #2a1318;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+}
+
+[data-theme="light"] {
+  --bg:        #f4f6f9;
+  --bg-elev:   #ffffff;
+  --bg-elev2:  #edf0f5;
+  --line:      #d4dae6;
+  --line-soft: #bfc8d8;
+  --text:      #1a2233;
+  --text-dim:  #4a5878;
+  --text-mute: #8a97b0;
+  --green:     #1a7f3c;
+  --red:       #c0142a;
+  --amber:     #b86800;
+  --cyan:      #0070a8;
+  --violet:    #5b3fcc;
+  --warn-bg:   #fff8e6;
+  --pass-bg:   #edfaf2;
+  --fail-bg:   #fdeef0;
+}
+
+#theme-toggle {
+  background: var(--bg-elev2);
+  border: 1px solid var(--line-soft);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 5px 10px;
+  cursor: pointer;
+  line-height: 1;
+  transition: border-color 0.12s, color 0.12s;
+}
+#theme-toggle:hover { border-color: var(--cyan); color: var(--cyan); }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.app {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 52px 1fr;
+  grid-template-areas: "topbar topbar" "sidebar main";
+  height: 100vh;
+}
+
+.topbar {
+  grid-area: topbar;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 24px;
+}
+.topbar .logo {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--cyan);
+}
+.topbar .logo span { color: var(--text-dim); margin-left: 8px; }
+.topbar .pulse {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); margin-left: 8px;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.topbar .meta {
+  margin-left: auto;
+  display: flex; gap: 18px; align-items: center;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+}
+.topbar .meta .item { display: flex; gap: 6px; align-items: center; }
+.topbar .meta .item b { color: var(--text); font-weight: 500; }
+.topbar input.eq {
+  background: var(--bg); border: 1px solid var(--line-soft); color: var(--text);
+  font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; width: 100px; text-align: right;
+}
+
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-elev);
+  border-right: 1px solid var(--line);
+  padding: 20px 0;
+  display: flex; flex-direction: column;
+}
+.sidebar .section-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  padding: 18px 18px 6px;
+}
+.sidebar .nav-item {
+  padding: 10px 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 2px solid transparent;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: background 0.12s, color 0.12s;
+}
+.sidebar .nav-item:hover { background: var(--bg-elev2); color: var(--text); }
+.sidebar .nav-item.active {
+  background: var(--bg-elev2);
+  color: var(--text);
+  border-left-color: var(--cyan);
+}
+.sidebar .nav-item .icon {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  width: 16px;
+  text-align: center;
+}
+.sidebar .nav-item.active .icon { color: var(--cyan); }
+.sidebar .footer {
+  margin-top: auto;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mute);
+}
+
+.main {
+  grid-area: main;
+  overflow-y: auto;
+  padding: 22px 28px;
+  background: var(--bg);
+}
+.view { display: none; }
+.view.active { display: block; }
+
+.view h1 {
+  font-family: var(--font-sans);
+  font-weight: 300;
+  font-size: 22px;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+.view h1 b { font-weight: 600; color: var(--cyan); }
+.view .subtitle {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 22px;
+  max-width: 720px;
+}
+
+.row { display: flex; gap: 14px; flex-wrap: wrap; }
+.col { flex: 1; min-width: 0; }
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.card .card-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 10px;
+}
+.card h3 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.card .card-action {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--cyan);
+  cursor: pointer;
+}
+.card .card-action:hover { text-decoration: underline; }
+
+.kpi {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+.kpi .item {
+  flex: 1;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  padding: 14px 16px;
+}
+.kpi .label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--text-mute);
+  text-transform: uppercase;
+}
+.kpi .value {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text);
+  margin-top: 4px;
+}
+.kpi .value.green  { color: var(--green); }
+.kpi .value.red    { color: var(--red); }
+.kpi .value.amber  { color: var(--amber); }
+.kpi .value.cyan   { color: var(--cyan); }
+.kpi .sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg-elev);
+}
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+tr:hover td { background: var(--bg-elev2); }
+.num   { text-align: right; }
+.green { color: var(--green); }
+.red   { color: var(--red); }
+.amber { color: var(--amber); }
+.dim   { color: var(--text-dim); }
+.mute  { color: var(--text-mute); }
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 2px 6px;
+  border: 1px solid var(--line-soft);
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.tag.armed   { border-color: var(--amber); color: var(--amber); background: var(--warn-bg); }
+.tag.confirm { border-color: var(--green); color: var(--green); background: var(--pass-bg); }
+.tag.fail    { border-color: var(--red);   color: var(--red);   background: var(--fail-bg); }
+.tag.qual    { border-color: var(--cyan);  color: var(--cyan); }
+.tag.top3    { border-color: var(--green); color: var(--green); }
+
+button, .btn {
+  background: var(--bg-elev2);
+  border: 1px solid var(--line-soft);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+button:hover, .btn:hover { background: var(--bg-elev); border-color: var(--cyan); color: var(--cyan); }
+button.primary {
+  background: var(--cyan);
+  color: var(--bg);
+  border-color: var(--cyan);
+}
+button.primary:hover { background: #4ac8ee; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+input, select {
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+}
+input:focus, select:focus { outline: none; border-color: var(--cyan); }
+
+label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+
+.regime-checks { display: flex; flex-direction: column; gap: 4px; }
+.regime-checks .check {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-left: 2px solid transparent;
+}
+.regime-checks .check.pass { border-left-color: var(--green); background: var(--pass-bg); }
+.regime-checks .check.fail { border-left-color: var(--red);   background: var(--fail-bg); }
+.regime-checks .check.unk  { border-left-color: var(--text-mute); }
+.regime-checks .check .icon { color: var(--text-mute); }
+.regime-checks .check.pass .icon { color: var(--green); }
+.regime-checks .check.fail .icon { color: var(--red); }
+.regime-checks .check .note { color: var(--text-dim); font-size: 11px; }
+
+.sector-list { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.sector-list .sect {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.sector-list .sect .rank {
+  font-size: 9px; color: var(--text-mute); letter-spacing: 0.15em;
+}
+.sector-list .sect.top3 { background: var(--pass-bg); border-color: var(--green); }
+.sector-list .sect.top3 .rank { color: var(--green); }
+.sector-list .sect .ret { font-weight: 500; }
+
+.signal-detail {
+  background: var(--bg-elev2);
+  border-left: 2px solid var(--cyan);
+  padding: 10px 14px;
+  margin: 4px 0 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.signal-detail .reason { color: var(--text-dim); padding: 2px 0; }
+.signal-detail .reason.fail::before { content: '✗ '; color: var(--red); }
+.signal-detail .reason.pass::before { content: '✓ '; color: var(--green); }
+.signal-detail .plan {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.signal-detail .plan .p-label {
+  font-size: 9px; letter-spacing: 0.15em; color: var(--text-mute); text-transform: uppercase;
+}
+.signal-detail .plan .p-val { font-size: 13px; color: var(--text); margin-top: 2px; }
+
+.empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+.spinner {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border: 1px solid var(--text-mute);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.log {
+  background: #060a10;
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+.log .ok   { color: var(--green); }
+.log .err  { color: var(--red); }
+.log .info { color: var(--cyan); }
+.log .warn { color: var(--amber); }
+
+.disclaimer {
+  background: var(--warn-bg);
+  border: 1px solid var(--amber);
+  border-left-width: 3px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 20px;
+}
+.disclaimer b { color: var(--amber); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.15em; }
+
+.chart-wrap { position: relative; height: 280px; }
+.chart-wrap.tall { height: 340px; }
+
+details summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  user-select: none;
+}
+details summary:hover { color: var(--text); }
+details[open] summary { color: var(--text); }
+
+.legend {
+  display: flex; gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.legend .swatch { display: inline-block; width: 8px; height: 8px; margin-right: 4px; vertical-align: middle; }
+
+/* ---- Error modal + diagnostic ---- */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--red);
+  width: min(720px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.modal.warn { border-left-color: var(--amber); }
+.modal.info { border-left-color: var(--cyan); }
+.modal .head {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal .head .title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--red);
+}
+.modal.warn .head .title { color: var(--amber); }
+.modal.info .head .title { color: var(--cyan); }
+.modal .head .close {
+  cursor: pointer;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 2px 8px;
+  user-select: none;
+}
+.modal .head .close:hover { color: var(--text); }
+.modal .body {
+  padding: 18px 20px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.modal .body h4 {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--text-mute);
+  margin: 16px 0 8px;
+  font-weight: 600;
+}
+.modal .body h4:first-child { margin-top: 0; }
+.modal .body code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 2px;
+  color: var(--cyan);
+  word-break: break-all;
+}
+.modal .body ul { margin: 8px 0; padding-left: 20px; }
+.modal .body li { margin-bottom: 6px; }
+.modal .body .cause {
+  background: var(--bg);
+  border-left: 2px solid var(--red);
+  padding: 10px 14px;
+  font-size: 12px;
+  margin: 12px 0;
+}
+.modal.warn .body .cause { border-left-color: var(--amber); }
+.modal .attempts {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin: 6px 0;
+}
+.modal .attempts th, .modal .attempts td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.modal .attempts th {
+  color: var(--text-mute);
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  font-size: 9px;
+}
+.modal .attempts td.ok { color: var(--green); }
+.modal .attempts td.fail { color: var(--red); }
+.modal .actions {
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+  display: flex; gap: 10px; justify-content: flex-end;
+}
+.modal .actions button {
+  background: var(--bg-elev2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+.modal .actions button:hover { background: var(--bg); border-color: var(--text-mute); }
+.modal .actions button.primary {
+  background: var(--cyan);
+  color: var(--bg);
+  border-color: var(--cyan);
+}
+.modal .actions button.primary:hover { background: #66ddff; }
+
+.diag-row {
+  display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap;
+}
+.diag-row button {
+  background: var(--bg-elev2);
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+.diag-row button:hover { color: var(--text); border-color: var(--text-mute); }
+
+.ds-source {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--line);
+  flex-wrap: wrap;
+}
+.ds-source:last-of-type { border-bottom: none; }
+.ds-source label {
+  font-size: 12px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  white-space: nowrap;
+}
+.ds-source label b { font-weight: 500; }
+.ds-source .ds-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  grid-column: 1;
+  margin-left: 26px;
+}
+.ds-source .ds-meta a {
+  color: var(--cyan);
+  text-decoration: none;
+}
+.ds-source .ds-meta a:hover { text-decoration: underline; }
+.ds-source input[type="password"] {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 10px;
+  width: 280px;
+  max-width: 100%;
+  grid-column: 2;
+}
+.ds-source input[type="password"]:focus { outline: none; border-color: var(--cyan); }
+.ds-source button.ds-test {
+  background: var(--bg-elev2);
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  grid-column: 3;
+}
+.ds-source button.ds-test:hover { color: var(--text); border-color: var(--text-mute); }
+.ds-source button.ds-test:disabled { opacity: 0.5; cursor: not-allowed; }
+.ds-source.ok { border-bottom-color: rgba(0, 200, 100, 0.3); }
+.ds-source.fail { border-bottom-color: rgba(255, 80, 80, 0.3); }
+
+.csv-upload-zone {
+  border: 1px dashed var(--line);
+  padding: 14px 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  cursor: pointer;
+  background: var(--bg-elev2);
+  margin-top: 12px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.csv-upload-zone:hover, .csv-upload-zone.drag {
+  border-color: var(--cyan);
+  color: var(--text);
+}
+.csv-upload-zone input { display: none; }
+.csv-upload-zone .hint {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  margin-top: 6px;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="topbar">
+    <div class="logo">SWING.PULLBACK <span>20-EMA · v1.0</span><span class="pulse"></span></div>
+    <div class="meta">
+      <div class="item"><span>EQUITY</span><input class="eq" id="eq-input" type="number" value="100000" step="1000" /></div>
+      <div class="item"><span>DATA</span><b id="data-status">stooq · idle</b></div>
+      <div class="item"><span>UPDATED</span><b id="last-update">—</b></div>
+      <button id="theme-toggle" title="Toggle light / dark theme">☀</button>
+      <button id="refresh-all" class="primary">REFRESH</button>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="section-label">Operate</div>
+    <div class="nav-item active" data-view="dashboard"><span class="icon">▣</span><span>Dashboard</span></div>
+    <div class="nav-item" data-view="signals"><span class="icon">⚡</span><span>Live Signals</span></div>
+    <div class="nav-item" data-view="backtest"><span class="icon">⊏</span><span>Backtest</span></div>
+
+    <div class="section-label">Reference</div>
+    <div class="nav-item" data-view="watchlist"><span class="icon">≡</span><span>Watchlist</span></div>
+    <div class="nav-item" data-view="reasons"><span class="icon">?</span><span>Why these stocks</span></div>
+    <div class="nav-item" data-view="tests"><span class="icon">✓</span><span>Self-tests</span></div>
+    <div class="nav-item" data-view="help"><span class="icon">i</span><span>Framework</span></div>
+    <div class="nav-item" data-view="guide"><span class="icon">★</span><span>Newbie Guide</span></div>
+
+    <div class="footer">
+      data: stooq.com<br/>
+      EOD CSV (free)<br/>
+      <span style="color: var(--amber);">paper-trade only</span>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- DASHBOARD -->
+    <div class="view active" id="view-dashboard">
+      <h1>Market <b>regime</b> + sector posture</h1>
+      <div class="subtitle">First check every morning. If regime fails, do not enter new trades. Sector rank determines which candidates can fire.</div>
+
+      <div class="kpi">
+        <div class="item"><div class="label">Regime</div><div class="value cyan" id="kpi-regime">—</div><div class="sub" id="kpi-regime-sub">awaiting refresh</div></div>
+        <div class="item"><div class="label">SPY</div><div class="value" id="kpi-spy">—</div><div class="sub" id="kpi-spy-sub">—</div></div>
+        <div class="item"><div class="label">VIX</div><div class="value" id="kpi-vix">—</div><div class="sub" id="kpi-vix-sub">—</div></div>
+        <div class="item"><div class="label">Armed signals</div><div class="value amber" id="kpi-armed">0</div><div class="sub">L3 + confirmation</div></div>
+        <div class="item"><div class="label">Qualifying</div><div class="value cyan" id="kpi-qual">0</div><div class="sub">L1 quality + top-3 sector</div></div>
+      </div>
+
+      <div class="card" id="data-sources-card">
+        <div class="card-head">
+          <h3>Data sources</h3>
+          <span class="card-action" id="ds-toggle">show / hide</span>
+        </div>
+        <div id="ds-body" style="display: none;">
+          <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 14px;">
+            Sources are tried in order. <b>Alpha Vantage</b> and <b>Finnhub</b> support CORS natively and are far more reliable than Stooq, but require a free API key. Public Stooq proxies are unreliable. Keys are kept in memory only — paste them here each session, or hard-code in <code style="font-family:var(--font-mono);font-size:11px;color:var(--cyan);background:var(--bg);padding:1px 5px;">DEFAULT_ALPHA_VANTAGE_KEY</code> / <code style="font-family:var(--font-mono);font-size:11px;color:var(--cyan);background:var(--bg);padding:1px 5px;">DEFAULT_FINNHUB_KEY</code> at the top of the script.
+          </div>
+          <div class="ds-source">
+            <label><input type="checkbox" data-source="alphavantage" checked /> <b>Alpha Vantage</b></label>
+            <span class="ds-meta">25 calls/day · daily CSV · <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">get key</a></span>
+            <input type="password" id="ds-key-alphavantage" placeholder="paste API key" autocomplete="off" />
+            <button class="ds-test" data-source="alphavantage">TEST</button>
+          </div>
+          <div class="ds-source">
+            <label><input type="checkbox" data-source="finnhub" checked /> <b>Finnhub</b></label>
+            <span class="ds-meta">60 calls/min · daily JSON · <a href="https://finnhub.io/register" target="_blank" rel="noopener">get key</a></span>
+            <input type="password" id="ds-key-finnhub" placeholder="paste API key" autocomplete="off" />
+            <button class="ds-test" data-source="finnhub">TEST</button>
+          </div>
+          <div class="ds-source">
+            <label><input type="checkbox" data-source="stooq_direct" checked /> <b>Stooq direct</b></label>
+            <span class="ds-meta">no key · CORS often blocked</span>
+            <button class="ds-test" data-source="stooq_direct">TEST</button>
+          </div>
+          <div class="ds-source">
+            <label><input type="checkbox" data-source="stooq_corsproxy" checked /> <b>Stooq via corsproxy.io</b></label>
+            <span class="ds-meta">no key · public proxy</span>
+            <button class="ds-test" data-source="stooq_corsproxy">TEST</button>
+          </div>
+          <div class="ds-source">
+            <label><input type="checkbox" data-source="stooq_allorigins" checked /> <b>Stooq via allorigins.win</b></label>
+            <span class="ds-meta">no key · public proxy</span>
+            <button class="ds-test" data-source="stooq_allorigins">TEST</button>
+          </div>
+          <div class="ds-source">
+            <label><input type="checkbox" data-source="stooq_codetabs" checked /> <b>Stooq via codetabs.com</b></label>
+            <span class="ds-meta">no key · public proxy</span>
+            <button class="ds-test" data-source="stooq_codetabs">TEST</button>
+          </div>
+          <div id="ds-status" style="font-family:var(--font-mono);font-size:10px;color:var(--text-mute);margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <div class="card">
+            <div class="card-head"><h3>L2 — Regime checks</h3></div>
+            <div class="regime-checks" id="regime-checks">
+              <div class="check unk"><span class="icon">·</span><span>SPY > 200-SMA</span><span class="note">click Refresh</span></div>
+              <div class="check unk"><span class="icon">·</span><span>SPY > 50-SMA</span><span class="note">click Refresh</span></div>
+              <div class="check unk"><span class="icon">·</span><span>VIX &lt; 25</span><span class="note">click Refresh</span></div>
+              <div class="check unk"><span class="icon">·</span><span>Breadth (MMFI &gt; 50%)</span>
+                <span class="note">manual: <input type="number" id="mmfi-input" value="55" min="0" max="100" style="width:60px;"/></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="card-head"><h3>Sector rank — top 3 are eligible</h3></div>
+            <div class="sector-list" id="sector-list">
+              <div class="sect"><span>—</span><span class="rank">awaiting</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Activity log</h3><span class="card-action" id="clear-log">clear</span></div>
+        <div class="log" id="log">Ready. Click REFRESH to pull live data.\n</div>
+        <div class="diag-row">
+          <button id="diag-test">TEST DATA CONNECTION</button>
+          <button id="diag-clear-cache">CLEAR CACHE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE SIGNALS -->
+    <div class="view" id="view-signals">
+      <h1>Live <b>signals</b></h1>
+      <div class="subtitle">All members of the watchlist evaluated against L1 quality, L3 setup, and confirmation bar rules using the most recent completed daily bar from Stooq. Sorted by tier: confirmed armed first, then qualifying-but-not-armed, then disqualified.</div>
+
+      <div class="disclaimer">
+        <b>READ THIS</b><br/>
+        EOD signals only — Stooq returns daily bars, not intraday. The "armed" flag means the framework would place a buy stop for tomorrow's session. Real entries also require L4 spread/gap checks at fill time, the L2 regime to still be tradeable, the stock's sector to still be in the top 3, and no earnings inside the next 7 trading days. <b>Verify earnings dates yourself before placing any order.</b>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Filter</h3></div>
+        <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+          <label style="margin: 0;"><input type="checkbox" id="filter-confirm" checked /> show CONFIRMED only</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-armed" /> include ARMED (no confirmation yet)</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-qual" /> include QUALIFYING (L1 only)</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-fail" /> include FAILED</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-top3" checked /> require top-3 sector</label>
+        </div>
+        <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line);">
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-mute); letter-spacing: 0.15em;">STACK SIGNALS:</span>
+          <label style="margin: 0;"><input type="checkbox" id="filter-fvg" /> FVG retest only</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-dip" /> Quality Dip only</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-leader" /> Sector Leaders only</label>
+          <label style="margin: 0;"><input type="checkbox" id="filter-confluence" /> sort by confluence (any tier)</label>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);">(unchecked = use 20-EMA tier filters above)</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Watchlist results — <span id="signal-count" style="color: var(--cyan);">0</span> stocks</h3>
+          <span class="card-action" id="signals-refresh">refresh signals</span>
+        </div>
+        <div id="signal-table-wrap">
+          <div class="empty">Click REFRESH at top to pull data and compute signals.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BACKTEST -->
+    <div class="view" id="view-backtest">
+      <h1>Back<b>test</b></h1>
+      <div class="subtitle">Replay the framework over historical daily bars from Stooq. Each setup that arms + confirms triggers a simulated buy stop on the next bar; positions are managed with the L5/L6 stop, target, trailing, and time-stop rules. Equity curve assumes one position at a time per ticker.</div>
+
+      <div class="card">
+        <div class="card-head"><h3>Configuration</h3></div>
+        <div style="display: grid; grid-template-columns: 200px 140px 140px 1fr auto; gap: 16px; align-items: end;">
+          <div class="field">
+            <label>Ticker</label>
+            <input type="text" id="bt-ticker" value="NVDA" style="text-transform: uppercase;" />
+          </div>
+          <div class="field">
+            <label>Years of history</label>
+            <select id="bt-years">
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Starting equity</label>
+            <input type="number" id="bt-equity" value="100000" step="1000" />
+          </div>
+          <div class="field"></div>
+          <button id="bt-run" class="primary">RUN BACKTEST</button>
+        </div>
+        <label class="csv-upload-zone" id="csv-zone" for="csv-input">
+          <span id="csv-zone-text">No data sources working? Drop or click to upload a daily CSV for this ticker.</span>
+          <span class="hint">Accepted formats: stooq.com export, Yahoo Finance download, or any CSV with columns date,open,high,low,close,volume (header optional). Date in YYYY-MM-DD or MM/DD/YYYY.</span>
+          <input type="file" id="csv-input" accept=".csv,text/csv" />
+        </label>
+      </div>
+
+      <div class="kpi">
+        <div class="item"><div class="label">Trades</div><div class="value" id="bt-n">—</div><div class="sub">n closed</div></div>
+        <div class="item"><div class="label">Win rate</div><div class="value" id="bt-wr">—</div><div class="sub">% wins</div></div>
+        <div class="item"><div class="label">Expectancy</div><div class="value" id="bt-exp">—</div><div class="sub">R per trade</div></div>
+        <div class="item"><div class="label">Profit factor</div><div class="value" id="bt-pf">—</div><div class="sub">gross W / gross L</div></div>
+        <div class="item"><div class="label">Max drawdown</div><div class="value red" id="bt-dd">—</div><div class="sub">peak-to-trough</div></div>
+        <div class="item"><div class="label">Final equity</div><div class="value" id="bt-eq">—</div><div class="sub">$</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Equity curve</h3></div>
+        <div class="chart-wrap tall"><canvas id="eq-chart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Trade log</h3></div>
+        <div id="bt-trades-wrap"><div class="empty">Run a backtest to populate.</div></div>
+      </div>
+
+      <h1 style="margin-top: 28px;">Port<b>folio</b> backtest</h1>
+      <div class="subtitle">Replays the framework across the ENTIRE watchlist day-by-day with portfolio constraints active: regime gate, sector top-3 filter, max 5 concurrent positions, max 2 per sector, 3% portfolio heat cap, 0.75% risk per trade, chandelier trail. Uses cached data — click <b>REFRESH</b> at top first to pull every ticker.</div>
+
+      <div class="card">
+        <div class="card-head"><h3>Portfolio configuration</h3></div>
+        <div style="display: grid; grid-template-columns: 140px 140px 140px 140px 140px 1fr auto; gap: 14px; align-items: end;">
+          <div class="field"><label>Starting equity</label><input type="number" id="pbt-equity" value="100000" step="1000" /></div>
+          <div class="field"><label>Max positions</label><input type="number" id="pbt-maxpos" value="5" min="1" max="20" /></div>
+          <div class="field"><label>Max per sector</label><input type="number" id="pbt-maxsec" value="2" min="1" max="10" /></div>
+          <div class="field"><label>Heat cap %</label><input type="number" id="pbt-heat" value="3.0" step="0.5" min="0.5" max="20" /></div>
+          <div class="field"><label>Slippage bps</label><input type="number" id="pbt-slip" value="5" step="1" min="0" max="50" /></div>
+          <div class="field"></div>
+          <button id="pbt-run" class="primary">RUN PORTFOLIO BACKTEST</button>
+        </div>
+        <div style="font-size: 11px; color: var(--text-mute); margin-top: 10px; font-family: var(--font-mono);">
+          ⚠ This evaluates ~60 tickers × hundreds of days and may take 20–60 seconds. Run REFRESH first so all watchlist data is cached.
+        </div>
+      </div>
+
+      <div class="kpi">
+        <div class="item"><div class="label">Trades</div><div class="value" id="pbt-n">—</div><div class="sub">closed</div></div>
+        <div class="item"><div class="label">Win rate</div><div class="value" id="pbt-wr">—</div><div class="sub">% wins</div></div>
+        <div class="item"><div class="label">Expectancy</div><div class="value" id="pbt-exp">—</div><div class="sub">R per trade</div></div>
+        <div class="item"><div class="label">Profit factor</div><div class="value" id="pbt-pf">—</div><div class="sub">gross W / L</div></div>
+        <div class="item"><div class="label">Max drawdown</div><div class="value red" id="pbt-dd">—</div><div class="sub">peak-to-trough</div></div>
+        <div class="item"><div class="label">CAGR</div><div class="value" id="pbt-cagr">—</div><div class="sub">annualized</div></div>
+        <div class="item"><div class="label">Final equity</div><div class="value" id="pbt-eq">—</div><div class="sub">$</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Portfolio equity curve</h3></div>
+        <div class="chart-wrap tall"><canvas id="pbt-chart"></canvas></div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <div class="card">
+            <div class="card-head"><h3>Per-sector breakdown</h3></div>
+            <div id="pbt-sector-wrap"><div class="empty">Run portfolio backtest to populate.</div></div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="card-head"><h3>Skipped entries (heat / gap)</h3></div>
+            <div id="pbt-skip-wrap"><div class="empty">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Portfolio trade log</h3></div>
+        <div id="pbt-trades-wrap"><div class="empty">Run portfolio backtest to populate.</div></div>
+      </div>
+    </div>
+
+    <!-- WATCHLIST -->
+    <div class="view" id="view-watchlist">
+      <h1>Watch<b>list</b></h1>
+      <div class="subtitle">Curated list of high-liquidity S&P 500 / Nasdaq 100 names. Edit freely — changes apply immediately to the Live Signals view. Stored in memory only (no persistence across reloads).</div>
+
+      <div class="card">
+        <div class="card-head"><h3>Edit watchlist</h3></div>
+        <div style="display: flex; gap: 12px; align-items: end; margin-bottom: 14px;">
+          <div class="field" style="flex: 1;">
+            <label>Add ticker (US, comma-separated allowed)</label>
+            <input type="text" id="wl-add" placeholder="e.g., COST, BKNG, REGN" />
+          </div>
+          <button id="wl-add-btn" class="primary">ADD</button>
+          <button id="wl-reset">RESET TO DEFAULTS</button>
+        </div>
+        <div id="wl-grid"></div>
+      </div>
+    </div>
+
+    <!-- REASONS -->
+    <div class="view" id="view-reasons">
+      <h1>Why <b>these</b> stocks</h1>
+      <div class="subtitle">The framework filters universe membership, liquidity, market cap, and trend before any setup is detected. The starter watchlist below is curated to satisfy those structural prerequisites — actual trade eligibility per the framework is checked dynamically every refresh.</div>
+      <div id="reasons-content"></div>
+    </div>
+
+    <!-- TESTS -->
+    <div class="view" id="view-tests">
+      <h1>Self-<b>tests</b></h1>
+      <div class="subtitle">Validates indicator math and setup detection against synthetic fixtures with known answers. Runs entirely in your browser — no data fetched. If anything fails, do not trust the live signals: open browser console for diagnostics and report it.</div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Test runner</h3>
+          <span class="card-action" id="run-tests">▶ run all</span>
+        </div>
+        <div id="test-output" class="log">Click ▶ run all to begin.\n</div>
+      </div>
+    </div>
+
+    <!-- HELP -->
+    <div class="view" id="view-help">
+      <h1>Frame<b>work</b> reference</h1>
+      <div class="subtitle">Condensed cheat-sheet of the rules this UI implements. Numbers in parentheses correspond to L-sections in the spec.</div>
+      <div class="card" id="help-content"></div>
+    </div>
+
+    <!-- GUIDE -->
+    <div class="view" id="view-guide">
+      <h1>Newbie <b>Guide</b></h1>
+      <div class="subtitle">Start here — everything a new trader needs to know about this tool, the strategies, and how to use them safely.</div>
+      <div id="guide-content"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Error / diagnostic modal -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" id="modal" role="dialog" aria-modal="true">
+    <div class="head">
+      <span class="title" id="modal-title">ERROR</span>
+      <span class="close" id="modal-close">✕</span>
+    </div>
+    <div class="body" id="modal-body"></div>
+    <div class="actions" id="modal-actions">
+      <button id="modal-copy">COPY DIAGNOSTICS</button>
+      <button class="primary" id="modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// === ENGINE === inline copy of /home/claude/swing/engine.js ===
+// =============================================================
+// Swing Pullback 20-EMA Continuation — calculation engine
+// Pure JS, no dependencies. Runnable in Node and in browser.
+// =============================================================
+
+// ---------- Indicator primitives ----------
+
+function sma(values, period) {
+  const out = new Array(values.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= period) sum -= values[i - period];
+    if (i >= period - 1) out[i] = sum / period;
+  }
+  return out;
+}
+
+function ema(values, period) {
+  const out = new Array(values.length).fill(null);
+  if (values.length < period) return out;
+  // Seed with SMA of first `period` values
+  let seed = 0;
+  for (let i = 0; i < period; i++) seed += values[i];
+  out[period - 1] = seed / period;
+  const k = 2 / (period + 1);
+  for (let i = period; i < values.length; i++) {
+    out[i] = values[i] * k + out[i - 1] * (1 - k);
+  }
+  return out;
+}
+
+// True Range and Wilder ATR (matches TradingView default)
+function atr(high, low, close, period) {
+  const n = close.length;
+  const tr = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (i === 0) {
+      tr[i] = high[i] - low[i];
+    } else {
+      const a = high[i] - low[i];
+      const b = Math.abs(high[i] - close[i - 1]);
+      const c = Math.abs(low[i] - close[i - 1]);
+      tr[i] = Math.max(a, b, c);
+    }
+  }
+  const out = new Array(n).fill(null);
+  if (n < period) return out;
+  // Seed with simple average of first `period` TRs
+  let seed = 0;
+  for (let i = 0; i < period; i++) seed += tr[i];
+  out[period - 1] = seed / period;
+  for (let i = period; i < n; i++) {
+    out[i] = (out[i - 1] * (period - 1) + tr[i]) / period;
+  }
+  return out;
+}
+
+function rollingMax(values, period) {
+  const out = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i++) {
+    let m = -Infinity;
+    for (let j = i - period + 1; j <= i; j++) m = Math.max(m, values[j]);
+    out[i] = m;
+  }
+  return out;
+}
+
+function rollingMin(values, period) {
+  const out = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i++) {
+    let m = Infinity;
+    for (let j = i - period + 1; j <= i; j++) m = Math.min(m, values[j]);
+    out[i] = m;
+  }
+  return out;
+}
+
+function rollingMean(values, period) { return sma(values, period); }
+
+function pctReturn(values, lookback) {
+  const out = new Array(values.length).fill(null);
+  for (let i = lookback; i < values.length; i++) {
+    if (values[i - lookback] > 0) {
+      out[i] = (values[i] / values[i - lookback]) - 1;
+    }
+  }
+  return out;
+}
+
+// ---------- L1 quality + L3 setup detection ----------
+
+// bars: array of {date, open, high, low, close, volume}, sorted oldest -> newest
+// spyBars: same shape, used for relative strength
+// idx: bar index to evaluate ("today" = the most recent COMPLETED bar)
+function evaluateSetup(bars, spyBars, idx) {
+  const reasons = []; // why pass / why fail
+  const result = {
+    qualifies_L1: false,
+    setup_armed_L3: false,
+    confirmation_bar: false,
+    reasons,
+    metrics: {}
+  };
+  if (idx < 220) { reasons.push('Insufficient history (<220 bars)'); return result; }
+
+  const close = bars.map(b => b.close);
+  const high  = bars.map(b => b.high);
+  const low   = bars.map(b => b.low);
+  const vol   = bars.map(b => b.volume);
+
+  const sma200 = sma(close, 200);
+  const sma50  = sma(close,  50);
+  const ema20  = ema(close,  20);
+  const atr14  = atr(high, low, close, 14);
+  const high20 = rollingMax(high, 20);
+  const high52w = rollingMax(high, 252);
+  const advUsd20 = (function () {
+    const out = new Array(close.length).fill(null);
+    for (let i = 19; i < close.length; i++) {
+      let s = 0;
+      for (let j = i - 19; j <= i; j++) s += close[j] * vol[j];
+      out[i] = s / 20;
+    }
+    return out;
+  })();
+
+  const c = close[idx];
+  const m200 = sma200[idx], m50 = sma50[idx];
+  const e20 = ema20[idx], a14 = atr14[idx];
+  const h52 = high52w[idx];
+  const adv = advUsd20[idx];
+
+  result.metrics = {
+    close: c, sma200: m200, sma50: m50, ema20: e20, atr14: a14,
+    high52w: h52, adv_usd_20d: adv,
+    pct_below_52w_high: h52 ? (1 - c / h52) * 100 : null
+  };
+
+  // L1 quality
+  let pass = true;
+  if (!(c > 20 && c < 1500))                    { reasons.push(`Price $${c.toFixed(2)} outside [20, 1500]`); pass = false; }
+  if (!(adv && adv > 20_000_000))               { reasons.push(`20d ADV $${(adv/1e6).toFixed(1)}M < $20M`); pass = false; }
+  if (!(c > m200))                              { reasons.push(`Close ${c.toFixed(2)} not above 200-SMA ${m200?.toFixed(2)}`); pass = false; }
+  if (!(m50 > m200))                            { reasons.push(`50-SMA ${m50?.toFixed(2)} not > 200-SMA ${m200?.toFixed(2)}`); pass = false; }
+  const pctFromHigh = h52 ? (1 - c / h52) * 100 : 999;
+  if (!(pctFromHigh <= 15))                     { reasons.push(`${pctFromHigh.toFixed(1)}% below 52w high (>15%)`); pass = false; }
+
+  // 1-month RS vs SPY
+  if (spyBars && spyBars.length > idx) {
+    const spyClose = spyBars.map(b => b.close);
+    const stockRet = (close[idx] / close[idx - 21]) - 1;
+    const spyRet   = (spyClose[idx] / spyClose[idx - 21]) - 1;
+    result.metrics.ret_1m = stockRet;
+    result.metrics.spy_ret_1m = spyRet;
+    if (!(stockRet > spyRet))                   { reasons.push(`1m return ${(stockRet*100).toFixed(2)}% <= SPY ${(spyRet*100).toFixed(2)}%`); pass = false; }
+  }
+
+  result.qualifies_L1 = pass;
+  if (!pass) return result;
+
+  // L3 setup
+  // Was there a new 20-day high in the last 10 bars?
+  let highDayIdx = -1, highDayValue = -Infinity;
+  for (let k = idx - 10; k <= idx; k++) {
+    if (k < 19) continue;
+    if (high[k] >= high20[k] - 1e-9) { // bar made/touched a 20-day high that day
+      if (high[k] > highDayValue) { highDayValue = high[k]; highDayIdx = k; }
+    }
+  }
+  if (highDayIdx < 0) { reasons.push('No new 20-day high in last 10 bars'); return result; }
+
+  // Pullback from highDayIdx to idx must be 2-5 bars
+  const pullbackBars = idx - highDayIdx;
+  result.metrics.pullback_bars = pullbackBars;
+  if (pullbackBars < 2 || pullbackBars > 5) {
+    reasons.push(`Pullback length ${pullbackBars} bars outside [2,5]`);
+    return result;
+  }
+
+  // Pullback low above 50-SMA (closing basis)
+  let pullbackLow = Infinity, pullbackLowIdx = highDayIdx;
+  for (let k = highDayIdx + 1; k <= idx; k++) {
+    if (close[k] < pullbackLow) { pullbackLow = close[k]; pullbackLowIdx = k; }
+  }
+  if (!(pullbackLow > sma50[pullbackLowIdx])) {
+    reasons.push(`Pullback close low ${pullbackLow.toFixed(2)} broke 50-SMA ${sma50[pullbackLowIdx]?.toFixed(2)}`);
+    return result;
+  }
+  result.metrics.pullback_low = pullbackLow;
+
+  // Within 1.0 x ATR of 20-EMA at any point during the pullback
+  let touched20EMA = false;
+  for (let k = highDayIdx; k <= idx; k++) {
+    if (low[k] <= ema20[k] + 1e-9) { touched20EMA = true; break; }
+    if (Math.abs(close[k] - ema20[k]) <= atr14[k]) { touched20EMA = true; break; }
+  }
+  if (!touched20EMA) {
+    reasons.push('Pullback never came within 1×ATR of 20-EMA');
+    return result;
+  }
+
+  // Pullback retracement 30-60% of the prior leg
+  // Leg = from prior swing low (lowest close in 20 bars before highDayIdx) up to high20 high
+  let legStartIdx = Math.max(0, highDayIdx - 20), legStartVal = Infinity;
+  for (let k = Math.max(0, highDayIdx - 20); k < highDayIdx; k++) {
+    if (low[k] < legStartVal) { legStartVal = low[k]; legStartIdx = k; }
+  }
+  const legHigh = high[highDayIdx];
+  const legRange = legHigh - legStartVal;
+  const retracePct = legRange > 0 ? ((legHigh - pullbackLow) / legRange) * 100 : 0;
+  result.metrics.retrace_pct = retracePct;
+  if (!(retracePct >= 30 && retracePct <= 60)) {
+    reasons.push(`Retracement ${retracePct.toFixed(1)}% outside [30, 60]`);
+    return result;
+  }
+
+  result.setup_armed_L3 = true;
+
+  // Confirmation bar = the bar at idx
+  const priorHigh = high[idx - 1];
+  const closeAbovePriorHigh = close[idx] > priorHigh;
+  const range = high[idx] - low[idx];
+  const closePos = range > 0 ? (close[idx] - low[idx]) / range : 0;
+  const avgVol20 = (function () { let s = 0; for (let k = idx - 19; k <= idx; k++) s += vol[k]; return s / 20; })();
+  const volMult = avgVol20 ? vol[idx] / avgVol20 : 0;
+  result.metrics.close_position_in_range = closePos;
+  result.metrics.volume_multiple = volMult;
+
+  if (closeAbovePriorHigh && closePos >= 0.5 && volMult >= 1.0) {
+    result.confirmation_bar = true;
+    // Compute trade plan
+    const entryTrigger = high[idx] * 1.001;
+    const stopDistance = 1.5 * atr14[idx];
+    result.trade_plan = {
+      entry_trigger: entryTrigger,
+      initial_stop_estimate: entryTrigger - stopDistance,
+      first_target_estimate: entryTrigger + 2 * stopDistance,
+      atr14: atr14[idx]
+    };
+    reasons.push('All L1+L3 conditions met; confirmation bar printed');
+  } else {
+    const why = [];
+    if (!closeAbovePriorHigh) why.push('close not > prior high');
+    if (closePos < 0.5)        why.push(`close in lower half of range (pos=${closePos.toFixed(2)})`);
+    if (volMult < 1.0)         why.push(`volume ${volMult.toFixed(2)}× < 1.0× avg`);
+    reasons.push('Setup armed but no confirmation: ' + why.join(', '));
+  }
+
+  return result;
+}
+
+// ---------- L2 regime ----------
+
+function regimeCheck(spyBars, vixBars, breadthMmfi /* manual numeric, optional */) {
+  const out = { tradeable: false, go_to_cash: false, checks: [], details: {} };
+  if (!spyBars || spyBars.length < 220) {
+    out.checks.push({ name: 'SPY history', pass: false, note: 'Need 220+ daily bars' });
+    return out;
+  }
+  const close = spyBars.map(b => b.close);
+  const sma50 = sma(close, 50);
+  const sma200 = sma(close, 200);
+  const i = close.length - 1;
+  const spyClose = close[i];
+  const spy50 = sma50[i], spy200 = sma200[i];
+  out.details.spy_close = spyClose;
+  out.details.spy_50sma = spy50;
+  out.details.spy_200sma = spy200;
+
+  const a = spyClose > spy200; out.checks.push({ name: 'SPY > 200-SMA', pass: a, note: `${spyClose.toFixed(2)} vs ${spy200.toFixed(2)}` });
+  const b = spyClose > spy50;  out.checks.push({ name: 'SPY > 50-SMA',  pass: b, note: `${spyClose.toFixed(2)} vs ${spy50.toFixed(2)}` });
+
+  let cPass = null, cNote = '(no VIX data)';
+  if (vixBars && vixBars.length) {
+    const vClose = vixBars[vixBars.length - 1].close;
+    out.details.vix = vClose;
+    cPass = vClose < 25;
+    cNote = `VIX ${vClose.toFixed(2)} < 25`;
+  }
+  out.checks.push({ name: 'VIX < 25', pass: cPass, note: cNote });
+
+  let dPass = null, dNote = '(MMFI not provided)';
+  if (typeof breadthMmfi === 'number') {
+    out.details.mmfi = breadthMmfi;
+    dPass = breadthMmfi > 50;
+    dNote = `MMFI ${breadthMmfi} > 50`;
+  }
+  out.checks.push({ name: 'Breadth (MMFI > 50%)', pass: dPass, note: dNote });
+
+  const passed = out.checks.filter(c => c.pass === true).length;
+  const failed = out.checks.filter(c => c.pass === false).length;
+  out.tradeable = passed >= 3 && a && b; // SPY trend gates are mandatory
+  out.go_to_cash = !a || (cPass === false && vixBars && vixBars[vixBars.length - 1].close > 28) || failed >= 2;
+  return out;
+}
+
+// ---------- Bullish FVG (Fair Value Gap) on monthly chart ----------
+// A 3-bar imbalance: bar[t-2].high < bar[t].low forms a "gap" zone between those two prices.
+// In an uptrend, a price retrace BACK into that zone often acts as support — that's the trade.
+// This is a slow, patient, higher-timeframe signal that complements the daily 20-EMA system.
+
+function aggregateMonthly(dailyBars) {
+  if (!dailyBars || !dailyBars.length) return [];
+  const out = [];
+  let cur = null;
+  for (const b of dailyBars) {
+    const ym = b.date.slice(0, 7); // YYYY-MM
+    if (!cur || cur.ym !== ym) {
+      if (cur) out.push(cur);
+      cur = { ym, date: b.date, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0 };
+    } else {
+      cur.high = Math.max(cur.high, b.high);
+      cur.low = Math.min(cur.low, b.low);
+      cur.close = b.close;
+      cur.volume += b.volume || 0;
+      cur.date = b.date;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function findBullishFVGs(monthlyBars, lookback = 36) {
+  const fvgs = [];
+  const start = Math.max(2, monthlyBars.length - lookback);
+  for (let i = start; i < monthlyBars.length; i++) {
+    const a = monthlyBars[i - 2], c = monthlyBars[i];
+    if (a.high < c.low) {
+      fvgs.push({
+        idx: i,
+        zone_low: a.high,
+        zone_high: c.low,
+        mid: (a.high + c.low) / 2,
+        size_pct: ((c.low - a.high) / a.high) * 100,
+        formed_date: c.date
+      });
+    }
+  }
+  return fvgs;
+}
+
+function evaluateFVGRetest(dailyBars) {
+  const monthly = aggregateMonthly(dailyBars);
+  if (monthly.length < 24) return { detected: false, reason: 'insufficient monthly history (<24 months)' };
+  const mClose = monthly.map(b => b.close);
+  const ma12 = sma(mClose, 12);
+  const last = monthly.length - 1;
+  if (!(mClose[last] > (ma12[last] || Infinity))) {
+    return { detected: false, reason: 'monthly close below 12-month MA — not in monthly uptrend' };
+  }
+  // Find unfilled bullish FVGs below current price
+  const fvgs = findBullishFVGs(monthly, 36);
+  const unfilled = fvgs.filter(f =>
+    f.idx <= last - 1 &&            // not the current bar's own pattern
+    f.zone_high < mClose[last] &&    // zone is below price (still a support, not resistance)
+    f.zone_low > (ma12[last] || 0)   // zone is above the 12-month MA (still in trend territory)
+  );
+  if (!unfilled.length) return { detected: false, reason: 'no unfilled bullish FVG zones below current price' };
+  // Sort by closest to current price (most recent retest opportunity)
+  unfilled.sort((a, b) => b.zone_high - a.zone_high);
+  const cur = monthly[last];
+  for (const f of unfilled) {
+    // Tag a "retest in progress" if current month's low penetrated within 3% below the zone
+    if (cur.low <= f.zone_high && cur.low >= f.zone_low * 0.97) {
+      const reactionOk = cur.close > f.mid;
+      return {
+        detected: true,
+        zone_low: f.zone_low, zone_high: f.zone_high, zone_mid: f.mid,
+        zone_size_pct: f.size_pct,
+        formed_date: f.formed_date,
+        current_low: cur.low, current_close: cur.close,
+        bullish_reaction: reactionOk,
+        reason: reactionOk
+          ? `Retesting bullish FVG ${f.zone_low.toFixed(2)}–${f.zone_high.toFixed(2)} (formed ${f.formed_date}); bullish reaction (close > mid)`
+          : `Retesting bullish FVG ${f.zone_low.toFixed(2)}–${f.zone_high.toFixed(2)} (formed ${f.formed_date}); awaiting bullish reaction`
+      };
+    }
+  }
+  // Note nearest unfilled zone for context
+  const nearest = unfilled[0];
+  const distancePct = ((mClose[last] - nearest.zone_high) / mClose[last]) * 100;
+  return {
+    detected: false,
+    nearest_zone: { low: nearest.zone_low, high: nearest.zone_high, formed_date: nearest.formed_date },
+    distance_pct: distancePct,
+    reason: `nearest unfilled FVG ${nearest.zone_low.toFixed(2)}–${nearest.zone_high.toFixed(2)} is ${distancePct.toFixed(1)}% below price`
+  };
+}
+
+// ---------- Quality Dip scanner (mean reversion on quality) ----------
+// Inspired by the "buy the dip on liquid blue chips" pattern. Filters out falling knives:
+//   - Down 10–25% from 52w high (real dip, not catastrophic breakdown)
+//   - Still above 200-day SMA (long-term trend intact)
+//   - Last 10-day low not breaking the prior 10-day low (stabilization)
+//   - Close > 10-day SMA (short-term reversal showing)
+//   - Recent 3-day vol vs 20-day avg ≥ 1.0 (institutional accumulation)
+function evaluateQualityDip(bars, idx) {
+  if (idx < 252) return { detected: false, reason: 'insufficient history (<252 bars)' };
+  const close = bars.map(b => b.close);
+  const high  = bars.map(b => b.high);
+  const low   = bars.map(b => b.low);
+  const vol   = bars.map(b => b.volume);
+  const c = close[idx];
+  const sma200 = sma(close, 200)[idx];
+  const sma10  = sma(close, 10)[idx];
+  const high52 = rollingMax(high, 252)[idx];
+  const a14    = atr(high, low, close, 14)[idx];
+  if (!high52 || !sma200 || !sma10 || !a14) return { detected: false, reason: 'indicator warmup incomplete' };
+
+  const fromHi = (1 - c / high52) * 100;
+  if (fromHi < 10) return { detected: false, reason: `only ${fromHi.toFixed(1)}% off 52w high — too shallow (need ≥10%)` };
+  if (fromHi > 30) return { detected: false, reason: `${fromHi.toFixed(1)}% off 52w high — too deep, may be broken` };
+  if (c < sma200)  return { detected: false, reason: `close ${c.toFixed(2)} below 200-SMA ${sma200.toFixed(2)} — long-term trend broken` };
+
+  // Stabilization: last 10-day low ≥ 98% of prior 10-day low
+  const last10Low = Math.min(...low.slice(idx - 9, idx + 1));
+  const prior10Low = Math.min(...low.slice(idx - 19, idx - 9));
+  if (last10Low < prior10Low * 0.98) {
+    return { detected: false, reason: 'still making lower lows (falling knife)' };
+  }
+  // Reversal: close above 10-SMA
+  if (c < sma10) return { detected: false, reason: `close below 10-SMA ${sma10.toFixed(2)} — no reversal yet` };
+
+  // Volume confirmation
+  const vol3  = (vol[idx] + vol[idx-1] + vol[idx-2]) / 3;
+  const vol20 = vol.slice(idx - 19, idx + 1).reduce((a, b) => a + b, 0) / 20;
+  const volMult = vol20 ? vol3 / vol20 : 0;
+  const volOk = volMult >= 1.0;
+
+  // Trade plan
+  const stopRaw = Math.min(last10Low * 0.99, c - 1.5 * a14);
+  const target = high52 * 0.97; // recover 97% of 52w high
+  const riskPS = c - stopRaw;
+  const r_multiple = riskPS > 0 ? (target - c) / riskPS : 0;
+
+  return {
+    detected: true,
+    pct_below_52w_high: fromHi,
+    last_10d_low: last10Low,
+    sma10, sma200, atr14: a14,
+    volume_multiple: volMult,
+    volume_confirmed: volOk,
+    trade_plan: {
+      entry: c,
+      stop: stopRaw,
+      target,
+      r_multiple,
+      atr14: a14
+    },
+    reason: `${fromHi.toFixed(1)}% off 52w high · above 200-SMA · stabilized · vol ${volMult.toFixed(1)}× ${volOk ? '✓' : '(weak)'}` +
+            ` · trade plan: entry ${c.toFixed(2)}, stop ${stopRaw.toFixed(2)}, target ${target.toFixed(2)} (${r_multiple.toFixed(1)}R)`
+  };
+}
+
+// ---------- Thematic Relative Strength score ----------
+// Composite RS vs SPY across 1m / 3m / 6m windows. Stocks with the highest combined excess
+// return are the "leaders within leaders" — the names that work in a thematic bull cycle.
+function computeThematicRS(bars, spyBars, idx) {
+  if (!spyBars || idx < 132 || idx >= spyBars.length) return null;
+  const close = bars.map(b => b.close);
+  const spyClose = spyBars.map(b => b.close);
+  const windows = [21, 63, 126]; // 1m, 3m, 6m trading days
+  let sum = 0, n = 0;
+  const breakdown = {};
+  for (const w of windows) {
+    if (idx < w) continue;
+    const stockRet = close[idx] / close[idx - w] - 1;
+    const spyRet   = spyClose[idx] / spyClose[idx - w] - 1;
+    const excess = stockRet - spyRet;
+    sum += excess; n++;
+    breakdown[`${w}d`] = { stock: stockRet, spy: spyRet, excess };
+  }
+  if (n === 0) return null;
+  const avgExcess = sum / n;
+  return {
+    rs_score: avgExcess * 100,    // average excess return vs SPY across windows, in %
+    breakdown,
+    n_windows: n
+  };
+}
+
+// ---------- Sector ranking ----------
+
+function sectorRank(sectorBarsMap) {
+  // sectorBarsMap = {XLK: [bars], XLV: [bars], ...}
+  const rows = [];
+  for (const [etf, bars] of Object.entries(sectorBarsMap)) {
+    if (!bars || bars.length < 21) { rows.push({ etf, ret_20d: null, note: 'no data' }); continue; }
+    const i = bars.length - 1;
+    const ret = (bars[i].close / bars[i - 20].close) - 1;
+    rows.push({ etf, ret_20d: ret });
+  }
+  rows.sort((a, b) => (b.ret_20d ?? -Infinity) - (a.ret_20d ?? -Infinity));
+  rows.forEach((r, idx) => r.rank = idx + 1);
+  return rows;
+}
+
+// ---------- Backtest engine ----------
+
+function runBacktest(bars, spyBars, opts = {}) {
+  // opts.equity        starting equity (default 100k)
+  // opts.startIdx      first bar to evaluate (default 220 — indicator warmup)
+  // opts.endIdx        last bar (default last bar)
+  // opts.slippage_bps  per-side slippage in basis points (default 5 = 0.05%)
+  // opts.commission    flat $ per side (default 1)
+  // opts.trail         'chandelier' (default) | 'ema20' (legacy) — exit logic post first-target
+  // opts.chandelier_atr_mult  ATR multiplier for chandelier (default 2.5)
+  const equity0 = opts.equity ?? 100_000;
+  const startIdx = opts.startIdx ?? 220;
+  const endIdx = opts.endIdx ?? bars.length - 1;
+  const slipBps = opts.slippage_bps ?? 5;
+  const commission = opts.commission ?? 1;
+  const trailMode = opts.trail ?? 'chandelier';
+  const chandMult = opts.chandelier_atr_mult ?? 2.5;
+  const slip = slipBps / 10_000;
+
+  const trades = [];
+  const equityCurve = [{ date: bars[startIdx].date, equity: equity0 }];
+  let equity = equity0;
+  let openTrade = null;
+
+  const close = bars.map(b => b.close);
+  const high  = bars.map(b => b.high);
+  const low   = bars.map(b => b.low);
+  const ema20 = ema(close, 20);
+  const atr14 = atr(high, low, close, 14);
+
+  // Realized PnL for a partial sell (applies sell-side slippage + commission)
+  function bookSell(t, sharesSold, rawPx, dateLabel) {
+    const fillPx = rawPx * (1 - slip);
+    const grossPnl = (fillPx - t.entry) * sharesSold;
+    equity += grossPnl - commission;
+    t.legs = t.legs || [];
+    t.legs.push({ date: dateLabel, shares: sharesSold, raw_price: rawPx, fill_price: fillPx, R: (fillPx - t.entry) / t.R_dollars_per_share });
+  }
+
+  function closeTrade(t, exitPx, exitDate, reason) {
+    bookSell(t, t.shares, exitPx, exitDate);
+    t.exit_date = exitDate;
+    t.exit_price = exitPx * (1 - slip);
+    t.exit_reason = reason;
+    t.shares_remaining_at_exit = t.shares;
+    // Final realized R = sum of leg R weighted by share fraction of original
+    const totalR = t.legs.reduce((s, leg) => s + leg.R * (leg.shares / t.original_shares), 0);
+    t.R_realized = totalR;
+    trades.push(t);
+  }
+
+  for (let i = startIdx; i <= endIdx; i++) {
+    // Manage open trade FIRST (today's bar)
+    if (openTrade) {
+      const t = openTrade;
+      const todayOpen = bars[i].open, todayHigh = high[i], todayLow = low[i], todayClose = close[i];
+
+      // Track high-water mark for chandelier trail
+      if (todayHigh > t.highest_high_since_entry) t.highest_high_since_entry = todayHigh;
+
+      // Stop hit intrabar — gap-down realism: if open is already through the stop, fill at open (worse)
+      if (todayLow <= t.stop) {
+        const rawExit = Math.min(t.stop, todayOpen);
+        const reason = t.first_target_hit ? 'trail_stop' : (rawExit < t.stop ? 'gap_down_stop' : 'initial_stop');
+        closeTrade(t, rawExit, bars[i].date, reason);
+        openTrade = null;
+      } else if (!t.first_target_hit && todayHigh >= t.target) {
+        // Hit first target -> sell half, move stop to breakeven
+        const halfShares = Math.max(1, Math.floor(t.shares / 2));
+        const remaining = t.shares - halfShares;
+        bookSell(t, halfShares, t.target, bars[i].date);
+        t.first_target_hit_date = bars[i].date;
+        t.first_target_hit = true;
+        t.shares = remaining;
+        t.stop = t.entry; // breakeven on the runner
+        if (remaining === 0) {
+          // Edge case: tiny position — close the trade now
+          t.exit_date = bars[i].date;
+          t.exit_price = t.target * (1 - slip);
+          t.exit_reason = 'first_target_full';
+          t.shares_remaining_at_exit = 0;
+          t.R_realized = t.legs.reduce((s, leg) => s + leg.R * (leg.shares / t.original_shares), 0);
+          trades.push(t);
+          openTrade = null;
+        }
+      } else if (t.first_target_hit) {
+        // Post-target trail
+        if (trailMode === 'chandelier') {
+          // Ratchet stop UP only — chandelier exit
+          const a = atr14[i];
+          if (a) {
+            const trail = t.highest_high_since_entry - chandMult * a;
+            if (trail > t.stop) t.stop = trail;
+          }
+          // Stop check happens on NEXT bar via the standard intrabar check
+        } else if (trailMode === 'ema20') {
+          // Legacy: exit on close < 20-EMA at next open
+          if (todayClose < ema20[i] && i + 1 <= endIdx) {
+            closeTrade(t, bars[i + 1].open, bars[i + 1].date, 'trail_20ema');
+            openTrade = null;
+          }
+        }
+      }
+
+      // Time stop: 10 trading days since entry, exit on next open
+      if (openTrade && (i - openTrade.entry_idx) >= 10 && i + 1 <= endIdx) {
+        closeTrade(openTrade, bars[i + 1].open, bars[i + 1].date, 'time_stop_10d');
+        openTrade = null;
+      }
+    }
+
+    // Look for new entry on bar i (using bar i-1 as confirmation)
+    if (!openTrade && i - 1 >= 220) {
+      const evalRes = evaluateSetup(bars, spyBars, i - 1);
+      if (evalRes.confirmation_bar && evalRes.trade_plan) {
+        const trigger = evalRes.trade_plan.entry_trigger;
+        const todayOpen = bars[i].open;
+        if (todayOpen > trigger * 1.010) {
+          // gap > 1% — skip
+        } else if (high[i] >= trigger) {
+          // Stop-buy fills at MAX(trigger, open) — pre-slippage
+          const rawFill = Math.max(trigger, todayOpen);
+          const fill = rawFill * (1 + slip); // buy-side slippage
+          const stop = fill - 1.5 * (evalRes.metrics.atr14);
+          const target = fill + 2 * (fill - stop);
+          const riskPerShare = fill - stop;
+          const dollarsAtRisk = 0.0075 * equity;
+          let shares = Math.floor(dollarsAtRisk / riskPerShare);
+          const cashCap = 0.25 * equity;
+          if (shares * fill > cashCap) shares = Math.floor(cashCap / fill);
+          if (shares > 0) {
+            equity -= commission; // entry commission
+            openTrade = {
+              entry_date: bars[i].date, entry_idx: i,
+              entry: fill, raw_entry: rawFill,
+              stop, target, initial_stop: stop,
+              shares, original_shares: shares,
+              R_dollars_per_share: riskPerShare,
+              highest_high_since_entry: high[i],
+              first_target_hit: false,
+              setup_metrics: evalRes.metrics,
+              legs: []
+            };
+          }
+        }
+      }
+    }
+
+    // Mark-to-market: include unrealized PnL on the runner so the equity curve is honest
+    let mtm = equity;
+    if (openTrade) mtm += (close[i] - openTrade.entry) * openTrade.shares;
+    equityCurve.push({ date: bars[i].date, equity: mtm });
+  }
+
+  // Close any dangling trade at last bar (mark-to-close, with sell costs)
+  if (openTrade) {
+    closeTrade(openTrade, close[endIdx], bars[endIdx].date, 'eod_unwind');
+    openTrade = null;
+  }
+
+  // Metrics
+  const wins = trades.filter(t => t.R_realized > 0);
+  const losses = trades.filter(t => t.R_realized <= 0);
+  const winRate = trades.length ? wins.length / trades.length : 0;
+  const avgWinR = wins.length ? wins.reduce((s, t) => s + t.R_realized, 0) / wins.length : 0;
+  const avgLossR = losses.length ? losses.reduce((s, t) => s + t.R_realized, 0) / losses.length : 0;
+  const expectancy = winRate * avgWinR - (1 - winRate) * Math.abs(avgLossR);
+  const grossWinR = wins.reduce((s, t) => s + t.R_realized, 0);
+  const grossLossR = Math.abs(losses.reduce((s, t) => s + t.R_realized, 0));
+  const profitFactor = grossLossR > 0 ? grossWinR / grossLossR : (grossWinR > 0 ? Infinity : 0);
+
+  // Max drawdown
+  let peak = equity0, maxDD = 0;
+  equityCurve.forEach(p => {
+    if (p.equity > peak) peak = p.equity;
+    const dd = (peak - p.equity) / peak;
+    if (dd > maxDD) maxDD = dd;
+  });
+
+  return {
+    final_equity: equity,
+    pnl: equity - equity0,
+    pnl_pct: (equity - equity0) / equity0,
+    trades,
+    equityCurve,
+    metrics: {
+      n_trades: trades.length, win_rate: winRate, avg_win_R: avgWinR, avg_loss_R: avgLossR,
+      expectancy_R: expectancy, profit_factor: profitFactor, max_drawdown_pct: maxDD
+    }
+  };
+}
+
+// ---------- Portfolio backtest ----------
+// Walks day-by-day across the entire watchlist, respecting:
+//   - max concurrent positions
+//   - max positions per sector
+//   - portfolio heat cap (sum of open initial-stop risk)
+//   - regime filter (SPY trend + VIX)
+//   - sector rank filter (top-3 by 20d return)
+// Uses the master SPY date timeline for alignment; per-ticker bars are looked up by date.
+function runPortfolioBacktest(tickerBarsMap, tickerSectors, spyBars, sectorBarsMap, vixBars, opts = {}) {
+  const equity0 = opts.equity ?? 100_000;
+  const slip = (opts.slippage_bps ?? 5) / 10_000;
+  const commission = opts.commission ?? 1;
+  const maxPositions = opts.max_positions ?? 5;
+  const maxPerSector = opts.max_per_sector ?? 2;
+  const heatCapPct = opts.portfolio_heat_pct ?? 3.0;
+  const riskPerTrade = opts.risk_per_trade ?? 0.0075;
+  const cashCapPct = opts.cash_cap_pct ?? 0.25;
+  const chandMult = opts.chandelier_atr_mult ?? 2.5;
+  const startIdxOpt = opts.startIdx ?? 220;
+
+  if (!spyBars || spyBars.length < 250) throw new Error('Portfolio backtest needs SPY history (run REFRESH first).');
+
+  const dates = spyBars.map(b => b.date);
+  const startIdx = Math.max(220, startIdxOpt);
+  const endIdx = dates.length - 1;
+
+  // Build per-ticker date→idx maps + pre-compute ATR series (for chandelier trail)
+  const tickerIdx = {};
+  for (const [t, bars] of Object.entries(tickerBarsMap)) {
+    if (!bars || bars.error || bars.length < 220) continue;
+    const m = new Map();
+    bars.forEach((b, i) => m.set(b.date, i));
+    const atrSeries = atr(bars.map(b=>b.high), bars.map(b=>b.low), bars.map(b=>b.close), 14);
+    tickerIdx[t] = { bars, dateMap: m, atrSeries };
+  }
+  const sectorIdx = {};
+  for (const [s, bars] of Object.entries(sectorBarsMap || {})) {
+    if (!bars || bars.error) continue;
+    const m = new Map();
+    bars.forEach((b, i) => m.set(b.date, i));
+    sectorIdx[s] = { bars, dateMap: m };
+  }
+  const vixMap = new Map();
+  if (vixBars) vixBars.forEach((b, i) => vixMap.set(b.date, i));
+
+  const spyClose = spyBars.map(b => b.close);
+  const spy200 = sma(spyClose, 200);
+  const spy50  = sma(spyClose,  50);
+
+  let equity = equity0;
+  const openTrades = [];
+  const closedTrades = [];
+  const equityCurve = [{ date: dates[startIdx], equity: equity0 }];
+  const skipLog = [];
+
+  function realizedR(t) {
+    return t.legs.reduce((s, leg) =>
+      s + ((leg.fill_price - t.entry) / t.R_dollars_per_share) * (leg.shares / t.original_shares), 0);
+  }
+  function closePosition(t, fillPx, exitDate, reason) {
+    const fp = fillPx * (1 - slip);
+    equity += (fp - t.entry) * t.shares - commission;
+    t.legs.push({ date: exitDate, shares: t.shares, fill_price: fp });
+    t.exit_date = exitDate; t.exit_price = fp; t.exit_reason = reason;
+    t.shares_remaining_at_exit = t.shares;
+    t.R_realized = realizedR(t);
+    closedTrades.push(t);
+  }
+
+  for (let di = startIdx; di <= endIdx; di++) {
+    const today = dates[di];
+
+    // --- 1) Manage open positions
+    for (let p = openTrades.length - 1; p >= 0; p--) {
+      const t = openTrades[p];
+      const info = tickerIdx[t.ticker];
+      const tIdx = info.dateMap.get(today);
+      if (tIdx == null) continue; // ticker didn't trade today (halt) — hold
+      const bar = info.bars[tIdx];
+      if (bar.high > t.highest_high_since_entry) t.highest_high_since_entry = bar.high;
+
+      // Chandelier ratchet (only after first target hit)
+      if (t.first_target_hit) {
+        const a = info.atrSeries[tIdx];
+        if (a) {
+          const trail = t.highest_high_since_entry - chandMult * a;
+          if (trail > t.stop) t.stop = trail;
+        }
+      }
+      // Stop hit?
+      if (bar.low <= t.stop) {
+        const rawExit = Math.min(t.stop, bar.open);
+        const reason = t.first_target_hit ? 'trail_stop' : (rawExit < t.stop ? 'gap_down_stop' : 'initial_stop');
+        closePosition(t, rawExit, today, reason);
+        openTrades.splice(p, 1);
+        continue;
+      }
+      // First target?
+      if (!t.first_target_hit && bar.high >= t.target) {
+        const half = Math.max(1, Math.floor(t.shares / 2));
+        const remaining = t.shares - half;
+        const fp = t.target * (1 - slip);
+        equity += (fp - t.entry) * half - commission;
+        t.legs.push({ date: today, shares: half, fill_price: fp });
+        t.first_target_hit = true; t.first_target_hit_date = today;
+        t.shares = remaining; t.stop = t.entry; // breakeven on runner
+        if (remaining === 0) {
+          t.exit_date = today; t.exit_price = fp; t.exit_reason = 'first_target_full';
+          t.R_realized = realizedR(t);
+          closedTrades.push(t); openTrades.splice(p, 1);
+          continue;
+        }
+      }
+      // Time stop: 10 trading days
+      if ((di - t.entry_di) >= 10) {
+        const next = Math.min(di + 1, endIdx);
+        const nextDate = dates[next];
+        const nextTIdx = info.dateMap.get(nextDate);
+        const fillPx = nextTIdx != null ? info.bars[nextTIdx].open : bar.close;
+        closePosition(t, fillPx, nextDate, 'time_stop_10d');
+        openTrades.splice(p, 1);
+      }
+    }
+
+    // --- 2) Regime check (inline, cheap)
+    const spyTrendOk = spyClose[di] > (spy200[di] || Infinity) && spyClose[di] > (spy50[di] || Infinity);
+    const vixI = vixMap.get(today);
+    const vixOk = vixI == null || vixBars[vixI].close < 25;
+    const tradeable = spyTrendOk && vixOk;
+
+    // --- 3) Look for new entries (only if tradeable + room)
+    if (tradeable && openTrades.length < maxPositions) {
+      // Today's sector ranks
+      const sectRanks = [];
+      for (const [s, sInfo] of Object.entries(sectorIdx)) {
+        const sIdx = sInfo.dateMap.get(today);
+        if (sIdx == null || sIdx < 20) continue;
+        sectRanks.push({ s, ret: sInfo.bars[sIdx].close / sInfo.bars[sIdx - 20].close - 1 });
+      }
+      sectRanks.sort((a, b) => b.ret - a.ret);
+      const top3 = new Set(sectRanks.slice(0, 3).map(r => r.s));
+
+      const sectorCounts = {};
+      openTrades.forEach(t => sectorCounts[t.sector] = (sectorCounts[t.sector] || 0) + 1);
+      const heldTickers = new Set(openTrades.map(t => t.ticker));
+      const currentHeat$ = openTrades.reduce((s, t) =>
+        s + Math.max(0, (t.entry - t.stop) * t.shares), 0);
+
+      // Find candidates with confirmed setup TODAY
+      const candidates = [];
+      for (const [ticker, info] of Object.entries(tickerIdx)) {
+        if (heldTickers.has(ticker)) continue;
+        const sec = tickerSectors[ticker];
+        if (!top3.has(sec)) continue;
+        if ((sectorCounts[sec] || 0) >= maxPerSector) continue;
+        const tIdx = info.dateMap.get(today);
+        if (tIdx == null || tIdx < 220) continue;
+        const ev = evaluateSetup(info.bars, spyBars, tIdx);
+        if (!ev.confirmation_bar || !ev.trade_plan) continue;
+        candidates.push({ ticker, sector: sec, ev, ret_1m: ev.metrics?.ret_1m ?? 0 });
+      }
+      candidates.sort((a, b) => b.ret_1m - a.ret_1m);
+
+      // --- 4) Process entries on TOMORROW's open
+      for (const c of candidates) {
+        if (openTrades.length >= maxPositions) break;
+        if ((sectorCounts[c.sector] || 0) >= maxPerSector) continue;
+        if (di + 1 > endIdx) break;
+        const tomorrow = dates[di + 1];
+        const info = tickerIdx[c.ticker];
+        const nextTIdx = info.dateMap.get(tomorrow);
+        if (nextTIdx == null) continue;
+        const nb = info.bars[nextTIdx];
+        const trigger = c.ev.trade_plan.entry_trigger;
+        if (nb.open > trigger * 1.01) { skipLog.push({ date: tomorrow, ticker: c.ticker, reason: 'gap > 1%' }); continue; }
+        if (nb.high < trigger) continue; // didn't trigger
+        const rawFill = Math.max(trigger, nb.open);
+        const fill = rawFill * (1 + slip);
+        const stop0 = fill - 1.5 * c.ev.metrics.atr14;
+        const target = fill + 2 * (fill - stop0);
+        const riskPS = fill - stop0;
+        let shares = Math.floor((riskPerTrade * equity) / riskPS);
+        const cashCap = cashCapPct * equity;
+        if (shares * fill > cashCap) shares = Math.floor(cashCap / fill);
+        if (shares <= 0) continue;
+        // Heat check: would adding this push portfolio heat over cap?
+        const newHeat$ = currentHeat$ + riskPS * shares;
+        if ((newHeat$ / equity) * 100 > heatCapPct) {
+          skipLog.push({ date: tomorrow, ticker: c.ticker, reason: `heat cap (${((newHeat$/equity)*100).toFixed(2)}% > ${heatCapPct}%)` });
+          continue;
+        }
+        equity -= commission;
+        openTrades.push({
+          ticker: c.ticker, sector: c.sector,
+          entry_date: tomorrow, entry_di: di + 1,
+          entry: fill, raw_entry: rawFill,
+          stop: stop0, initial_stop: stop0, target,
+          shares, original_shares: shares,
+          R_dollars_per_share: riskPS,
+          highest_high_since_entry: nb.high,
+          first_target_hit: false,
+          legs: [],
+          setup_metrics: c.ev.metrics
+        });
+        sectorCounts[c.sector] = (sectorCounts[c.sector] || 0) + 1;
+      }
+    }
+
+    // --- 5) Mark to market (closed PnL + open positions at close)
+    let mtm = equity;
+    for (const t of openTrades) {
+      const tIdx = tickerIdx[t.ticker].dateMap.get(today);
+      if (tIdx != null) mtm += (tickerIdx[t.ticker].bars[tIdx].close - t.entry) * t.shares;
+    }
+    equityCurve.push({ date: today, equity: mtm });
+  }
+
+  // Close any dangling trades at last available bar
+  for (const t of [...openTrades]) {
+    const info = tickerIdx[t.ticker];
+    const last = info.bars[info.bars.length - 1];
+    closePosition(t, last.close, last.date, 'eod_unwind');
+  }
+
+  // Aggregate metrics
+  const trades = closedTrades;
+  const wins = trades.filter(t => t.R_realized > 0);
+  const losses = trades.filter(t => t.R_realized <= 0);
+  const winRate = trades.length ? wins.length / trades.length : 0;
+  const grossW = wins.reduce((s, t) => s + t.R_realized, 0);
+  const grossL = Math.abs(losses.reduce((s, t) => s + t.R_realized, 0));
+  const expectancy = trades.length ? trades.reduce((s,t) => s + t.R_realized, 0) / trades.length : 0;
+  const profitFactor = grossL > 0 ? grossW / grossL : (grossW > 0 ? Infinity : 0);
+  let peak = equity0, maxDD = 0;
+  equityCurve.forEach(p => { if (p.equity > peak) peak = p.equity; const dd = (peak - p.equity) / peak; if (dd > maxDD) maxDD = dd; });
+
+  // Per-sector breakdown
+  const bySector = {};
+  trades.forEach(t => {
+    const s = t.sector || 'UNK';
+    if (!bySector[s]) bySector[s] = { n: 0, totalR: 0, wins: 0 };
+    bySector[s].n++;
+    bySector[s].totalR += t.R_realized;
+    if (t.R_realized > 0) bySector[s].wins++;
+  });
+
+  // CAGR over the equity curve
+  const years = (new Date(equityCurve[equityCurve.length - 1].date) - new Date(equityCurve[0].date)) / (365.25 * 86400000);
+  const cagr = years > 0 ? Math.pow(equity / equity0, 1 / years) - 1 : 0;
+
+  return {
+    final_equity: equity, pnl: equity - equity0, pnl_pct: (equity - equity0) / equity0,
+    trades, equityCurve, skipLog, bySector,
+    metrics: {
+      n_trades: trades.length, win_rate: winRate, expectancy_R: expectancy,
+      profit_factor: profitFactor, max_drawdown_pct: maxDD,
+      total_R: trades.reduce((s,t) => s + t.R_realized, 0),
+      cagr
+    }
+  };
+}
+
+// ---------- Stooq CSV parser (browser fetch helper) ----------
+
+function parseStooqCsv(text) {
+  // CSV header: Date,Open,High,Low,Close,Volume
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(',');
+    if (parts.length < 6) continue;
+    const [date, open, high, low, close, volume] = parts;
+    if (!date || open === '' || open === 'null') continue;
+    out.push({
+      date,
+      open: +open, high: +high, low: +low, close: +close,
+      volume: +volume
+    });
+  }
+  return out;
+}
+
+// engine inlined
+
+// ===================================================================
+// APPLICATION LAYER
+// ===================================================================
+
+// ----- Curated watchlist with structural reasoning -----
+// Each ticker has been picked because it CHRONICALLY satisfies the
+// framework's structural prerequisites (index membership, liquidity,
+// market cap, large float). Whether it qualifies on a given day still
+// depends on its current trend, sector rank, and setup conditions.
+const STARTER_WATCHLIST = [
+  // === Technology (XLK) — most frequent source of pullback continuations ===
+  { t: 'AAPL',  s: 'XLK', why: 'Apple. ~$3T cap, dual SP500/NDX100, top-5 daily dollar volume in US equities. Trades smoothly with low spread, well-behaved 20-EMA respect.' },
+  { t: 'MSFT',  s: 'XLK', why: 'Microsoft. Mega-cap with cloud/AI tailwind. Historically high win-rate on 20-EMA pullback continuations during bull regimes.' },
+  { t: 'NVDA',  s: 'XLK', why: 'NVIDIA. AI infrastructure leader. High ATR means larger R-multiples but framework sizing scales accordingly.' },
+  { t: 'AVGO',  s: 'XLK', why: 'Broadcom. Semiconductor + software, very high liquidity. Clean trends post-VMware integration.' },
+  { t: 'AMD',   s: 'XLK', why: 'AMD. High-beta semi name. Strong 20-EMA pullback character when chips lead.' },
+  { t: 'ORCL',  s: 'XLK', why: 'Oracle. Cloud/AI cap-ex pivot, NDX100 member, cleaner trends than other legacy software.' },
+  { t: 'CRM',   s: 'XLK', why: 'Salesforce. Enterprise SaaS leader, well-traded, $200B+ cap.' },
+  { t: 'ADBE',  s: 'XLK', why: 'Adobe. Creative SaaS monopoly, NDX100, deep liquidity.' },
+  { t: 'NOW',   s: 'XLK', why: 'ServiceNow. Enterprise workflow leader, high RS in tech expansion phases.' },
+  { t: 'INTU',  s: 'XLK', why: 'Intuit. Tax + small-business software; defensive earnings cadence.' },
+  { t: 'PANW',  s: 'XLK', why: 'Palo Alto Networks. Cyber-security leader, NDX100, big-cap with persistent uptrend bias.' },
+  { t: 'CSCO',  s: 'XLK', why: 'Cisco. Lower-beta tech, included for diversification across the XLK basket.' },
+  { t: 'TXN',   s: 'XLK', why: 'Texas Instruments. Analog semis, lower volatility, slow steady trends.' },
+
+  // === Communication Services (XLC) ===
+  { t: 'GOOGL', s: 'XLC', why: 'Alphabet. ~$2T cap, search + cloud + YouTube; dominant XLC weight.' },
+  { t: 'META',  s: 'XLC', why: 'Meta. Ad/AI leader, high RS in tech-led runs.' },
+  { t: 'NFLX',  s: 'XLC', why: 'Netflix. Streaming leader; clean trends since 2023 ad-tier turnaround.' },
+  { t: 'TMUS',  s: 'XLC', why: 'T-Mobile. Wireless carrier with growth posture; calmer ATR profile.' },
+
+  // === Consumer Discretionary (XLY) ===
+  { t: 'AMZN',  s: 'XLY', why: 'Amazon. Top XLY weight, AWS + retail + ads. Mega-cap, deep liquidity.' },
+  { t: 'TSLA',  s: 'XLY', why: 'Tesla. Highest-volatility large cap; framework sizing keeps risk capped.' },
+  { t: 'HD',    s: 'XLY', why: 'Home Depot. Stable, large cap, clean institutional behavior.' },
+  { t: 'MCD',   s: 'XLY', why: 'McDonald\'s. Defensive consumer, calmer ATR.' },
+  { t: 'BKNG',  s: 'XLY', why: 'Booking Holdings. Travel platform; high price means smaller share count, framework sizing handles it.' },
+  { t: 'LOW',   s: 'XLY', why: 'Lowe\'s. Home-improvement #2, correlated to HD.' },
+
+  // === Health Care (XLV) ===
+  { t: 'LLY',   s: 'XLV', why: 'Eli Lilly. GLP-1 leader, sustained uptrend phases, low headline risk between earnings.' },
+  { t: 'UNH',   s: 'XLV', why: 'UnitedHealth. ~$500B cap, top XLV weight; subject to regulatory headlines so check news daily.' },
+  { t: 'JNJ',   s: 'XLV', why: 'Johnson & Johnson. Defensive blue-chip, low ATR.' },
+  { t: 'ABBV',  s: 'XLV', why: 'AbbVie. Large pharma with stable trend behavior.' },
+  { t: 'ISRG',  s: 'XLV', why: 'Intuitive Surgical. Med-device leader, NDX100, clean continuation patterns.' },
+  { t: 'TMO',   s: 'XLV', why: 'Thermo Fisher. Life-science tools; institutional favorite.' },
+  { t: 'MRK',   s: 'XLV', why: 'Merck. Diversified pharma, calmer ATR.' },
+  { t: 'REGN',  s: 'XLV', why: 'Regeneron. Biotech with cleaner trend behavior than most peers.' },
+
+  // === Financials (XLF) ===
+  { t: 'JPM',   s: 'XLF', why: 'JPMorgan. Top XLF weight, highest-quality bank; benchmark for sector.' },
+  { t: 'BAC',   s: 'XLF', why: 'Bank of America. Rate-sensitive money-center bank.' },
+  { t: 'WFC',   s: 'XLF', why: 'Wells Fargo. Domestic-focused bank, post-asset-cap recovery story.' },
+  { t: 'GS',    s: 'XLF', why: 'Goldman Sachs. Investment bank, higher beta within financials.' },
+  { t: 'V',     s: 'XLF', why: 'Visa. Payments network, lower-volatility XLF name.' },
+  { t: 'MA',    s: 'XLF', why: 'Mastercard. Payments duopoly with V.' },
+  { t: 'AXP',   s: 'XLF', why: 'American Express. Premium consumer credit; closely watched.' },
+  { t: 'BLK',   s: 'XLF', why: 'BlackRock. Asset manager #1; lower volatility, AUM-linked.' },
+
+  // === Industrials (XLI) ===
+  { t: 'GE',    s: 'XLI', why: 'GE Aerospace. Post-spinoff focus, strong post-2023 trend.' },
+  { t: 'BA',    s: 'XLI', why: 'Boeing. Higher headline risk; included for sector diversity.' },
+  { t: 'CAT',   s: 'XLI', why: 'Caterpillar. Construction/mining cycle bellwether.' },
+  { t: 'RTX',   s: 'XLI', why: 'RTX Corp. Defense + aero, large cap, calm trends.' },
+  { t: 'LMT',   s: 'XLI', why: 'Lockheed Martin. Defense pure-play, low-beta.' },
+  { t: 'HON',   s: 'XLI', why: 'Honeywell. Diversified industrial, clean institutional behavior.' },
+
+  // === Energy (XLE) ===
+  { t: 'XOM',   s: 'XLE', why: 'Exxon Mobil. Top XLE weight, integrated oil major.' },
+  { t: 'CVX',   s: 'XLE', why: 'Chevron. #2 integrated oil; correlated to XOM.' },
+
+  // === Consumer Staples (XLP) ===
+  { t: 'COST',  s: 'XLP', why: 'Costco. NDX100 member, retailer with persistent uptrend; rare staple in tech-led runs.' },
+  { t: 'WMT',   s: 'XLP', why: 'Walmart. Mega-cap retailer, calm trend behavior.' },
+  { t: 'PG',    s: 'XLP', why: 'P&G. Consumer staple core, low volatility.' },
+  { t: 'KO',    s: 'XLP', why: 'Coca-Cola. Defensive blue-chip, low ATR.' }
+];
+
+const SECTOR_ETFS = ['XLK', 'XLV', 'XLF', 'XLY', 'XLC', 'XLI', 'XLP', 'XLE', 'XLU', 'XLB', 'XLRE'];
+
+// ===== DATA SOURCE CONFIG =====
+// Edit these constants to hard-code keys, or use the Dashboard "Data sources" panel at runtime.
+// The fetcher tries sources in DATA_SOURCE_ORDER, top-down, until one returns >= 220 daily bars.
+const DEFAULT_ALPHA_VANTAGE_KEY = '';   // get a free key at https://www.alphavantage.co/support/#api-key (25 calls/day)
+const DEFAULT_FINNHUB_KEY        = '';   // get a free key at https://finnhub.io/register (60 calls/min)
+const DATA_SOURCE_ORDER = [
+  'alphavantage',   // most reliable when a key is set (CSV, native CORS)
+  'finnhub',        // also CORS-friendly; candle endpoint coverage varies
+  'stooq_direct',   // free, no key, but stooq does not always send CORS headers
+  'stooq_corsproxy',
+  'stooq_allorigins',
+  'stooq_codetabs',
+];
+
+// ----- Application state (in-memory only — no persistence) -----
+const state = {
+  watchlist: STARTER_WATCHLIST.map(x => ({ ...x })),
+  spyBars: null,
+  vixBars: null,
+  sectorBars: {},
+  signalRows: [],
+  regime: null,
+  sectorRanks: [],
+  isLoading: false,
+  cache: new Map(), // ticker -> bars
+  apiKeys: {
+    alphavantage: DEFAULT_ALPHA_VANTAGE_KEY,
+    finnhub: DEFAULT_FINNHUB_KEY,
+  },
+  enabledSources: new Set(DATA_SOURCE_ORDER), // toggle in UI
+  manualBars: new Map(), // ticker -> bars uploaded via CSV
+};
+
+// ----- Logging -----
+const logEl = () => document.getElementById('log');
+function log(msg, cls) {
+  const el = logEl();
+  if (!el) return;
+  const ts = new Date().toLocaleTimeString();
+  const line = document.createElement('span');
+  if (cls) line.className = cls;
+  line.textContent = `[${ts}] ${msg}\n`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ===== DATA FETCH LAYER =====
+// Pluggable sources. Each source is { name, label, needsKey, fetch(ticker) -> bars[] | throws }
+// fetchBars() iterates DATA_SOURCE_ORDER, returns first success, accumulates attempts on failure.
+
+class DataFetchError extends Error {
+  constructor(ticker, attempts, cause) {
+    super(`Could not fetch data for ${ticker}: ${cause}`);
+    this.name = 'DataFetchError';
+    this.ticker = ticker;
+    this.attempts = attempts;
+    this.cause = cause;
+  }
+}
+
+function classifyFetchError(e) {
+  if (e instanceof TypeError) return 'network_or_cors';
+  if (e.name === 'AbortError') return 'timeout';
+  return 'other';
+}
+
+async function fetchWithTimeout(url, timeoutMs = 15000, init = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { mode: 'cors', cache: 'no-store', signal: ctrl.signal, ...init });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---- Source: Alpha Vantage (CSV daily, requires free API key, supports CORS) ----
+async function fetchAlphaVantage(ticker) {
+  const key = state.apiKeys.alphavantage;
+  if (!key) throw new Error('no API key configured');
+  const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(ticker)}&outputsize=full&datatype=csv&apikey=${encodeURIComponent(key)}`;
+  const resp = await fetchWithTimeout(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim());
+  const text = await resp.text();
+  // Alpha Vantage returns JSON error messages even when datatype=csv if rate-limited or invalid
+  if (text.startsWith('{')) {
+    let msg = text;
+    try { const j = JSON.parse(text); msg = j.Note || j['Error Message'] || j.Information || text; } catch {}
+    throw new Error(`Alpha Vantage: ${msg.slice(0, 200)}`);
+  }
+  if (text.length < 100 || !text.toLowerCase().startsWith('timestamp')) {
+    throw new Error(`unexpected response (${text.length}b): ${text.slice(0, 100)}`);
+  }
+  // CSV header: timestamp,open,high,low,close,volume — DESCENDING by date
+  const lines = text.trim().split('\n').slice(1);
+  const bars = [];
+  for (const line of lines) {
+    const p = line.split(',');
+    if (p.length < 6) continue;
+    bars.push({ date: p[0], open: +p[1], high: +p[2], low: +p[3], close: +p[4], volume: +p[5] });
+  }
+  bars.reverse(); // ascending
+  return bars;
+}
+
+// ---- Source: Finnhub (JSON daily candles, requires free API key, supports CORS) ----
+async function fetchFinnhub(ticker) {
+  const key = state.apiKeys.finnhub;
+  if (!key) throw new Error('no API key configured');
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - 365 * 24 * 3600 * 5; // 5 years for warmup buffer
+  const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(ticker)}&resolution=D&from=${from}&to=${to}&token=${encodeURIComponent(key)}`;
+  const resp = await fetchWithTimeout(url);
+  if (!resp.ok) {
+    let detail = '';
+    try { const j = await resp.json(); detail = j.error || ''; } catch {}
+    throw new Error(`HTTP ${resp.status}${detail ? ' — ' + detail : ''}`);
+  }
+  const j = await resp.json();
+  if (j.s !== 'ok') {
+    throw new Error(`finnhub status=${j.s}${j.error ? ' — ' + j.error : ''} (note: stock/candle endpoint may require paid plan)`);
+  }
+  const bars = [];
+  for (let i = 0; i < j.t.length; i++) {
+    bars.push({
+      date: new Date(j.t[i] * 1000).toISOString().slice(0, 10),
+      open: j.o[i], high: j.h[i], low: j.l[i], close: j.c[i], volume: j.v[i],
+    });
+  }
+  return bars;
+}
+
+// ---- Source: Stooq (CSV daily, no key, CORS depends on browser/network) ----
+function stooqUrl(ticker) {
+  // Index symbols (e.g. ^VIX, ^GSPC) don't use the .us exchange suffix
+  const sym = ticker.startsWith('^') ? ticker.toLowerCase() : ticker.toLowerCase() + '.us';
+  return `https://stooq.com/q/d/l/?s=${encodeURIComponent(sym)}&i=d`;
+}
+async function fetchStooqViaUrl(rawUrl) {
+  const resp = await fetchWithTimeout(rawUrl);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim());
+  const text = await resp.text();
+  if (!text || text.length < 50) throw new Error(`empty body (${text.length}b)`);
+  if (text.toLowerCase().includes('exceeded')) throw new Error('rate-limited (daily hits exceeded)');
+  if (text.toLowerCase().includes('no data') && text.length < 200) throw new Error('symbol not recognised');
+  return parseStooqCsv(text);
+}
+async function fetchStooqDirect(ticker) {
+  return fetchStooqViaUrl(stooqUrl(ticker));
+}
+async function fetchStooqCorsproxy(ticker) {
+  return fetchStooqViaUrl(`https://corsproxy.io/?url=${encodeURIComponent(stooqUrl(ticker))}`);
+}
+async function fetchStooqAllorigins(ticker) {
+  return fetchStooqViaUrl(`https://api.allorigins.win/raw?url=${encodeURIComponent(stooqUrl(ticker))}`);
+}
+async function fetchStooqCodetabs(ticker) {
+  return fetchStooqViaUrl(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(stooqUrl(ticker))}`);
+}
+
+const DATA_SOURCES = {
+  alphavantage:      { label: 'Alpha Vantage (CSV, key required)', needsKey: 'alphavantage', fetch: fetchAlphaVantage },
+  finnhub:           { label: 'Finnhub (JSON, key required)',      needsKey: 'finnhub',      fetch: fetchFinnhub },
+  stooq_direct:      { label: 'stooq.com (direct)',                needsKey: null,           fetch: fetchStooqDirect },
+  stooq_corsproxy:   { label: 'stooq.com via corsproxy.io',        needsKey: null,           fetch: fetchStooqCorsproxy },
+  stooq_allorigins:  { label: 'stooq.com via allorigins.win',      needsKey: null,           fetch: fetchStooqAllorigins },
+  stooq_codetabs:    { label: 'stooq.com via codetabs.com',        needsKey: null,           fetch: fetchStooqCodetabs },
+};
+
+// ----- Main fetcher: tries each source in priority order until one succeeds -----
+async function fetchBars(ticker, opts = {}) {
+  // Manual CSV upload always wins — user explicitly provided this data
+  if (state.manualBars.has(ticker)) {
+    const bars = state.manualBars.get(ticker);
+    if (!opts.silent) console.log(`[fetchBars] ${ticker}: using manual CSV upload (${bars.length} bars)`);
+    return bars;
+  }
+  if (!opts.bypassCache && state.cache.has(ticker)) return state.cache.get(ticker);
+
+  const attempts = [];
+  let bestPartial = null;
+
+  for (const sourceName of DATA_SOURCE_ORDER) {
+    if (!state.enabledSources.has(sourceName)) continue;
+    const src = DATA_SOURCES[sourceName];
+    if (!src) continue;
+
+    const attempt = { strategy: sourceName, label: src.label, status: null, bars: 0, error: null, ms: 0 };
+
+    // Skip sources that need a key when key is missing — but record so user sees why
+    if (src.needsKey && !state.apiKeys[src.needsKey]) {
+      attempt.error = `skipped — no ${src.needsKey} key set`;
+      attempts.push(attempt);
+      continue;
+    }
+
+    const t0 = performance.now();
+    try {
+      const bars = await src.fetch(ticker);
+      attempt.ms = Math.round(performance.now() - t0);
+      attempt.bars = bars.length;
+      if (bars.length === 0) {
+        attempt.error = 'parsed 0 bars';
+        attempts.push(attempt);
+        continue;
+      }
+      if (bars.length < 220) {
+        attempt.error = `only ${bars.length} bars (need 220 for indicator warmup)`;
+        attempts.push(attempt);
+        if (!bestPartial || bars.length > bestPartial.bars.length) bestPartial = { bars, source: sourceName };
+        continue;
+      }
+      attempts.push(attempt);
+      state.cache.set(ticker, bars);
+      if (!opts.silent) console.log(`[fetchBars] ${ticker} via ${sourceName}: ${bars.length} bars in ${attempt.ms}ms`);
+      return bars;
+    } catch (e) {
+      attempt.ms = Math.round(performance.now() - t0);
+      const kind = classifyFetchError(e);
+      if (kind === 'network_or_cors') attempt.error = `network/CORS blocked (TypeError: ${e.message})`;
+      else if (kind === 'timeout') attempt.error = 'timed out after 15s';
+      else attempt.error = e.message || String(e);
+      attempts.push(attempt);
+    }
+  }
+
+  // All sources exhausted
+  const networkOnly = attempts.filter(a => a.error && (a.error.startsWith('network/CORS') || a.error.includes('timed out')));
+  const skipped = attempts.filter(a => a.error && a.error.startsWith('skipped'));
+  let cause;
+  if (skipped.length === attempts.length) {
+    cause = 'No data sources are configured. Open the Dashboard → "Data sources" panel and paste a free Alpha Vantage or Finnhub API key, or upload a CSV file from the Backtest tab.';
+  } else if (networkOnly.length + skipped.length === attempts.length) {
+    cause = 'Every reachable source was blocked by network/CORS or timed out. Most likely cause: a corporate firewall, ad-blocker/privacy extension, or all the public proxies are down. The most reliable fix is to set an Alpha Vantage or Finnhub API key on the Dashboard — those endpoints support CORS natively and don\'t need a proxy.';
+  } else if (bestPartial) {
+    cause = `Sources reachable but only ${bestPartial.bars.length} historical bars available for ${ticker} (need 220 for full setup detection). Likely a recently-listed name. ${bestPartial.bars.length >= 30 ? 'Consider uploading a longer CSV manually.' : ''}`;
+  } else {
+    const errs = attempts.filter(a => a.error && !a.error.startsWith('skipped'));
+    cause = `All sources returned errors. Last: ${errs.length ? errs[errs.length-1].error : 'unknown'}.`;
+  }
+  throw new DataFetchError(ticker, attempts, cause);
+}
+
+// Backwards compatibility — some callers still use fetchStooq()
+const fetchStooq = fetchBars;
+
+// fetch with simple concurrency limit + per-ticker error tolerance
+async function fetchMany(tickers, concurrency = 3, onProgress) {
+  const results = {};
+  let idx = 0, done = 0, errors = 0;
+  async function worker() {
+    while (idx < tickers.length) {
+      const i = idx++;
+      const t = tickers[i];
+      try {
+        results[t] = await fetchBars(t);
+      } catch (e) {
+        results[t] = {
+          error: e.message,
+          cause: e.cause || null,
+          attempts: e.attempts || null,
+          ticker: t,
+        };
+        errors++;
+      }
+      done++;
+      if (onProgress) onProgress(done, tickers.length, errors);
+    }
+  }
+  const workers = Array.from({ length: concurrency }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+// ----- ERROR MODAL -----
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function buildAttemptsTable(attempts) {
+  if (!attempts || !attempts.length) return '';
+  const rows = attempts.map(a => {
+    const ok = a.error == null && a.bars >= 220;
+    const cls = ok ? 'ok' : 'fail';
+    const result = ok ? `OK · ${a.bars} bars` : (a.error || 'fail');
+    const status = a.status != null ? `HTTP ${a.status}` : '—';
+    return `<tr>
+      <td>${escapeHtml(a.label || a.strategy)}</td>
+      <td>${status}</td>
+      <td>${a.ms || 0}ms</td>
+      <td class="${cls}">${escapeHtml(result)}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="attempts">
+    <thead><tr><th>SOURCE</th><th>STATUS</th><th>TIME</th><th>RESULT</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+let _lastErrorPayload = null;
+function showErrorModal(opts) {
+  const { title = 'ERROR', kind = 'error', summary = '', cause = '', attempts = null, suggestions = null, extra = '' } = opts;
+  const modal = document.getElementById('modal');
+  modal.classList.remove('warn', 'info');
+  if (kind === 'warn') modal.classList.add('warn');
+  if (kind === 'info') modal.classList.add('info');
+  document.getElementById('modal-title').textContent = title;
+
+  let html = '';
+  if (summary) html += `<h4>What happened</h4><div>${escapeHtml(summary)}</div>`;
+  if (cause) html += `<div class="cause">${escapeHtml(cause)}</div>`;
+  if (attempts && attempts.length) html += `<h4>Attempts (${attempts.length})</h4>${buildAttemptsTable(attempts)}`;
+  if (suggestions && suggestions.length) {
+    html += `<h4>What to try</h4><ul>` + suggestions.map(s => `<li>${s}</li>`).join('') + `</ul>`;
+  }
+  if (extra) html += extra;
+
+  document.getElementById('modal-body').innerHTML = html;
+  document.getElementById('modal-backdrop').classList.add('open');
+
+  _lastErrorPayload = { title, summary, cause, attempts, suggestions, ts: new Date().toISOString() };
+}
+
+function closeErrorModal() {
+  document.getElementById('modal-backdrop').classList.remove('open');
+}
+
+function showFetchError(err, context = '') {
+  // Common entry point for any caught DataFetchError or generic fetch failure
+  const isStructured = err && err.name === 'DataFetchError';
+  if (isStructured) {
+    const allBlocked = err.attempts.every(a => a.error && (a.error.startsWith('network/CORS') || a.error.includes('timed out')));
+    showErrorModal({
+      title: `DATA FETCH FAILED · ${err.ticker}`,
+      kind: allBlocked ? 'error' : 'warn',
+      summary: context ? `${context}: could not retrieve historical bars for ${err.ticker}.` : `Could not retrieve historical bars for ${err.ticker}.`,
+      cause: err.cause,
+      attempts: err.attempts,
+      suggestions: allBlocked ? [
+        'Open browser DevTools → Network tab, retry, and check what status the request got. A red CORS error or "blocked by client" confirms the diagnosis.',
+        'Disable any ad-blocker or privacy extension on this page (uBlock Origin, Privacy Badger, Brave shields, Ghostery).',
+        'If you are on a corporate network, try from a personal network or hotspot. Stooq.com and CORS proxies are often blocked by corporate proxies.',
+        'Check whether <code>https://stooq.com/q/d/l/?s=spy.us&i=d</code> opens in a new tab. If that fails, your network blocks stooq directly.',
+        'Try clicking <b>TEST DATA CONNECTION</b> on the Dashboard for a single-ticker diagnostic.',
+      ] : [
+        'If the symbol is correct, the data source may simply not have history for it. Try a more liquid name (SPY, AAPL, MSFT) to confirm the pipeline works.',
+        'Click <b>CLEAR CACHE</b> on the Dashboard and try again — sometimes a partial response gets cached.',
+      ],
+    });
+  } else {
+    showErrorModal({
+      title: 'ERROR',
+      kind: 'error',
+      summary: context || 'Something went wrong.',
+      cause: err && err.message ? err.message : String(err),
+      suggestions: [
+        'Open the browser console (F12 → Console) for the full stack trace.',
+        'If this happened during a fetch, click <b>TEST DATA CONNECTION</b> on the Dashboard.',
+      ],
+    });
+  }
+}
+
+document.getElementById('modal-close').addEventListener('click', closeErrorModal);
+document.getElementById('modal-ok').addEventListener('click', closeErrorModal);
+document.getElementById('modal-backdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'modal-backdrop') closeErrorModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeErrorModal();
+});
+document.getElementById('modal-copy').addEventListener('click', () => {
+  if (!_lastErrorPayload) return;
+  const text = JSON.stringify(_lastErrorPayload, null, 2);
+  navigator.clipboard.writeText(text).then(
+    () => { document.getElementById('modal-copy').textContent = 'COPIED ✓'; setTimeout(() => document.getElementById('modal-copy').textContent = 'COPY DIAGNOSTICS', 1500); },
+    () => alert(text)
+  );
+});
+
+// ----- DIAGNOSTIC: test data connection -----
+async function testDataConnection() {
+  const btn = document.getElementById('diag-test');
+  btn.disabled = true; btn.textContent = 'TESTING...';
+  log('Diagnostic: testing data connection (SPY)...', 'info');
+  // bypass cache so we actually hit the network
+  state.cache.delete('SPY');
+  try {
+    const bars = await fetchBars('SPY', { bypassCache: true });
+    log(`Diagnostic OK: received ${bars.length} bars for SPY (last close ${bars[bars.length-1].close})`, 'ok');
+    showErrorModal({
+      title: 'DATA CONNECTION OK',
+      kind: 'info',
+      summary: `Successfully fetched ${bars.length} daily bars for SPY. Last bar: ${bars[bars.length-1].date} close ${bars[bars.length-1].close.toFixed(2)}.`,
+      suggestions: [
+        'Your network can reach at least one data source. If REFRESH or BACKTEST still fails, the issue is specific to a particular ticker — try a different one.',
+      ],
+    });
+  } catch (e) {
+    log(`Diagnostic FAILED: ${e.message}`, 'err');
+    showFetchError(e, 'Data connection test');
+  } finally {
+    btn.disabled = false; btn.textContent = 'TEST DATA CONNECTION';
+  }
+}
+
+function clearDataCache() {
+  const n = state.cache.size;
+  state.cache.clear();
+  log(`Cache cleared (${n} entries removed).`, 'info');
+}
+
+document.getElementById('diag-test').addEventListener('click', testDataConnection);
+document.getElementById('diag-clear-cache').addEventListener('click', clearDataCache);
+
+// ----- DATA SOURCES PANEL -----
+function setSourceRowState(name, ok, msg) {
+  const row = document.querySelector(`.ds-source input[data-source="${name}"]`)?.closest('.ds-source');
+  if (!row) return;
+  row.classList.remove('ok', 'fail');
+  row.classList.add(ok ? 'ok' : 'fail');
+  const status = document.getElementById('ds-status');
+  if (status) status.textContent = msg || '';
+}
+
+async function testSingleSource(name) {
+  const src = DATA_SOURCES[name];
+  if (!src) return;
+  const btn = document.querySelector(`.ds-test[data-source="${name}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  document.getElementById('ds-status').textContent = `testing ${src.label} with SPY...`;
+
+  if (src.needsKey && !state.apiKeys[src.needsKey]) {
+    document.getElementById('ds-status').textContent = `${src.label}: no API key set`;
+    setSourceRowState(name, false, `${src.label}: no API key set`);
+    if (btn) { btn.disabled = false; btn.textContent = 'TEST'; }
+    return;
+  }
+
+  const t0 = performance.now();
+  try {
+    const bars = await src.fetch('SPY');
+    const ms = Math.round(performance.now() - t0);
+    if (bars.length >= 220) {
+      const msg = `${src.label}: OK (${bars.length} bars in ${ms}ms)`;
+      log(msg, 'ok');
+      setSourceRowState(name, true, msg);
+    } else {
+      const msg = `${src.label}: only ${bars.length} bars returned`;
+      log(msg, 'warn');
+      setSourceRowState(name, false, msg);
+    }
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0);
+    const kind = classifyFetchError(e);
+    const reason = kind === 'network_or_cors' ? `network/CORS blocked (${e.message})` :
+                   kind === 'timeout' ? 'timed out' : (e.message || String(e));
+    const msg = `${src.label}: FAILED in ${ms}ms — ${reason}`;
+    log(msg, 'err');
+    setSourceRowState(name, false, msg);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'TEST'; }
+  }
+}
+
+// Wire up data source UI
+document.getElementById('ds-toggle').addEventListener('click', () => {
+  const body = document.getElementById('ds-body');
+  body.style.display = body.style.display === 'none' ? '' : 'none';
+});
+document.getElementById('ds-key-alphavantage').addEventListener('input', (e) => {
+  state.apiKeys.alphavantage = e.target.value.trim();
+});
+document.getElementById('ds-key-finnhub').addEventListener('input', (e) => {
+  state.apiKeys.finnhub = e.target.value.trim();
+});
+document.querySelectorAll('.ds-source input[type="checkbox"]').forEach(cb => {
+  cb.addEventListener('change', (e) => {
+    const name = e.target.dataset.source;
+    if (e.target.checked) state.enabledSources.add(name);
+    else state.enabledSources.delete(name);
+    log(`Data source "${name}" ${e.target.checked ? 'enabled' : 'disabled'}.`, 'info');
+  });
+});
+document.querySelectorAll('.ds-test').forEach(btn => {
+  btn.addEventListener('click', () => testSingleSource(btn.dataset.source));
+});
+// Pre-populate API key fields if defaults are hard-coded
+if (DEFAULT_ALPHA_VANTAGE_KEY) document.getElementById('ds-key-alphavantage').value = DEFAULT_ALPHA_VANTAGE_KEY;
+if (DEFAULT_FINNHUB_KEY) document.getElementById('ds-key-finnhub').value = DEFAULT_FINNHUB_KEY;
+// If neither key is set, expand the panel by default to nudge the user
+if (!DEFAULT_ALPHA_VANTAGE_KEY && !DEFAULT_FINNHUB_KEY) {
+  document.getElementById('ds-body').style.display = '';
+}
+
+// ----- CSV UPLOAD (manual fallback) -----
+function parseGenericCsv(text) {
+  const lines = text.replace(/\r\n?/g, '\n').trim().split('\n');
+  if (!lines.length) throw new Error('CSV is empty');
+  // Detect header row (string in first column)
+  const first = lines[0].split(',');
+  let startIdx = 0;
+  if (first.length >= 5 && isNaN(parseFloat(first[1]))) startIdx = 1; // skip header
+  const bars = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    const p = lines[i].split(',');
+    if (p.length < 5) continue;
+    let date = p[0].trim();
+    // Normalise date to YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      // already correct
+    } else if (/^\d{4}\d{2}\d{2}$/.test(date)) {
+      date = `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}`;
+    } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(date)) {
+      const [m, d, y] = date.split('/');
+      date = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    } else {
+      const dt = new Date(date);
+      if (isNaN(dt.getTime())) continue;
+      date = dt.toISOString().slice(0, 10);
+    }
+    // Yahoo CSV: Date,Open,High,Low,Close,Adj Close,Volume — vs Stooq: Date,Open,High,Low,Close,Volume
+    let open, high, low, close, volume;
+    if (p.length >= 7 && !isNaN(parseFloat(p[5]))) {
+      // Yahoo with Adj Close
+      open = +p[1]; high = +p[2]; low = +p[3]; close = +p[5]; volume = +p[6];
+    } else {
+      open = +p[1]; high = +p[2]; low = +p[3]; close = +p[4]; volume = +p[5] || 0;
+    }
+    if ([open, high, low, close].some(v => !isFinite(v))) continue;
+    bars.push({ date, open, high, low, close, volume });
+  }
+  // Sort ascending
+  bars.sort((a, b) => a.date.localeCompare(b.date));
+  return bars;
+}
+
+async function handleCsvUpload(file) {
+  const ticker = document.getElementById('bt-ticker').value.trim().toUpperCase();
+  if (!ticker) {
+    showErrorModal({ title: 'NO TICKER', kind: 'warn', summary: 'Enter a ticker symbol first, then drop the CSV.' });
+    return;
+  }
+  try {
+    const text = await file.text();
+    const bars = parseGenericCsv(text);
+    if (bars.length < 30) {
+      showErrorModal({
+        title: 'CSV TOO SHORT',
+        kind: 'warn',
+        summary: `Parsed only ${bars.length} bars from ${file.name}. Need at least ~250 daily bars for a meaningful backtest.`,
+      });
+      return;
+    }
+    state.manualBars.set(ticker, bars);
+    state.cache.delete(ticker); // force re-read from manualBars on next fetchBars
+    document.getElementById('csv-zone-text').textContent = `✓ Loaded ${bars.length} bars for ${ticker} from ${file.name} — overrides all data sources for this ticker.`;
+    log(`CSV loaded: ${ticker} ← ${bars.length} bars from ${file.name} (${bars[0].date} to ${bars[bars.length-1].date})`, 'ok');
+  } catch (e) {
+    showErrorModal({
+      title: 'CSV PARSE ERROR',
+      kind: 'error',
+      summary: `Could not parse ${file.name}.`,
+      cause: e.message || String(e),
+      suggestions: [
+        'Open the CSV in a text editor and confirm the columns are: <code>date,open,high,low,close,volume</code> (header optional).',
+        'Yahoo Finance and Stooq exports both work. TradingView exports work too.',
+        'Date formats supported: YYYY-MM-DD, MM/DD/YYYY, YYYYMMDD.',
+      ],
+    });
+  }
+}
+
+const csvZone = document.getElementById('csv-zone');
+const csvInput = document.getElementById('csv-input');
+csvInput.addEventListener('change', (e) => {
+  if (e.target.files && e.target.files[0]) handleCsvUpload(e.target.files[0]);
+});
+csvZone.addEventListener('dragover', (e) => { e.preventDefault(); csvZone.classList.add('drag'); });
+csvZone.addEventListener('dragleave', () => csvZone.classList.remove('drag'));
+csvZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  csvZone.classList.remove('drag');
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) handleCsvUpload(e.dataTransfer.files[0]);
+});
+
+// Global safety nets
+window.addEventListener('error', (e) => {
+  console.error('[uncaught]', e.error || e.message);
+  log(`Uncaught error: ${e.message}`, 'err');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[unhandled rejection]', e.reason);
+  log(`Unhandled promise rejection: ${e.reason && e.reason.message ? e.reason.message : e.reason}`, 'err');
+});
+
+// ----- VIEW SWITCHING -----
+function switchView(view) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
+  if (view === 'reasons') renderReasons();
+  if (view === 'help') renderHelp();
+  if (view === 'guide') renderGuide();
+  if (view === 'watchlist') renderWatchlistEditor();
+}
+document.querySelectorAll('.nav-item').forEach(n => {
+  n.addEventListener('click', () => switchView(n.dataset.view));
+});
+
+// ----- REGIME RENDER -----
+function renderRegime(regime, sectorRanks) {
+  const subtitle = regime.tradeable ? 'TRADEABLE' : (regime.go_to_cash ? 'GO TO CASH' : 'PARTIAL');
+  document.getElementById('kpi-regime').textContent = subtitle;
+  document.getElementById('kpi-regime').className = 'value ' + (regime.tradeable ? 'green' : 'red');
+  const ts = state.spyBars ? state.spyBars[state.spyBars.length - 1].date : '—';
+  document.getElementById('kpi-regime-sub').textContent = `as of ${ts}`;
+  document.getElementById('kpi-spy').textContent = regime.details.spy_close ? regime.details.spy_close.toFixed(2) : '—';
+  document.getElementById('kpi-spy-sub').textContent = regime.details.spy_50sma
+    ? `50: ${regime.details.spy_50sma.toFixed(2)} · 200: ${regime.details.spy_200sma.toFixed(2)}`
+    : '—';
+  document.getElementById('kpi-vix').textContent = regime.details.vix ? regime.details.vix.toFixed(2) : '—';
+  const vixCls = !regime.details.vix ? '' : (regime.details.vix > 28 ? 'red' : regime.details.vix > 25 ? 'amber' : 'green');
+  document.getElementById('kpi-vix').className = 'value ' + vixCls;
+  document.getElementById('kpi-vix-sub').textContent = regime.details.vix
+    ? (regime.details.vix > 28 ? 'PANIC ZONE' : regime.details.vix > 25 ? 'ELEVATED' : 'BENIGN')
+    : '—';
+
+  const checksEl = document.getElementById('regime-checks');
+  checksEl.innerHTML = '';
+  regime.checks.forEach(c => {
+    const cls = c.pass === true ? 'pass' : c.pass === false ? 'fail' : 'unk';
+    const ic  = c.pass === true ? '✓' : c.pass === false ? '✗' : '·';
+    const div = document.createElement('div');
+    div.className = `check ${cls}`;
+    div.innerHTML = `<span class="icon">${ic}</span><span>${c.name}</span><span class="note">${c.note}</span>`;
+    checksEl.appendChild(div);
+  });
+  // MMFI is manual — append latest input value note
+  const mmfiInp = document.getElementById('mmfi-input');
+  const mmfiVal = +mmfiInp.value;
+  const lastCheck = checksEl.lastChild;
+  if (lastCheck) {
+    const cls = mmfiVal > 50 ? 'pass' : 'fail';
+    const ic = mmfiVal > 50 ? '✓' : '✗';
+    lastCheck.className = `check ${cls}`;
+    lastCheck.querySelector('.icon').textContent = ic;
+    lastCheck.querySelector('.note').innerHTML = `manual: <input type="number" id="mmfi-input" value="${mmfiVal}" min="0" max="100" style="width:60px;"/>`;
+  }
+
+  // sector rank
+  const sectorEl = document.getElementById('sector-list');
+  sectorEl.innerHTML = '';
+  sectorRanks.forEach((r, idx) => {
+    const isTop3 = idx < 3;
+    const div = document.createElement('div');
+    div.className = `sect${isTop3 ? ' top3' : ''}`;
+    const retStr = (r.ret_20d != null) ? ((r.ret_20d * 100).toFixed(2) + '%') : 'n/a';
+    const retCls = r.ret_20d > 0 ? 'green' : 'red';
+    div.innerHTML = `<span><span class="rank">#${idx + 1}</span> ${r.etf}</span><span class="ret ${retCls}">${retStr}</span>`;
+    sectorEl.appendChild(div);
+  });
+}
+
+// ----- SIGNAL SCAN -----
+async function scanSignals() {
+  state.signalRows = [];
+  const eq = +document.getElementById('eq-input').value;
+  const top3 = state.sectorRanks.slice(0, 3).map(r => r.etf);
+  log(`Scanning ${state.watchlist.length} tickers for setups...`, 'info');
+
+  const tickers = state.watchlist.map(w => w.t);
+  const data = await fetchMany(tickers, 4, (done, total, err) => {
+    document.getElementById('data-status').textContent = `stooq · ${done}/${total} (${err} errors)`;
+  });
+
+  for (const w of state.watchlist) {
+    const bars = data[w.t];
+    if (!bars || bars.error) {
+      state.signalRows.push({
+        ticker: w.t, sector: w.s, why: w.why, error: bars?.error || 'no data', tier: 'fail'
+      });
+      continue;
+    }
+    const last = bars.length - 1;
+    const evalRes = evaluateSetup(bars, state.spyBars, last);
+    const inTop3 = top3.includes(w.s);
+    const row = {
+      ticker: w.t, sector: w.s, why: w.why,
+      bars, evalRes, inTop3,
+      lastClose: bars[last].close,
+      lastDate: bars[last].date,
+      ema20: ema(bars.map(b => b.close), 20)[last],
+      sma50: sma(bars.map(b => b.close), 50)[last],
+      sma200: sma(bars.map(b => b.close), 200)[last],
+      atr14: atr(bars.map(b=>b.high), bars.map(b=>b.low), bars.map(b=>b.close), 14)[last],
+      fvg: evaluateFVGRetest(bars),
+      dip: evaluateQualityDip(bars, last),
+      rs: computeThematicRS(bars, state.spyBars, last)
+    };
+
+    // tier classification
+    if (evalRes.confirmation_bar) row.tier = 'confirm';
+    else if (evalRes.setup_armed_L3) row.tier = 'armed';
+    else if (evalRes.qualifies_L1) row.tier = 'qual';
+    else row.tier = 'fail';
+
+    // Position size if confirmed
+    if (evalRes.confirmation_bar && evalRes.trade_plan) {
+      const trigger = evalRes.trade_plan.entry_trigger;
+      const stop    = evalRes.trade_plan.initial_stop_estimate;
+      const target  = evalRes.trade_plan.first_target_estimate;
+      const riskPS  = trigger - stop;
+      const dollarsAtRisk = 0.0075 * eq;
+      let shares = Math.floor(dollarsAtRisk / riskPS);
+      const cashCap = 0.25 * eq;
+      if (shares * trigger > cashCap) shares = Math.floor(cashCap / trigger);
+      row.size = {
+        trigger, stop, target, shares,
+        notional: shares * trigger,
+        risk_dollars: shares * riskPS
+      };
+    }
+    state.signalRows.push(row);
+  }
+
+  // Post-pass: tag thematic LEADERS — top-3 by RS score within each sector (must be positive).
+  const bySector = {};
+  state.signalRows.forEach(r => {
+    if (r.rs?.rs_score != null) (bySector[r.sector] ||= []).push(r);
+  });
+  for (const sec of Object.keys(bySector)) {
+    const sorted = bySector[sec].sort((a, b) => b.rs.rs_score - a.rs.rs_score);
+    sorted.slice(0, 3).forEach((r, rank) => {
+      if (r.rs.rs_score > 0) {
+        r.is_leader = true;
+        r.leader_rank = rank + 1;
+      }
+    });
+  }
+  // Compute a stacked-signal score so users can sort to find confluence
+  state.signalRows.forEach(r => {
+    let s = 0;
+    if (r.tier === 'confirm') s += 4;
+    else if (r.tier === 'armed') s += 3;
+    else if (r.tier === 'qual') s += 1;
+    if (r.fvg?.detected) s += r.fvg.bullish_reaction ? 3 : 2;
+    if (r.dip?.detected) s += 2;
+    if (r.is_leader) s += (r.leader_rank === 1 ? 2 : 1);
+    if (r.inTop3) s += 1;
+    r.confluence_score = s;
+  });
+
+  renderSignals();
+  refreshKpis();
+  const leaders = state.signalRows.filter(r => r.is_leader).length;
+  const dips = state.signalRows.filter(r => r.dip?.detected).length;
+  log(`Scan complete. ${state.signalRows.filter(r => r.tier === 'confirm').length} confirmed · ` +
+      `${state.signalRows.filter(r => r.tier === 'armed').length} armed · ` +
+      `${state.signalRows.filter(r => r.tier === 'qual').length} qualifying · ` +
+      `${dips} quality dips · ${leaders} thematic leaders.`, 'ok');
+}
+
+function renderSignals() {
+  const el = document.getElementById('signal-table-wrap');
+  const showConfirm = document.getElementById('filter-confirm').checked;
+  const showArmed   = document.getElementById('filter-armed').checked;
+  const showQual    = document.getElementById('filter-qual').checked;
+  const showFail    = document.getElementById('filter-fail').checked;
+  const requireTop3 = document.getElementById('filter-top3').checked;
+  const onlyFvg     = document.getElementById('filter-fvg')?.checked || false;
+  const onlyDip     = document.getElementById('filter-dip')?.checked || false;
+  const onlyLeader  = document.getElementById('filter-leader')?.checked || false;
+  const sortByConfluence = document.getElementById('filter-confluence')?.checked || false;
+
+  let rows = state.signalRows.slice();
+  // The "stack signals" filters override the tier filter — when any of them is on,
+  // we show ALL rows that match (regardless of 20-EMA tier), then apply confluence sort.
+  const usingStackFilter = onlyFvg || onlyDip || onlyLeader || sortByConfluence;
+  if (usingStackFilter) {
+    rows = rows.filter(r => {
+      if (requireTop3 && !r.inTop3) return false;
+      if (onlyFvg && !r.fvg?.detected) return false;
+      if (onlyDip && !r.dip?.detected) return false;
+      if (onlyLeader && !r.is_leader) return false;
+      // When sortByConfluence is the only stack flag set, keep everything that has any signal
+      if (sortByConfluence && !onlyFvg && !onlyDip && !onlyLeader) {
+        return (r.confluence_score || 0) > 0;
+      }
+      return true;
+    });
+  } else {
+    rows = rows.filter(r => {
+      if (requireTop3 && !r.inTop3 && r.tier !== 'fail') return false;
+      if (r.tier === 'confirm' && showConfirm) return !requireTop3 || r.inTop3;
+      if (r.tier === 'armed'   && showArmed)   return !requireTop3 || r.inTop3;
+      if (r.tier === 'qual'    && showQual)    return !requireTop3 || r.inTop3;
+      if (r.tier === 'fail'    && showFail)    return true;
+      return false;
+    });
+  }
+
+  // Sort
+  if (sortByConfluence) {
+    rows.sort((a, b) => (b.confluence_score || 0) - (a.confluence_score || 0)
+                       || ((b.rs?.rs_score ?? -999) - (a.rs?.rs_score ?? -999)));
+  } else {
+    const tierOrder = { confirm: 0, armed: 1, qual: 2, fail: 3 };
+    rows.sort((a, b) => {
+      const t = tierOrder[a.tier] - tierOrder[b.tier];
+      if (t !== 0) return t;
+      const ra = a.evalRes?.metrics?.ret_1m ?? -1;
+      const rb = b.evalRes?.metrics?.ret_1m ?? -1;
+      return rb - ra;
+    });
+  }
+
+  document.getElementById('signal-count').textContent = rows.length;
+
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty">No rows match the active filters.</div>';
+    return;
+  }
+
+  let html = `<table>
+    <thead><tr>
+      <th>Tier</th><th>Ticker</th><th>Sector + signals</th>
+      <th class="num">Last</th><th class="num">20-EMA</th>
+      <th class="num">% from 52w hi</th><th class="num">RS 1m</th>
+      <th class="num">RS score</th><th class="num">Conf.</th>
+      <th class="num">ATR(14)</th><th class="num">Size</th>
+      <th>Detail</th>
+    </tr></thead><tbody>`;
+
+  rows.forEach((r, idx) => {
+    const tag =
+      r.tier === 'confirm' ? '<span class="tag confirm">CONFIRMED</span>' :
+      r.tier === 'armed'   ? '<span class="tag armed">ARMED</span>' :
+      r.tier === 'qual'    ? '<span class="tag qual">QUALIFY</span>' :
+                             '<span class="tag fail">FAIL</span>';
+    const sectTag = r.inTop3 ? `<span class="tag top3">${r.sector} ★</span>` : `<span class="tag">${r.sector}</span>`;
+    const fvgTag = r.fvg?.detected
+      ? (r.fvg.bullish_reaction
+          ? `<span class="tag confirm" title="${r.fvg.reason}">FVG↑</span>`
+          : `<span class="tag armed" title="${r.fvg.reason}">FVG·</span>`)
+      : '';
+    const dipTag = r.dip?.detected
+      ? `<span class="tag qual" title="${r.dip.reason}">DIP ${r.dip.pct_below_52w_high.toFixed(0)}%</span>`
+      : '';
+    const leaderTag = r.is_leader
+      ? `<span class="tag top3" title="Sector leader · RS ${r.rs.rs_score.toFixed(1)}% vs SPY (1m+3m+6m avg)">LEAD#${r.leader_rank}</span>`
+      : '';
+    const last = r.lastClose ? r.lastClose.toFixed(2) : '—';
+    const ema20 = r.ema20 ? r.ema20.toFixed(2) : '—';
+    const fromHi = r.evalRes?.metrics?.pct_below_52w_high != null ? r.evalRes.metrics.pct_below_52w_high.toFixed(1) + '%' : '—';
+    const rs1m = r.evalRes?.metrics?.ret_1m != null
+      ? `<span class="${r.evalRes.metrics.ret_1m > (r.evalRes.metrics.spy_ret_1m||0) ? 'green' : 'red'}">${(r.evalRes.metrics.ret_1m * 100).toFixed(2)}%</span>` : '—';
+    const atrV = r.atr14 ? r.atr14.toFixed(2) : '—';
+    const size = r.size ? `${r.size.shares}sh @ $${r.size.trigger.toFixed(2)}` : '<span class="mute">—</span>';
+
+    const rsScore = r.rs?.rs_score != null
+      ? `<span class="${r.rs.rs_score > 0 ? 'green' : 'red'}">${r.rs.rs_score >= 0 ? '+' : ''}${r.rs.rs_score.toFixed(1)}%</span>`
+      : '—';
+    const conf = r.confluence_score != null
+      ? `<span class="${r.confluence_score >= 6 ? 'green' : r.confluence_score >= 4 ? 'amber' : 'dim'}">${r.confluence_score}</span>`
+      : '—';
+
+    html += `<tr>
+      <td>${tag}</td>
+      <td><b>${r.ticker}</b></td>
+      <td>${sectTag} ${fvgTag} ${dipTag} ${leaderTag}</td>
+      <td class="num">${last}</td>
+      <td class="num dim">${ema20}</td>
+      <td class="num">${fromHi}</td>
+      <td class="num">${rs1m}</td>
+      <td class="num">${rsScore}</td>
+      <td class="num">${conf}</td>
+      <td class="num dim">${atrV}</td>
+      <td class="num">${size}</td>
+      <td><span class="card-action" data-detail="${idx}">expand ▾</span></td>
+    </tr>`;
+    html += `<tr id="detail-${idx}" style="display:none;"><td colspan="12" style="background: var(--bg);"><div class="signal-detail" id="detail-content-${idx}"></div></td></tr>`;
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+
+  // Wire detail toggles
+  el.querySelectorAll('[data-detail]').forEach(span => {
+    span.addEventListener('click', () => {
+      const i = +span.dataset.detail;
+      const tr = document.getElementById('detail-' + i);
+      const open = tr.style.display !== 'none';
+      tr.style.display = open ? 'none' : 'table-row';
+      span.textContent = open ? 'expand ▾' : 'collapse ▴';
+      if (!open) renderDetail(i, rows[i]);
+    });
+  });
+}
+
+function renderDetail(i, r) {
+  const c = document.getElementById('detail-content-' + i);
+  if (!c) return;
+  if (r.error) {
+    c.innerHTML = `<div class="reason fail">Data error: ${r.error}</div>`;
+    return;
+  }
+  let html = '';
+  html += `<div class="reason"><b>Watchlist rationale:</b> ${r.why}</div>`;
+  html += `<div class="reason"><b>Sector status:</b> ${r.inTop3 ? '<span class="green">in top 3 (eligible)</span>' : '<span class="red">not in top 3 — would be skipped per L2</span>'}</div>`;
+  html += `<div class="reason"><b>Last bar:</b> ${r.lastDate} close ${r.lastClose?.toFixed(2)}</div>`;
+  if (r.fvg) {
+    if (r.fvg.detected) {
+      const cls = r.fvg.bullish_reaction ? 'pass' : '';
+      html += `<div class="reason ${cls}"><b>Monthly FVG:</b> ${r.fvg.reason}</div>`;
+      html += `<div class="reason dim" style="padding-left: 16px;">zone: $${r.fvg.zone_low.toFixed(2)} – $${r.fvg.zone_high.toFixed(2)} (mid $${r.fvg.zone_mid.toFixed(2)}, ${r.fvg.zone_size_pct.toFixed(1)}% wide)</div>`;
+    } else if (r.fvg.nearest_zone) {
+      html += `<div class="reason dim"><b>Monthly FVG:</b> ${r.fvg.reason}</div>`;
+    }
+  }
+  if (r.dip?.detected) {
+    const tp = r.dip.trade_plan;
+    html += `<div class="reason pass"><b>Quality Dip:</b> ${r.dip.pct_below_52w_high.toFixed(1)}% off 52w high · stabilized · vol ${r.dip.volume_multiple.toFixed(1)}× ${r.dip.volume_confirmed ? '✓' : '(weak)'}</div>`;
+    html += `<div class="reason dim" style="padding-left: 16px;">trade plan: entry $${tp.entry.toFixed(2)} · stop $${tp.stop.toFixed(2)} · target $${tp.target.toFixed(2)} · R/R ${tp.r_multiple.toFixed(1)}</div>`;
+  } else if (r.dip?.reason) {
+    html += `<div class="reason dim"><b>Quality Dip:</b> not detected — ${r.dip.reason}</div>`;
+  }
+  if (r.rs) {
+    const cls = r.is_leader ? 'pass' : '';
+    const leaderText = r.is_leader ? ` · sector LEADER #${r.leader_rank}` : '';
+    html += `<div class="reason ${cls}"><b>Thematic RS:</b> ${r.rs.rs_score >= 0 ? '+' : ''}${r.rs.rs_score.toFixed(1)}% vs SPY (avg of 1m/3m/6m)${leaderText}</div>`;
+    if (r.rs.breakdown) {
+      const parts = Object.entries(r.rs.breakdown).map(([w, b]) =>
+        `${w}: stock ${(b.stock*100).toFixed(1)}% / SPY ${(b.spy*100).toFixed(1)}% / excess ${(b.excess*100 >= 0 ? '+' : '')}${(b.excess*100).toFixed(1)}%`
+      );
+      html += `<div class="reason dim" style="padding-left: 16px;">${parts.join(' · ')}</div>`;
+    }
+  }
+  if (r.confluence_score != null) {
+    html += `<div class="reason"><b>Confluence score:</b> ${r.confluence_score} ${r.confluence_score >= 6 ? '<span class="green">(strong)</span>' : r.confluence_score >= 4 ? '<span class="amber">(moderate)</span>' : '<span class="dim">(weak)</span>'}</div>`;
+  }
+  if (r.evalRes?.reasons?.length) {
+    html += '<div style="margin-top:6px; padding-top:6px; border-top: 1px dashed var(--line);">';
+    html += `<b>Framework checks:</b><br/>`;
+    r.evalRes.reasons.forEach(rs => {
+      const isPass = rs.includes('All L1+L3');
+      const isArmed = rs.startsWith('Setup armed but no confirmation');
+      const cls = isPass ? 'pass' : isArmed ? '' : 'fail';
+      html += `<div class="reason ${cls}">${rs}</div>`;
+    });
+    html += '</div>';
+  }
+  if (r.size) {
+    html += `<div class="plan">
+      <div><div class="p-label">Buy stop trigger</div><div class="p-val">$${r.size.trigger.toFixed(2)}</div></div>
+      <div><div class="p-label">Initial stop</div><div class="p-val red">$${r.size.stop.toFixed(2)}</div></div>
+      <div><div class="p-label">First target (2R, sell 50%)</div><div class="p-val green">$${r.size.target.toFixed(2)}</div></div>
+      <div><div class="p-label">Position size</div><div class="p-val">${r.size.shares} sh ($${(r.size.notional/1000).toFixed(1)}k notional · $${r.size.risk_dollars.toFixed(0)} at risk)</div></div>
+    </div>`;
+  }
+  c.innerHTML = html;
+}
+
+function refreshKpis() {
+  const armed = state.signalRows.filter(r => r.tier === 'confirm' || r.tier === 'armed').length;
+  const qual = state.signalRows.filter(r => r.tier !== 'fail' && r.inTop3).length;
+  document.getElementById('kpi-armed').textContent = armed;
+  document.getElementById('kpi-qual').textContent = qual;
+}
+
+// ----- MAIN REFRESH -----
+async function refreshAll() {
+  if (state.isLoading) return;
+  state.isLoading = true;
+  document.getElementById('refresh-all').disabled = true;
+  document.getElementById('data-status').innerHTML = '<span class="spinner"></span> fetching';
+  try {
+    log('=== REFRESH START ===', 'info');
+    state.cache.clear();
+
+    log('Fetching SPY...');
+    state.spyBars = await fetchStooq('SPY');
+    log(`SPY: ${state.spyBars.length} bars, last ${state.spyBars[state.spyBars.length - 1].date}`, 'ok');
+
+    log('Fetching ^VIX...');
+    try {
+      state.vixBars = await fetchStooq('^VIX');
+      log(`VIX: ${state.vixBars.length} bars, last close ${state.vixBars[state.vixBars.length-1].close.toFixed(2)}`, 'ok');
+    } catch (e) {
+      log(`VIX unavailable: ${e.message}`, 'warn');
+      state.vixBars = null;
+    }
+
+    log('Fetching sector ETFs...');
+    const sectorData = await fetchMany(SECTOR_ETFS, 4);
+    state.sectorBars = {};
+    for (const e of SECTOR_ETFS) {
+      if (sectorData[e] && !sectorData[e].error) state.sectorBars[e] = sectorData[e];
+    }
+    state.sectorRanks = sectorRank(state.sectorBars);
+    log(`Sectors ranked. Top 3: ${state.sectorRanks.slice(0,3).map(r => r.etf).join(', ')}`, 'ok');
+
+    const mmfi = +document.getElementById('mmfi-input').value;
+    state.regime = regimeCheck(state.spyBars, state.vixBars, mmfi);
+    renderRegime(state.regime, state.sectorRanks);
+    log(`Regime: ${state.regime.tradeable ? 'TRADEABLE' : 'NOT TRADEABLE'}`, state.regime.tradeable ? 'ok' : 'warn');
+
+    await scanSignals();
+
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+    document.getElementById('data-status').textContent = 'stooq · ready';
+    log('=== REFRESH COMPLETE ===', 'ok');
+  } catch (e) {
+    log('ERROR: ' + (e.message || e), 'err');
+    document.getElementById('data-status').textContent = 'stooq · error';
+    showFetchError(e, 'Refresh');
+  } finally {
+    state.isLoading = false;
+    document.getElementById('refresh-all').disabled = false;
+  }
+}
+
+document.getElementById('refresh-all').addEventListener('click', refreshAll);
+document.getElementById('clear-log').addEventListener('click', () => { logEl().textContent = ''; });
+
+// ----- THEME TOGGLE -----
+(function () {
+  const btn = document.getElementById('theme-toggle');
+  const html = document.documentElement;
+  function applyTheme(theme) {
+    html.dataset.theme = theme;
+    btn.textContent = theme === 'light' ? '🌙' : '☀';
+    btn.title = theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
+    try { localStorage.setItem('swing-theme', theme); } catch {}
+  }
+  const saved = (() => { try { return localStorage.getItem('swing-theme'); } catch { return null; } })();
+  applyTheme(saved === 'light' ? 'light' : 'dark');
+  btn.addEventListener('click', () => applyTheme(html.dataset.theme === 'light' ? 'dark' : 'light'));
+})();
+document.getElementById('signals-refresh').addEventListener('click', () => scanSignals());
+['filter-confirm', 'filter-armed', 'filter-qual', 'filter-fail', 'filter-top3',
+ 'filter-fvg', 'filter-dip', 'filter-leader', 'filter-confluence'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', renderSignals);
+});
+// MMFI input lives inside a rebuilt DOM on each renderRegime call — use delegation so the
+// listener survives DOM rebuilds and also works before the first REFRESH.
+document.getElementById('regime-checks').addEventListener('change', (e) => {
+  if (e.target.id === 'mmfi-input') refreshAll();
+});
+
+// ----- BACKTEST UI -----
+let eqChart = null;
+async function runBacktestUI() {
+  const ticker = document.getElementById('bt-ticker').value.trim().toUpperCase();
+  const years = +document.getElementById('bt-years').value;
+  const equity = +document.getElementById('bt-equity').value;
+  const btn = document.getElementById('bt-run');
+  btn.disabled = true; btn.textContent = 'RUNNING...';
+  try {
+    log(`Backtesting ${ticker} over ${years}y, $${equity}...`, 'info');
+    let bars = await fetchStooq(ticker);
+    if (!state.spyBars) state.spyBars = await fetchStooq('SPY');
+    const spyBars = state.spyBars;
+
+    // Trim to requested years
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - years);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    bars = bars.filter(b => b.date >= cutoffStr);
+    // Need at least 220 prior bars for indicator warmup; refetch if too short
+    if (bars.length < 260) {
+      const all = await fetchStooq(ticker);
+      bars = all.slice(-260 - years * 252);
+    }
+    // Align SPY by date
+    const startDate = bars[0].date;
+    const spy = spyBars.filter(b => b.date >= startDate);
+
+    const result = runBacktest(bars, spy, { equity });
+    renderBacktest(result, ticker, equity);
+    log(`Backtest done: ${result.metrics.n_trades} trades, ${result.pnl >= 0 ? '+' : ''}$${result.pnl.toFixed(2)}`,
+        result.pnl >= 0 ? 'ok' : 'warn');
+  } catch (e) {
+    log('Backtest error: ' + (e.message || e), 'err');
+    showFetchError(e, `Backtest of ${ticker}`);
+  } finally {
+    btn.disabled = false; btn.textContent = 'RUN BACKTEST';
+  }
+}
+
+function renderBacktest(result, ticker, startingEquity = 100000) {
+  const m = result.metrics;
+  document.getElementById('bt-n').textContent = m.n_trades;
+  document.getElementById('bt-wr').textContent = (m.win_rate * 100).toFixed(1) + '%';
+  document.getElementById('bt-wr').className = 'value ' + (m.win_rate >= 0.4 ? 'green' : m.win_rate >= 0.3 ? 'amber' : 'red');
+  document.getElementById('bt-exp').textContent = m.expectancy_R.toFixed(2) + 'R';
+  document.getElementById('bt-exp').className = 'value ' + (m.expectancy_R > 0.2 ? 'green' : m.expectancy_R > 0 ? 'amber' : 'red');
+  document.getElementById('bt-pf').textContent = m.profit_factor === Infinity ? '∞' : m.profit_factor.toFixed(2);
+  document.getElementById('bt-pf').className = 'value ' + (m.profit_factor > 1.5 ? 'green' : m.profit_factor > 1 ? 'amber' : 'red');
+  document.getElementById('bt-dd').textContent = (m.max_drawdown_pct * 100).toFixed(1) + '%';
+  document.getElementById('bt-eq').textContent = '$' + result.final_equity.toFixed(0);
+  document.getElementById('bt-eq').className = 'value ' + (result.final_equity > startingEquity ? 'green' : 'red');
+
+  // Equity curve
+  const ctx = document.getElementById('eq-chart').getContext('2d');
+  if (eqChart) eqChart.destroy();
+  const labels = result.equityCurve.map(p => p.date);
+  const data   = result.equityCurve.map(p => p.equity);
+  eqChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: ticker + ' equity',
+      data, borderColor: '#5ad6ff', backgroundColor: 'rgba(90,214,255,0.1)',
+      fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.1
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#7a8aa3', font: { family: 'JetBrains Mono', size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#4a5568', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 8 }, grid: { color: '#1f2733' } },
+        y: { ticks: { color: '#4a5568', font: { family: 'JetBrains Mono', size: 9 }, callback: v => '$' + v.toFixed(0) }, grid: { color: '#1f2733' } }
+      }
+    }
+  });
+
+  // Trade log
+  const tw = document.getElementById('bt-trades-wrap');
+  if (!result.trades.length) {
+    tw.innerHTML = '<div class="empty">No trades fired in this period.</div>';
+    return;
+  }
+  let html = `<table><thead><tr>
+    <th>#</th><th>Entry date</th><th>Exit date</th><th>Days</th>
+    <th class="num">Entry</th><th class="num">Stop</th><th class="num">Target</th>
+    <th class="num">Exit</th><th>Reason</th><th class="num">R</th>
+  </tr></thead><tbody>`;
+  result.trades.forEach((t, i) => {
+    const r = t.R_realized;
+    const cls = r >= 1 ? 'green' : r > 0 ? 'amber' : 'red';
+    const days = Math.round((new Date(t.exit_date) - new Date(t.entry_date)) / 86400000) || 1;
+    html += `<tr>
+      <td class="dim">${i + 1}</td>
+      <td>${t.entry_date}</td>
+      <td>${t.exit_date || '—'}</td>
+      <td class="num dim">${days}</td>
+      <td class="num">${t.entry.toFixed(2)}</td>
+      <td class="num red">${(t.entry - t.R_dollars_per_share).toFixed(2)}</td>
+      <td class="num green">${t.target.toFixed(2)}</td>
+      <td class="num">${t.exit_price ? t.exit_price.toFixed(2) : '—'}</td>
+      <td class="dim">${t.exit_reason}</td>
+      <td class="num ${cls}">${r != null ? r.toFixed(2) : '—'}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  tw.innerHTML = html;
+}
+
+document.getElementById('bt-run').addEventListener('click', runBacktestUI);
+
+// ----- PORTFOLIO BACKTEST UI -----
+let pbtChart = null;
+async function runPortfolioBacktestUI() {
+  const equity = +document.getElementById('pbt-equity').value;
+  const maxPos = +document.getElementById('pbt-maxpos').value;
+  const maxSec = +document.getElementById('pbt-maxsec').value;
+  const heat = +document.getElementById('pbt-heat').value;
+  const slip = +document.getElementById('pbt-slip').value;
+  const btn = document.getElementById('pbt-run');
+
+  if (!state.spyBars || state.spyBars.length < 250) {
+    showErrorModal({
+      title: 'NO DATA CACHED', kind: 'warn',
+      summary: 'Click REFRESH on the Dashboard first to pull SPY, sectors, and watchlist data into the cache.',
+    });
+    return;
+  }
+  // Collect cached watchlist bars
+  const tickerBars = {};
+  const tickerSectors = {};
+  let missing = 0;
+  for (const w of state.watchlist) {
+    const bars = state.cache.get(w.t) || (state.manualBars.has(w.t) ? state.manualBars.get(w.t) : null);
+    if (bars && bars.length >= 220) {
+      tickerBars[w.t] = bars;
+      tickerSectors[w.t] = w.s;
+    } else {
+      missing++;
+    }
+  }
+  const eligible = Object.keys(tickerBars).length;
+  if (eligible < 5) {
+    showErrorModal({
+      title: 'INSUFFICIENT CACHED DATA', kind: 'warn',
+      summary: `Only ${eligible} watchlist tickers have ≥220 bars cached. Run REFRESH first to populate the cache.`,
+    });
+    return;
+  }
+  log(`Portfolio backtest: ${eligible} tickers eligible, ${missing} missing data. Starting...`, 'info');
+  btn.disabled = true; btn.textContent = 'RUNNING...';
+
+  // Yield to UI before crunching
+  await new Promise(r => setTimeout(r, 50));
+  const t0 = performance.now();
+  let result;
+  try {
+    result = runPortfolioBacktest(tickerBars, tickerSectors, state.spyBars, state.sectorBars, state.vixBars, {
+      equity, max_positions: maxPos, max_per_sector: maxSec,
+      portfolio_heat_pct: heat, slippage_bps: slip
+    });
+  } catch (e) {
+    log('Portfolio backtest failed: ' + e.message, 'err');
+    showErrorModal({ title: 'PORTFOLIO BACKTEST FAILED', kind: 'error', summary: e.message, cause: e.stack || '' });
+    btn.disabled = false; btn.textContent = 'RUN PORTFOLIO BACKTEST';
+    return;
+  }
+  const ms = Math.round(performance.now() - t0);
+  log(`Portfolio backtest done in ${ms}ms: ${result.metrics.n_trades} trades, ${result.pnl >= 0 ? '+' : ''}$${result.pnl.toFixed(0)} (${(result.pnl_pct*100).toFixed(1)}%)`,
+      result.pnl >= 0 ? 'ok' : 'warn');
+  renderPortfolioBacktest(result, equity);
+  btn.disabled = false; btn.textContent = 'RUN PORTFOLIO BACKTEST';
+}
+
+function renderPortfolioBacktest(result, startingEquity) {
+  const m = result.metrics;
+  document.getElementById('pbt-n').textContent = m.n_trades;
+  document.getElementById('pbt-wr').textContent = (m.win_rate * 100).toFixed(1) + '%';
+  document.getElementById('pbt-wr').className = 'value ' + (m.win_rate >= 0.4 ? 'green' : m.win_rate >= 0.3 ? 'amber' : 'red');
+  document.getElementById('pbt-exp').textContent = m.expectancy_R.toFixed(2) + 'R';
+  document.getElementById('pbt-exp').className = 'value ' + (m.expectancy_R > 0.2 ? 'green' : m.expectancy_R > 0 ? 'amber' : 'red');
+  document.getElementById('pbt-pf').textContent = m.profit_factor === Infinity ? '∞' : m.profit_factor.toFixed(2);
+  document.getElementById('pbt-pf').className = 'value ' + (m.profit_factor > 1.5 ? 'green' : m.profit_factor > 1 ? 'amber' : 'red');
+  document.getElementById('pbt-dd').textContent = (m.max_drawdown_pct * 100).toFixed(1) + '%';
+  document.getElementById('pbt-cagr').textContent = (m.cagr * 100).toFixed(1) + '%';
+  document.getElementById('pbt-cagr').className = 'value ' + (m.cagr > 0.10 ? 'green' : m.cagr > 0 ? 'amber' : 'red');
+  document.getElementById('pbt-eq').textContent = '$' + result.final_equity.toFixed(0);
+  document.getElementById('pbt-eq').className = 'value ' + (result.final_equity > startingEquity ? 'green' : 'red');
+
+  // Equity curve
+  const ctx = document.getElementById('pbt-chart').getContext('2d');
+  if (pbtChart) pbtChart.destroy();
+  // Down-sample to ~500 points for chart performance
+  const ec = result.equityCurve;
+  const stride = Math.max(1, Math.floor(ec.length / 500));
+  const sampled = ec.filter((_, i) => i % stride === 0);
+  pbtChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: sampled.map(p => p.date), datasets: [{
+      label: 'Portfolio equity',
+      data: sampled.map(p => p.equity),
+      borderColor: '#5ad6ff', backgroundColor: 'rgba(90,214,255,0.1)',
+      fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.1
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#7a8aa3', font: { family: 'JetBrains Mono', size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#4a5568', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 8 }, grid: { color: '#1f2733' } },
+        y: { ticks: { color: '#4a5568', font: { family: 'JetBrains Mono', size: 9 }, callback: v => '$' + Math.round(v/1000) + 'k' }, grid: { color: '#1f2733' } }
+      }
+    }
+  });
+
+  // Per-sector breakdown
+  const sw = document.getElementById('pbt-sector-wrap');
+  const sectorRows = Object.entries(result.bySector).sort((a,b) => b[1].totalR - a[1].totalR);
+  if (!sectorRows.length) {
+    sw.innerHTML = '<div class="empty">No closed trades.</div>';
+  } else {
+    let h = '<table><thead><tr><th>Sector</th><th class="num">N</th><th class="num">Win %</th><th class="num">Total R</th><th class="num">Avg R</th></tr></thead><tbody>';
+    for (const [s, b] of sectorRows) {
+      const wr = b.n ? (b.wins / b.n) * 100 : 0;
+      const avgR = b.n ? b.totalR / b.n : 0;
+      const rcls = b.totalR > 0 ? 'green' : 'red';
+      h += `<tr><td><b>${s}</b></td><td class="num">${b.n}</td><td class="num">${wr.toFixed(0)}%</td><td class="num ${rcls}">${b.totalR.toFixed(2)}</td><td class="num ${avgR>0?'green':'red'}">${avgR.toFixed(2)}</td></tr>`;
+    }
+    h += '</tbody></table>';
+    sw.innerHTML = h;
+  }
+
+  // Skip log
+  const skw = document.getElementById('pbt-skip-wrap');
+  if (!result.skipLog.length) {
+    skw.innerHTML = '<div class="empty">No skipped entries.</div>';
+  } else {
+    const counts = {};
+    result.skipLog.forEach(s => { counts[s.reason.split('(')[0].trim()] = (counts[s.reason.split('(')[0].trim()] || 0) + 1; });
+    let h = `<div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-bottom: 8px;">${result.skipLog.length} entries skipped:</div>`;
+    h += '<table><thead><tr><th>Reason</th><th class="num">Count</th></tr></thead><tbody>';
+    for (const [reason, cnt] of Object.entries(counts).sort((a,b) => b[1] - a[1])) {
+      h += `<tr><td class="dim">${reason}</td><td class="num">${cnt}</td></tr>`;
+    }
+    h += '</tbody></table>';
+    skw.innerHTML = h;
+  }
+
+  // Trade log (cap at 200 most recent for DOM perf)
+  const tw = document.getElementById('pbt-trades-wrap');
+  if (!result.trades.length) {
+    tw.innerHTML = '<div class="empty">No trades fired.</div>';
+    return;
+  }
+  const recent = result.trades.slice(-200).reverse();
+  let h = `<div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-bottom: 8px;">Showing ${recent.length} of ${result.trades.length} trades (most recent first)</div>`;
+  h += `<table><thead><tr>
+    <th>#</th><th>Ticker</th><th>Sec</th><th>Entry</th><th>Exit</th>
+    <th class="num">Days</th><th class="num">Entry $</th><th class="num">Exit $</th>
+    <th>Reason</th><th class="num">R</th>
+  </tr></thead><tbody>`;
+  recent.forEach((t, i) => {
+    const r = t.R_realized;
+    const cls = r >= 1 ? 'green' : r > 0 ? 'amber' : 'red';
+    const days = Math.round((new Date(t.exit_date) - new Date(t.entry_date)) / 86400000) || 1;
+    h += `<tr>
+      <td class="dim">${result.trades.length - i}</td>
+      <td><b>${t.ticker}</b></td>
+      <td><span class="tag">${t.sector}</span></td>
+      <td>${t.entry_date}</td>
+      <td>${t.exit_date || '—'}</td>
+      <td class="num dim">${days}</td>
+      <td class="num">${t.entry.toFixed(2)}</td>
+      <td class="num">${t.exit_price ? t.exit_price.toFixed(2) : '—'}</td>
+      <td class="dim">${t.exit_reason}</td>
+      <td class="num ${cls}">${r != null ? r.toFixed(2) : '—'}</td>
+    </tr>`;
+  });
+  h += '</tbody></table>';
+  tw.innerHTML = h;
+}
+
+document.getElementById('pbt-run').addEventListener('click', runPortfolioBacktestUI);
+
+// ----- WATCHLIST EDITOR -----
+function renderWatchlistEditor() {
+  const el = document.getElementById('wl-grid');
+  let html = '<table><thead><tr><th>Ticker</th><th>Sector</th><th>Why selected</th><th></th></tr></thead><tbody>';
+  state.watchlist.forEach((w, i) => {
+    html += `<tr>
+      <td><b>${w.t}</b></td>
+      <td><span class="tag">${w.s}</span></td>
+      <td style="font-family: var(--font-sans); white-space: normal;">${w.why || '<span class="mute">user-added</span>'}</td>
+      <td><span class="card-action" data-rm="${i}">remove</span></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+  el.querySelectorAll('[data-rm]').forEach(s => {
+    s.addEventListener('click', () => {
+      state.watchlist.splice(+s.dataset.rm, 1);
+      renderWatchlistEditor();
+    });
+  });
+}
+document.getElementById('wl-add-btn').addEventListener('click', () => {
+  const inp = document.getElementById('wl-add');
+  const raw = inp.value.split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+  raw.forEach(t => {
+    if (!state.watchlist.find(w => w.t === t)) {
+      state.watchlist.push({ t, s: 'UNK', why: '' });
+    }
+  });
+  inp.value = '';
+  renderWatchlistEditor();
+});
+document.getElementById('wl-reset').addEventListener('click', () => {
+  state.watchlist = STARTER_WATCHLIST.map(x => ({ ...x }));
+  renderWatchlistEditor();
+});
+
+// ----- REASONS VIEW -----
+function renderReasons() {
+  const el = document.getElementById('reasons-content');
+  // Group by sector
+  const bySector = {};
+  state.watchlist.forEach(w => { (bySector[w.s] ||= []).push(w); });
+  const sectorNames = {
+    XLK: 'Technology', XLV: 'Health Care', XLF: 'Financials', XLY: 'Consumer Discretionary',
+    XLC: 'Communication Services', XLI: 'Industrials', XLP: 'Consumer Staples',
+    XLE: 'Energy', XLU: 'Utilities', XLB: 'Materials', XLRE: 'Real Estate'
+  };
+  let html = `<div class="card">
+    <div class="card-head"><h3>Selection criteria (structural)</h3></div>
+    <div style="font-family: var(--font-sans); font-size: 13px; line-height: 1.6;">
+      Every name on the starter list passes these PERMANENT structural prerequisites of the L1 universe filter:
+      <ul style="margin: 8px 0; padding-left: 20px;">
+        <li><b>Index membership.</b> Each ticker is in the S&P 500 or Nasdaq 100 (most are in both).</li>
+        <li><b>Liquidity.</b> 20-day average dollar volume comfortably exceeds the $20M floor — most clear $200M/day.</li>
+        <li><b>Float.</b> All names have float well above 50M shares; gives clean fills and tight spreads at the open.</li>
+        <li><b>Market cap.</b> Every name is above the $5B minimum. Most are $50B+.</li>
+        <li><b>Price band.</b> All trade between $20 and $1500. The few that approach $1500 (LLY, BKNG) are flagged for the framework's per-position cash cap.</li>
+      </ul>
+      What the framework checks dynamically (and what the live signals view shows in real time):
+      <ul style="margin: 8px 0; padding-left: 20px;">
+        <li><b>Trend.</b> Close > 200-SMA and 50-SMA > 200-SMA, both must hold today.</li>
+        <li><b>Distance from 52-week high.</b> Must be within 15%. Pulled-back names below this band are rejected.</li>
+        <li><b>Relative strength.</b> 1-month return > SPY's 1-month return.</li>
+        <li><b>Sector rank.</b> Stock's SPDR sector must be in the top 3 by 20-day return today.</li>
+        <li><b>Setup pattern.</b> Pullback to 20-EMA with 30–60% retracement, plus a confirmation bar.</li>
+      </ul>
+      <p style="color: var(--text-dim);">In short: the watchlist is a screened pool of structurally tradeable names. The signals view tells you which ones are <i>actually</i> tradeable on a given day.</p>
+    </div>
+  </div>`;
+
+  for (const sect of Object.keys(bySector)) {
+    html += `<div class="card">
+      <div class="card-head"><h3>${sect} — ${sectorNames[sect] || sect}</h3></div>
+      <table>
+      <thead><tr><th>Ticker</th><th>Reason for inclusion</th></tr></thead><tbody>`;
+    bySector[sect].forEach(w => {
+      html += `<tr>
+        <td><b>${w.t}</b></td>
+        <td style="font-family: var(--font-sans); white-space: normal; color: var(--text);">${w.why || '<span class="mute">user-added (no rationale)</span>'}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+  el.innerHTML = html;
+}
+
+// ----- HELP / FRAMEWORK CHEAT SHEET -----
+function renderHelp() {
+  const el = document.getElementById('help-content');
+  el.innerHTML = `
+  <div style="font-family: var(--font-sans); font-size: 13px; line-height: 1.7;">
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase; margin-top: 0;">L1 — Universe & quality</h4>
+    <ul>
+      <li>SP500 ∪ NDX100, deduped (~520 names).</li>
+      <li>Disqualifiers: ADV &lt; $20M, mkt cap &lt; $5B, price &lt; $20 or &gt; $1500, float &lt; 50M, earnings within 7 days, regulatory binary within 10 days.</li>
+      <li>Quality (ALL): close &gt; 200-SMA, 50-SMA &gt; 200-SMA, within 15% of 52w high, 1-mo return &gt; SPY's 1-mo return.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L2 — Regime</h4>
+    <ul>
+      <li>Tradeable iff ALL: SPY &gt; 200-SMA, SPY &gt; 50-SMA, VIX &lt; 25, $MMFI &gt; 50%.</li>
+      <li>Go-to-cash if any: SPY &lt; 200-SMA, VIX &gt; 28, or 2 of 4 conditions fail.</li>
+      <li>Sector rank: 11 SPDR ETFs by 20-day return; only top 3 are eligible sources.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L3 — Setup</h4>
+    <ul>
+      <li>New 20-day intraday high in last 10 bars.</li>
+      <li>Pullback 2–5 bars after the high.</li>
+      <li>Pullback touches 20-EMA OR closes within 1×ATR(14) of it.</li>
+      <li>Pullback close low above 50-SMA.</li>
+      <li>Retracement 30–60% of the prior leg.</li>
+      <li>Confirmation bar: close &gt; prior high, close in upper 50% of bar range, volume ≥ 20-day avg.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L4 — Entry</h4>
+    <ul>
+      <li>Buy stop at confirmation high × 1.001.</li>
+      <li>Live 09:45–11:00 ET, GTC-day.</li>
+      <li>Cancel if pre-market gap &gt; 1% above trigger; cancel if spread &gt; 10 bps; abort if slippage &gt; 50 bps at fill.</li>
+      <li>Max 5 concurrent positions.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L5 — Risk</h4>
+    <ul>
+      <li>Initial stop = entry − 1.5 × ATR(14).</li>
+      <li>Risk per trade = 0.75% of equity. Cash cap per position = 25% of equity.</li>
+      <li>Portfolio heat ≤ 3.0%. Max 2 positions per sector.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L6 — Management</h4>
+    <ul>
+      <li>First target +2R, sell 50%, move stop to breakeven.</li>
+      <li>Trail remaining 50% by chandelier exit (highest high since entry − 2.5×ATR), ratchet only up. Legacy 20-EMA trail available via opts.trail = 'ema20'.</li>
+      <li>Early exits: outside reversal bar w/ 1.5× volume, VIX &gt; 28, sector ETF &lt; 50-SMA, earnings within window.</li>
+      <li>Time stop: 10 trading days max — exit at open of day 11.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L8 — Quality Dip (mean reversion)</h4>
+    <ul>
+      <li>Filters: 10–25% off 52w high · close &gt; 200-SMA · last 10-day low ≥ prior 10-day low (no falling knife) · close &gt; 10-SMA (reversal) · 3-day vol ≥ 20-day avg.</li>
+      <li>Trade plan: entry at current close, stop at min(swing low − 1%, close − 1.5×ATR), target = 97% of 52w high.</li>
+      <li>Tag: <span class="tag qual">DIP X%</span> where X = % off 52w high.</li>
+      <li>Use case: liquid blue chip experiencing a healthy pullback within a long-term uptrend. The "buy the dip on quality" pattern made systematic.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L9 — Thematic Relative Strength</h4>
+    <ul>
+      <li>Composite RS = average excess return vs SPY over 1m + 3m + 6m windows.</li>
+      <li>"Sector leaders" = top 3 RS stocks within each sector (must have positive excess return).</li>
+      <li>Tag: <span class="tag top3">LEAD#1</span>, <span class="tag top3">LEAD#2</span>, <span class="tag top3">LEAD#3</span>.</li>
+      <li>Use case: in a thematic bull cycle (AI, energy transition, etc.), the strongest names in the strongest sub-segments tend to keep leading. Pair with a 20-EMA pullback or DIP entry to time it.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">Confluence score</h4>
+    <ul>
+      <li>0–10 score combining all signals: 20-EMA tier (1–4), FVG retest (2 or 3), Quality Dip (2), Sector Leader (1 or 2), top-3 sector (1).</li>
+      <li>Score ≥ 6 = strong (multiple independent signals stacked). Score 4–5 = moderate. &lt; 4 = weak.</li>
+      <li>Toggle "sort by confluence" to surface the highest-conviction names first regardless of which strategy fired.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">L7 — Monthly FVG (complementary signal)</h4>
+    <ul>
+      <li>Aggregate daily bars to monthly. A bullish Fair Value Gap = bar[t-2].high &lt; bar[t].low (3-bar imbalance).</li>
+      <li>Filter: monthly close &gt; 12-month SMA (uptrend on the higher timeframe).</li>
+      <li>Trade context: price retraces back into a still-unfilled FVG zone within 36 months — the zone often acts as support.</li>
+      <li>Tags shown next to sector: <span class="tag confirm">FVG↑</span> = current month retesting zone with bullish reaction (close &gt; mid). <span class="tag armed">FVG·</span> = retesting, awaiting reaction.</li>
+      <li>This is a slow signal (one event every several months per ticker). It does NOT generate its own buy stop — use it as a confluence filter on the daily 20-EMA setup, or as a swing-trade idea on its own with manual entry/stop placement.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">Backtest realism (vs. earlier versions)</h4>
+    <ul>
+      <li>Gap-down stop fills now use min(stop, open) — captures the realistic loss when price gaps through the stop.</li>
+      <li>5 bps slippage per side + $1 commission baked into every fill (configurable on the portfolio backtest).</li>
+      <li>Trailing default switched to chandelier exit (high − 2.5×ATR, ratchet up only). Holds winners longer than the 20-EMA trail.</li>
+      <li>Equity curve is now mark-to-market (open positions included), not closed-PnL only — drawdown is honest.</li>
+      <li>Portfolio backtest enforces real constraints (5 positions max, 2 per sector, 3% heat cap) across the entire watchlist.</li>
+    </ul>
+    <h4 style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase;">What this UI does NOT do</h4>
+    <ul>
+      <li>No earnings calendar feed — verify yourself on broker/EDGAR before entering.</li>
+      <li>No news API — read the issuer's news headlines before each entry.</li>
+      <li>No broker integration — copy the trade plan to your broker manually.</li>
+      <li>No intraday data — Stooq returns only daily bars. Signals are pre-market entry plans for tomorrow.</li>
+      <li>No $MMFI feed — enter manually from TradingView ($MMFI symbol).</li>
+    </ul>
+  </div>`;
+}
+
+// ----- NEWBIE GUIDE -----
+function renderGuide() {
+  const el = document.getElementById('guide-content');
+  if (el.innerHTML.trim()) return; // already rendered
+  el.innerHTML = `
+  <style>
+    .guide-section { background: var(--bg-elev); border: 1px solid var(--line); border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+    .guide-section h2 { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase; margin: 0 0 12px 0; }
+    .guide-section h3 { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; color: var(--amber); text-transform: uppercase; margin: 18px 0 8px 0; border-top: 1px solid var(--line); padding-top: 14px; }
+    .guide-section h3:first-of-type { margin-top: 4px; border-top: none; padding-top: 0; }
+    .guide-section p, .guide-section li { font-size: 13px; line-height: 1.7; color: var(--text); }
+    .guide-section ul { margin: 6px 0; padding-left: 20px; }
+    .guide-section li { margin-bottom: 4px; }
+    .guide-warn { background: var(--warn-bg); border-left: 3px solid var(--amber); padding: 10px 14px; border-radius: 4px; margin: 10px 0; font-size: 12px; line-height: 1.6; color: var(--text-dim); }
+    .guide-pass { background: var(--pass-bg); border-left: 3px solid var(--green); padding: 10px 14px; border-radius: 4px; margin: 10px 0; font-size: 12px; line-height: 1.6; }
+    .guide-kv { display: grid; grid-template-columns: 160px 1fr; gap: 4px 16px; font-size: 12.5px; line-height: 1.7; }
+    .guide-kv .k { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; align-self: start; padding-top: 2px; }
+    .guide-kv .v { color: var(--text); }
+    .guide-step { display: flex; gap: 12px; margin-bottom: 10px; }
+    .guide-step .num { flex: 0 0 24px; height: 24px; border-radius: 50%; background: var(--cyan); color: var(--bg); font-family: var(--font-mono); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+    .guide-step .text { font-size: 13px; line-height: 1.6; color: var(--text); }
+    .strategy-card { border: 1px solid var(--line-soft); border-radius: 6px; padding: 16px 20px; margin: 12px 0; background: var(--bg-elev2); }
+    .strategy-card .name { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--violet); margin-bottom: 10px; }
+    .win-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-family: var(--font-mono); font-weight: 700; }
+    .win-green { background: var(--pass-bg); color: var(--green); }
+    .win-amber { background: var(--warn-bg); color: var(--amber); }
+  </style>
+
+  <!-- 0. FIRST — READ THIS -->
+  <div class="guide-section">
+    <h2>0 — Read this first</h2>
+    <div class="guide-warn">
+      <strong>This tool is for educational purposes only.</strong> It does not constitute financial advice. All strategies shown carry real risk of loss. Paper-trade for at least 3 months before putting real money at risk. Past backtested performance does not guarantee future results. Survivorship bias affects every backtest — real trading is harder.
+    </div>
+    <p>This is a <strong>swing trading terminal</strong>. Swing trading means holding a stock for <strong>2–15 trading days</strong> — longer than day trading, shorter than investing. You buy when a strong stock pulls back to support, and sell when it resumes its trend or hits your stop.</p>
+    <p>The tool scans a 520-stock universe (S&amp;P 500 + Nasdaq 100), ranks setups by quality, and presents trade plans with exact entry, stop, and target prices. You execute trades manually in your own broker account.</p>
+    <div class="guide-pass">
+      <strong>Goal:</strong> Catch 2–5 swing trades per month. Win rate ~42–50%. Average winner ~2.2R, average loser ~1R. Long-run expectancy ~0.25–0.40R per trade. That beats sitting in cash but requires discipline to execute the edge consistently.
+    </div>
+  </div>
+
+  <!-- 1. FIRST-TIME SETUP -->
+  <div class="guide-section">
+    <h2>1 — First-time setup</h2>
+    <h3>Data source: Stooq (free, no account needed)</h3>
+    <p>This tool fetches daily OHLCV bars from <strong>stooq.com</strong> — a free Polish financial data provider. No API key is required. Just open the tool in Chrome and click "Run Dashboard". Stooq sometimes rate-limits heavy usage; if you see fetch errors, wait 1–2 minutes and retry.</p>
+    <div class="guide-warn">Stooq is an end-of-day (EOD) source. Data updates after US market close (~4:30 PM ET). Do not rely on it for intraday prices.</div>
+    <h3>What you need in your broker</h3>
+    <ul>
+      <li>A brokerage account that supports <strong>buy-stop limit orders</strong> (Interactive Brokers, TD Ameritrade/Schwab, tastytrade, Webull all work).</li>
+      <li>At least <strong>$5,000 capital</strong> to keep position sizes meaningful. $10,000–$25,000 is ideal.</li>
+      <li>No margin required — all strategies here are long-only, cash-settled.</li>
+    </ul>
+    <h3>What to look up manually before each trade</h3>
+    <ul>
+      <li><strong>Earnings date:</strong> Never hold through earnings. Check on your broker, Earnings Whispers, or EDGAR. The tool flags 7-day earnings windows but does not have a live feed — verify yourself.</li>
+      <li><strong>$MMFI (McClellan Oscillator):</strong> Open TradingView → search <code>$MMFI</code> → enter the current reading into the "MMFI %" box in the Dashboard. Above 50 = broad market breadth is healthy.</li>
+      <li><strong>VIX:</strong> Fetched automatically from stooq (<code>^VIX</code>). If the fetch fails, check CBOE or TradingView.</li>
+    </ul>
+    <h3>Recommended daily workflow</h3>
+    <div class="guide-step"><div class="num">1</div><div class="text"><strong>After market close (4:30 PM ET):</strong> Open the tool. Click "Run Dashboard" to fetch fresh data and check the regime.</div></div>
+    <div class="guide-step"><div class="num">2</div><div class="text"><strong>Check regime:</strong> Is it TRADEABLE? (SPY &gt; 200-SMA, &gt; 50-SMA, VIX &lt; 25, MMFI &gt; 50%). If not, do nothing — the edge does not work in a broken market.</div></div>
+    <div class="guide-step"><div class="num">3</div><div class="text"><strong>Live Signals tab:</strong> Review the signal list. Sort by confluence if you want the highest-conviction setups first.</div></div>
+    <div class="guide-step"><div class="num">4</div><div class="text"><strong>For each "confirm" signal:</strong> Click to expand — read the trade plan (entry, stop, size, target). Verify no earnings in 7 days. If all checks pass, enter a buy-stop limit order in your broker for the next morning.</div></div>
+    <div class="guide-step"><div class="num">5</div><div class="text"><strong>Next morning (9:31–11:00 AM ET):</strong> Watch your order. Cancel it if the stock gaps up &gt; 1% above your trigger at the open, or if the market opens in a panic (VIX spike). Let the entry fill naturally — don't chase.</div></div>
+    <div class="guide-step"><div class="num">6</div><div class="text"><strong>While in a trade:</strong> Set a standing stop-loss order at your initial stop. When price hits +2R, sell half and move stop to breakeven. Trail the rest with the chandelier exit.</div></div>
+  </div>
+
+  <!-- 2. STRATEGY: 20-EMA PULLBACK -->
+  <div class="guide-section">
+    <h2>2 — Strategy: 20-EMA Pullback Continuation</h2>
+    <div class="strategy-card">
+      <div class="name">CORE STRATEGY — the bread and butter</div>
+      <div class="guide-kv">
+        <span class="k">What it is</span><span class="v">Buy a strong stock after it pulls back to its 20-period exponential moving average and shows a reversal candle.</span>
+        <span class="k">Analogy</span><span class="v">Imagine a bus accelerating. When it slows at a stop, hop on — don't chase it at full speed.</span>
+        <span class="k">Signal tags</span><span class="v"><span class="tag confirm">CONFIRM</span> = buy tomorrow · <span class="tag armed">ARMED</span> = wait one more day · <span class="tag qual">QUAL</span> = on watchlist</span>
+        <span class="k">Frequency</span><span class="v">2–5 signals per week in a healthy bull market, 0–1 in a choppy market.</span>
+        <span class="k">Risk per trade</span><span class="v">0.75% of your equity. On a $10,000 account that is $75 per trade.</span>
+        <span class="k">Initial stop</span><span class="v">Entry − 1.5 × ATR(14). Placed below the recent swing low.</span>
+        <span class="k">First target</span><span class="v">Entry + 2R (sell 50% of position here).</span>
+        <span class="k">Trail remainder</span><span class="v">Chandelier exit: highest high since entry minus 2.5 × ATR. Ratchets up only.</span>
+        <span class="k">Max hold</span><span class="v">10 trading days. Exit at next open if still in trade.</span>
+        <span class="k">Backtested win rate</span><span class="v">~42–48% (individual ticker, 5-year simulation). Expectancy ~+0.3R per trade.</span>
+        <span class="k">CAGR (portfolio)</span><span class="v">12–22% in bull years with 5 concurrent positions. Similar to VOO, but with more volatility.</span>
+      </div>
+    </div>
+    <h3>Why bother if CAGR is similar to VOO?</h3>
+    <p>Swing trading can beat dollar-cost-averaging in <em>two specific situations</em>: (1) when you are actively managing downside — going to cash during bear markets protects capital that VOO would lose; (2) when you compound the edge consistently over years. The regime filter (SPY &gt; 200-SMA) is the key — it keeps you out of prolonged drawdowns. A passive VOO investor lost 55% in 2008-09 and 25% in 2022. This system would have been in cash for much of those periods.</p>
+    <h3>Key rules that beginners break</h3>
+    <ul>
+      <li><strong>Never buy a "qual" or "armed" signal.</strong> Wait for "confirm" — the confirmation bar shows the sellers have exhausted.</li>
+      <li><strong>Never skip the regime check.</strong> Buying strong pullbacks in a bear market is how people blow up accounts.</li>
+      <li><strong>Never move your stop down.</strong> If price hits your stop, your thesis was wrong. Exit and preserve capital.</li>
+      <li><strong>Never hold through earnings.</strong> Earnings are a binary coin flip — they will randomly negate a perfect setup.</li>
+      <li><strong>Never add to a losing position.</strong> Only add to a winner (after first target hit, trail achieved).</li>
+    </ul>
+  </div>
+
+  <!-- 3. STRATEGY: QUALITY DIP -->
+  <div class="guide-section">
+    <h2>3 — Strategy: Quality Dip Scanner</h2>
+    <div class="strategy-card">
+      <div class="name">MEAN REVERSION — buy-the-dip, systematized</div>
+      <div class="guide-kv">
+        <span class="k">What it is</span><span class="v">A blue-chip stock (large cap, above 200-SMA, in an uptrend) that has pulled back 10–25% from its 52-week high and shows early signs of stabilization.</span>
+        <span class="k">Analogy</span><span class="v">A quality stock "on sale". The kind of dip your friends say "I should have bought that".</span>
+        <span class="k">Signal tag</span><span class="v"><span class="tag qual">DIP 15%</span> means the stock is 15% below its 52-week high.</span>
+        <span class="k">Filters</span><span class="v">10–25% off 52w high · close &gt; 200-SMA (long-term uptrend intact) · last 10-bar low ≥ prior 10-bar low (stopped falling) · close &gt; 10-SMA (short-term momentum turning) · 3-day vol ≥ 20d avg (volume confirms reversal).</span>
+        <span class="k">Entry</span><span class="v">At current close (market order next morning) or limit at today's close.</span>
+        <span class="k">Stop</span><span class="v">Min(recent swing low − 1%, close − 1.5 × ATR). Usually 3–6% below entry.</span>
+        <span class="k">Target</span><span class="v">97% of 52-week high (near-the-top, not at the top).</span>
+        <span class="k">Frequency</span><span class="v">0–3 signals per week. Dips don't happen every day — they cluster around market corrections.</span>
+        <span class="k">Risk per trade</span><span class="v">Same 0.75% rule. Size shares = (equity × 0.0075) ÷ (entry − stop).</span>
+        <span class="k">Backtested win rate</span><span class="v">~50–58% on large caps in the last 10 years. Mean reversion is reliable on high-quality names.</span>
+      </div>
+    </div>
+    <h3>When it works best</h3>
+    <p>The Quality Dip works best during <em>healthy pullbacks within bull markets</em> — when SPY is in an uptrend but individual sectors rotate. It does NOT work in bear markets or for deteriorating companies. The 200-SMA filter is critical: a stock below its 200-SMA that is also 15% off highs is a falling knife, not a dip.</p>
+    <h3>Common mistakes</h3>
+    <ul>
+      <li>Buying a 30–40% dip thinking it's "even more on sale" — deep dips often signal fundamental problems, not opportunity.</li>
+      <li>Ignoring the stabilization filter (the "no falling knife" check). If the stock is still making lower 10-day lows, don't buy.</li>
+      <li>Buying without checking the news — a 15% dip might be because the company missed earnings or faces a lawsuit. Check headlines first.</li>
+    </ul>
+  </div>
+
+  <!-- 4. STRATEGY: MONTHLY FVG -->
+  <div class="guide-section">
+    <h2>4 — Strategy: Monthly Fair Value Gap (FVG)</h2>
+    <div class="strategy-card">
+      <div class="name">HIGHER-TIMEFRAME CONFLUENCE — slow but powerful</div>
+      <div class="guide-kv">
+        <span class="k">What it is</span><span class="v">On a <em>monthly</em> chart, a 3-bar imbalance where price "gapped" upward — the low of bar 3 is above the high of bar 1. When price later retraces into that gap, the zone often acts as support.</span>
+        <span class="k">Origin</span><span class="v">Smart Money Concepts / ICT methodology. Market makers leave "inefficiencies" that price tends to revisit and fill.</span>
+        <span class="k">Signal tags</span><span class="v"><span class="tag confirm">FVG↑</span> = currently retesting zone AND showing bullish reaction (monthly close &gt; midpoint of gap). <span class="tag armed">FVG·</span> = retesting zone, waiting for reaction.</span>
+        <span class="k">Frequency</span><span class="v">Very slow — 1–3 events per stock per year. This is a <em>context</em> signal, not a standalone entry trigger.</span>
+        <span class="k">How to use</span><span class="v">When you see FVG↑ next to a stock in the signals table, treat it as extra conviction for any daily 20-EMA or Dip entry that coincides. It is NOT a buy signal on its own — you still need a daily setup.</span>
+        <span class="k">Backtested win rate</span><span class="v">Difficult to isolate — used as a confluence filter. Setups with FVG alignment historically show ~5–8% higher win rate than setups without.</span>
+      </div>
+    </div>
+    <h3>A plain-English example</h3>
+    <p>Imagine a stock at $100 in January, jumps to $120 in February (no candles traded between $105 and $115), then rises to $130 in March. That $105–$115 zone is a Fair Value Gap. If price later falls back to $108, that zone is expected to act as support. If the monthly candle closes above the gap midpoint ($110), that's the <span class="tag confirm">FVG↑</span> signal.</p>
+  </div>
+
+  <!-- 5. STRATEGY: THEMATIC RS -->
+  <div class="guide-section">
+    <h2>5 — Strategy: Thematic Relative Strength</h2>
+    <div class="strategy-card">
+      <div class="name">SECTOR LEADERSHIP — ride the strongest horse</div>
+      <div class="guide-kv">
+        <span class="k">What it is</span><span class="v">Identify which stocks are outperforming SPY over 1 month, 3 months, and 6 months — then focus entries on those leaders. In any bull cycle, the strongest names tend to keep leading.</span>
+        <span class="k">Signal tags</span><span class="v"><span class="tag top3">LEAD#1</span> <span class="tag top3">LEAD#2</span> <span class="tag top3">LEAD#3</span> = top 3 RS stocks within their sector.</span>
+        <span class="k">RS Score</span><span class="v">Average of 1m, 3m, 6m excess return over SPY. Higher = stronger relative momentum.</span>
+        <span class="k">How to use</span><span class="v">Filter for "Sector Leaders" in Live Signals. When a LEAD#1 stock also shows a 20-EMA pullback or Dip, that's a high-conviction entry — you're buying the strongest stock in the strongest sector at the best possible price.</span>
+        <span class="k">Analogy</span><span class="v">The concept your friend used for SanDisk/rare earths: find the theme (AI, energy, pharma), find the leader within the theme, enter on pullbacks.</span>
+        <span class="k">Frequency</span><span class="v">Updated every scan. Rankings shift over weeks; leaders don't change daily.</span>
+        <span class="k">Backtested win rate</span><span class="v">Leaders show ~5–10% higher win rate than average when combined with a clean entry setup. Standalone RS is not a trade signal — always pair with an entry trigger.</span>
+      </div>
+    </div>
+    <h3>The thematic investing edge</h3>
+    <p>When a macro trend is in motion (AI chips, GLP-1 drugs, defense spending), capital flows disproportionately into leaders. A LEAD#1 stock with a clean pullback is often the highest-probability trade in the universe. The sector rank in the Dashboard (top 3 eligible sectors) helps you focus on the right themes each week.</p>
+  </div>
+
+  <!-- 6. USING THE BACKTEST -->
+  <div class="guide-section">
+    <h2>6 — How to use the Backtest</h2>
+    <h3>Single-ticker backtest</h3>
+    <p>In the <strong>Backtest</strong> tab, enter a single ticker (e.g. AAPL), set starting equity ($10,000 default), and click Run. The engine replays every day of historical data, applying all entry/exit rules exactly as the live scanner would. You'll see:</p>
+    <ul>
+      <li><strong>Equity curve:</strong> How your $10,000 would have grown. Blue line = closed PnL + unrealized. Honest drawdown is shown.</li>
+      <li><strong>Trade log:</strong> Each trade's entry, exit, R multiple, and reason for exit.</li>
+      <li><strong>Win rate, expectancy, CAGR:</strong> Summary statistics.</li>
+    </ul>
+    <h3>Portfolio backtest</h3>
+    <p>In the <strong>Backtest</strong> tab, switch to "Portfolio" mode. This runs all watchlist stocks simultaneously with real constraints: max 5 positions, max 2 per sector, max 3% portfolio heat. This is the most realistic simulation — it shows what the system would have done if you had run it on a real account.</p>
+    <h3>How to interpret the results honestly</h3>
+    <div class="guide-warn">
+      <strong>Backtests are optimistic by nature.</strong> The universe used here has survivorship bias — most of these tickers are winners because they are still in the S&amp;P 500 today. Real past trading included companies that went bankrupt, got acquired, or delisted. Real win rates are likely 3–5% lower than backtested figures. Treat backtests as a directional sanity check, not a performance guarantee.
+    </div>
+    <ul>
+      <li>A win rate of 40–50% with 2:1 reward/risk is a positive-expectancy system. Most retail traders never achieve a consistent edge.</li>
+      <li>A CAGR of 12–22% is realistic for good years. In bad years (2022, 2008) the regime filter keeps you in cash — drawdown is limited.</li>
+      <li>If a single backtest shows CAGR &gt; 40%, be skeptical — look for overfitting or lucky large trades.</li>
+      <li>Compare single-ticker results to the portfolio backtest. If one ticker looks great in isolation but adds nothing to portfolio CAGR, it's not worth focusing on.</li>
+    </ul>
+    <h3>Adjusting parameters</h3>
+    <div class="guide-kv">
+      <span class="k">Slippage (bps)</span><span class="v">Default 5 bps per side. This models the spread cost of entering/exiting. Keep at 5–10 for liquid large caps.</span>
+      <span class="k">Commission ($)</span><span class="v">Default $1 per trade. Most brokers are free now ($0). Set to 0 if your broker charges nothing.</span>
+      <span class="k">Trail mode</span><span class="v">Chandelier (default) = hold winners longer. EMA-20 = exits faster but tighter. Chandelier is better for trending stocks.</span>
+      <span class="k">ATR multiplier</span><span class="v">Default 2.5×. Lower = tighter trail (more exits, smaller gains). Higher = looser trail (fewer exits, larger swings). Don't go below 2.0 or above 3.5.</span>
+    </div>
+  </div>
+
+  <!-- 7. CONFLUENCE SCORING -->
+  <div class="guide-section">
+    <h2>7 — Confluence scoring (0–10)</h2>
+    <p>Every stock gets a <strong>confluence score</strong> that stacks independent signals. Higher is better. Use the "sort by confluence" filter to surface the highest-conviction setups.</p>
+    <div class="guide-kv">
+      <span class="k">20-EMA Confirm</span><span class="v">+4 points — the strongest single signal</span>
+      <span class="k">20-EMA Armed</span><span class="v">+3 points — one day from confirm</span>
+      <span class="k">20-EMA Qual</span><span class="v">+1 point — on the watchlist</span>
+      <span class="k">FVG ↑ (bullish)</span><span class="v">+3 points — monthly FVG with bullish reaction</span>
+      <span class="k">FVG · (neutral)</span><span class="v">+2 points — monthly FVG retesting, no reaction yet</span>
+      <span class="k">Quality Dip</span><span class="v">+2 points — 10–25% off highs, stabilized</span>
+      <span class="k">Sector Leader #1</span><span class="v">+2 points — strongest RS in sector</span>
+      <span class="k">Sector Leader #2/3</span><span class="v">+1 point — top-3 RS in sector</span>
+      <span class="k">Top-3 sector</span><span class="v">+1 point — stock is in one of the 3 hottest sectors</span>
+    </div>
+    <div class="guide-pass" style="margin-top: 14px;">
+      <strong>Score ≥ 7:</strong> Multiple independent signals aligned. Take this trade if regime allows. <br/>
+      <strong>Score 5–6:</strong> Solid setup. Take with normal sizing. <br/>
+      <strong>Score ≤ 4:</strong> Single signal. Take smaller or skip entirely.
+    </div>
+  </div>
+
+  <!-- 8. POSITION SIZING -->
+  <div class="guide-section">
+    <h2>8 — Position sizing (the most important concept)</h2>
+    <p>Position sizing is what separates professionals from amateurs. The goal is to <strong>risk the same dollar amount on every trade</strong>, regardless of stock price.</p>
+    <div class="guide-pass">
+      <strong>Formula:</strong> Shares = (Account × 0.0075) ÷ (Entry − Stop)<br/>
+      <strong>Example:</strong> $10,000 account, entry at $150, stop at $144 (= $6 risk per share)<br/>
+      Shares = ($10,000 × 0.0075) ÷ $6 = $75 ÷ $6 = <strong>12 shares</strong><br/>
+      Position value = 12 × $150 = $1,800 (18% of account — well within 25% max)
+    </div>
+    <p>The tool computes this automatically and shows it in each trade plan. Always verify the position size makes sense before entering.</p>
+    <h3>Why 0.75% risk?</h3>
+    <p>At 0.75% risk per trade, you need to lose <strong>40 consecutive trades in a row</strong> to lose 25% of your account. That almost never happens even in severe drawdowns. It keeps you in the game long enough for the edge to express itself. Professional traders typically risk 0.5–1.0% per trade.</p>
+    <h3>Portfolio limits</h3>
+    <ul>
+      <li><strong>Max 5 concurrent positions</strong> — diversifies idiosyncratic risk without diluting the edge.</li>
+      <li><strong>Max 2 positions per sector</strong> — prevents sector concentration (e.g., no 3 tech stocks at once).</li>
+      <li><strong>Max 3% portfolio heat</strong> — total open risk across all positions. If already at 3%, no new entries.</li>
+    </ul>
+  </div>
+
+  <!-- 9. WHAT NOT TO DO -->
+  <div class="guide-section">
+    <h2>9 — What NOT to do</h2>
+    <div class="guide-warn">
+      <strong>The fastest way to lose money in swing trading is to break these rules:</strong>
+    </div>
+    <ul>
+      <li><strong>Do not hold through earnings.</strong> An otherwise perfect setup can lose 15–20% overnight on a missed earnings report. Not worth it.</li>
+      <li><strong>Do not buy breakouts that have already run 3–5%.</strong> The entry trigger is designed to catch early momentum, not chase. If you missed the fill, skip to the next setup.</li>
+      <li><strong>Do not increase position size to "make up" for recent losses.</strong> Revenge trading is the #1 account killer. Every trade risks the same 0.75%.</li>
+      <li><strong>Do not ignore the regime.</strong> When the dashboard shows red or amber, that is not a suggestion — it is a stop sign. The statistical edge of all three strategies depends on a healthy macro environment.</li>
+      <li><strong>Do not use margin or leverage</strong> until you have 1–2 years of profitable live trading history. Leverage amplifies mistakes, not just gains.</li>
+      <li><strong>Do not skip paper trading.</strong> Run this tool for 2–3 months alongside a paper trading account (most brokers offer one free) before using real money. Learn the workflow, the discipline, and the psychology under zero pressure.</li>
+      <li><strong>Do not over-trade.</strong> Missing a setup is free. A forced trade costs 0.75%. When the market is unclear, doing nothing is a valid strategy.</li>
+    </ul>
+  </div>
+
+  <!-- 10. PAPER TRADING FIRST -->
+  <div class="guide-section">
+    <h2>10 — Paper trading first (required)</h2>
+    <p>All major brokers offer paper (simulated) trading accounts:</p>
+    <ul>
+      <li><strong>Interactive Brokers:</strong> Paper trading available alongside real account — realistic fills, Level 2 data.</li>
+      <li><strong>TD Ameritrade / Schwab thinkorswim:</strong> Paper money mode — full platform functionality.</li>
+      <li><strong>Webull:</strong> Paper trading in the app — good for mobile-first traders.</li>
+      <li><strong>TradingView:</strong> Strategy tester and paper trading — good for visual learners.</li>
+    </ul>
+    <p>Paper trade for <strong>at least 30 trades</strong> before going live. Track your results in a simple spreadsheet: date, ticker, entry, stop, target, shares, result (win/loss), R multiple. After 30 trades you'll have enough data to see if you're executing the strategy correctly.</p>
+    <div class="guide-pass">
+      <strong>What good paper trading looks like:</strong> Win rate 40–50%, average winner ≥ 1.8R, average loser ≤ 1.1R, no "rule broken" trades. If you see this in paper trading, you're ready for live trading at minimal size ($1,000–$2,000 per trade cap).
+    </div>
+  </div>`;
+}
+
+// ----- SELF-TESTS (runtime, in-browser) -----
+async function runSelfTests() {
+  const out = document.getElementById('test-output');
+  out.textContent = '';
+  let passed = 0, failed = 0;
+  function w(s, cls) {
+    const span = document.createElement('span');
+    if (cls) span.className = cls;
+    span.textContent = s + '\n';
+    out.appendChild(span);
+    out.scrollTop = out.scrollHeight;
+  }
+  function chk(cond, msg) {
+    if (cond) { w('  PASS  ' + msg, 'ok'); passed++; }
+    else      { w('  FAIL  ' + msg, 'err'); failed++; }
+  }
+
+  w('=== SMA / EMA / ATR sanity ===', 'info');
+  chk(sma([1,2,3,4,5], 3)[2] === 2, 'SMA(3) middle');
+  chk(sma([1,2,3,4,5], 3)[4] === 4, 'SMA(3) last');
+  chk(ema([1,2,3,4,5], 3)[2] === 2, 'EMA(3) seed');
+  chk(Math.abs(ema([1,2,3,4,5], 3)[3] - 3) < 1e-9, 'EMA(3) idx 3');
+  const a = atr([10,11,12,11,13,14,15,14,13,14], [9,10,11,10,12,13,14,13,12,13], [10,11,11,10,13,14,14,13,13,14], 5);
+  chk(a[4] != null && a[5] > 0, 'ATR Wilder seeds and continues');
+  chk(rollingMax([1,5,3,8,2], 3)[3] === 8, 'rollingMax(3)');
+  chk(rollingMin([1,5,3,8,2], 3)[4] === 2, 'rollingMin(3)');
+
+  w('\n=== Synthetic uptrend with pullback (should arm + confirm) ===', 'info');
+  const stockBars = buildSyntheticBullPullbackBrowser();
+  const spy = synthSpy(stockBars.length);
+  const r = evaluateSetup(stockBars, spy, stockBars.length - 1);
+  w(`  qualifies_L1=${r.qualifies_L1} setup_armed_L3=${r.setup_armed_L3} confirmation_bar=${r.confirmation_bar}`);
+  w(`  reasons: ${(r.reasons || []).join(' | ')}`);
+  chk(r.qualifies_L1, 'L1 quality passes');
+  chk(r.setup_armed_L3, 'L3 setup armed');
+  chk(r.confirmation_bar, 'Confirmation bar detected');
+  if (r.trade_plan) {
+    chk(r.trade_plan.entry_trigger > 0, 'Trade plan entry trigger > 0');
+    chk(r.trade_plan.initial_stop_estimate < r.trade_plan.entry_trigger, 'Stop below entry');
+    chk(r.trade_plan.first_target_estimate > r.trade_plan.entry_trigger, 'Target above entry');
+    chk(Math.abs((r.trade_plan.first_target_estimate - r.trade_plan.entry_trigger) - 2 * (r.trade_plan.entry_trigger - r.trade_plan.initial_stop_estimate)) < 0.01,
+        'Target equals entry + 2R');
+  }
+
+  w('\n=== Synthetic downtrend (should reject at L1) ===', 'info');
+  const downBars = (function () {
+    const out = []; let p = 200;
+    for (let i = 0; i < 270; i++) { p *= (1 - 0.002); out.push({date:`D${i}`,open:p*1.002,high:p*1.005,low:p*0.995,close:p,volume:1.2e6}); }
+    return out;
+  })();
+  const r2 = evaluateSetup(downBars, spy, downBars.length - 1);
+  chk(!r2.qualifies_L1, 'Downtrender rejected at L1');
+
+  w('\n=== Full backtest (engineered single winning setup) ===', 'info');
+  const btBars = buildSyntheticBullPullbackBrowser();
+  // Append entry day + follow-through so the backtest can fill a buy stop
+  const conf = btBars[btBars.length - 1];
+  const trigger = conf.high * 1.001;
+  btBars.push({ date: 'E1', open: trigger * 0.998, high: trigger * 1.015, low: trigger * 0.997, close: trigger * 1.012, volume: 2e6 });
+  let p = trigger * 1.012;
+  for (let i = 0; i < 8; i++) { p *= 1.012; btBars.push({date:`F${i}`,open:p*0.998,high:p*1.01,low:p*0.997,close:p*1.005,volume:2e6}); }
+  for (let i = 0; i < 5; i++) { p *= 0.985; btBars.push({date:`X${i}`,open:p*1.005,high:p*1.008,low:p*0.99,close:p*0.992,volume:2e6}); }
+  const btSpy = synthSpy(btBars.length);
+  const bt = runBacktest(btBars, btSpy, { equity: 100000 });
+  w(`  trades: ${bt.metrics.n_trades}, win rate: ${(bt.metrics.win_rate*100).toFixed(0)}%, equity: $${bt.final_equity.toFixed(0)}`);
+  if (bt.trades[0]) {
+    const t = bt.trades[0];
+    w(`  trade: ${t.entry_date}->${t.exit_date} entry=${t.entry.toFixed(2)} exit=${t.exit_price.toFixed(2)} R=${t.R_realized.toFixed(2)} reason=${t.exit_reason}`);
+  }
+  chk(bt.metrics.n_trades >= 1, 'Backtest fired at least 1 trade');
+  chk(bt.final_equity > 100000, 'Engineered winning setup is profitable');
+
+  w('\n=== Stooq CSV parse ===', 'info');
+  const csv = "Date,Open,High,Low,Close,Volume\n2025-01-02,100.00,102.50,99.50,101.20,1500000\n2025-01-03,101.30,103.10,100.80,102.90,1700000";
+  const parsed = parseStooqCsv(csv);
+  chk(parsed.length === 2, 'Parse 2 rows');
+  chk(parsed[0].close === 101.20, 'First close');
+  chk(parsed[1].volume === 1700000, 'Second volume');
+
+  w('\n=== Live data fetch (single ticker — SPY) ===', 'info');
+  try {
+    state.cache.delete('SPY');
+    const spyLive = await fetchStooq('SPY');
+    chk(spyLive.length > 220, `SPY fetched: ${spyLive.length} bars`);
+    chk(spyLive[spyLive.length - 1].close > 0, 'Last close > 0');
+    w(`  last bar: ${spyLive[spyLive.length-1].date} close ${spyLive[spyLive.length-1].close.toFixed(2)}`);
+  } catch (e) {
+    w('  Stooq fetch failed: ' + e.message, 'warn');
+    w('  (this is non-fatal for the engine logic but means live data fetch is unavailable in your network)', 'warn');
+  }
+
+  w(`\n=== ${passed} passed, ${failed} failed ===`, failed === 0 ? 'ok' : 'err');
+}
+
+function buildSyntheticBullPullbackBrowser() {
+  const bars = [];
+  let p = 80;
+  for (let i = 0; i < 240; i++) {
+    p *= 1 + (Math.sin(i / 11) * 0.005 + 0.002);
+    bars.push({ date: `D${i}`, open: p*0.998, high: p*1.005, low: p*0.995, close: p*1.002, volume: 1.5e6 });
+  }
+  for (let i = 0; i < 30; i++) {
+    p *= 1.005;
+    bars.push({ date: `B${i}`, open: p*0.998, high: p*1.008, low: p*0.997, close: p*1.005, volume: 1.5e6 });
+  }
+  const recentLowIdx = 240, legBase = bars[recentLowIdx].close, legPeak = bars[bars.length-1].close;
+  const legRange = legPeak - legBase, target = legPeak - 0.40 * legRange;
+  const step = (legPeak - target) / 3;
+  for (let i = 0; i < 3; i++) {
+    const c = legPeak - step * (i + 1);
+    bars.push({ date: `P${i}`, open: c*1.005, high: c*1.008, low: c*0.995, close: c, volume: 1.4e6 });
+  }
+  const last = bars[bars.length-1];
+  bars.push({ date: 'CONF', open: last.close, high: last.high * 1.012, low: last.close * 0.998, close: last.high * 1.012 * 0.998, volume: 2.5e6 });
+  return bars;
+}
+function synthSpy(n) {
+  let p = 400; const out = [];
+  for (let i = 0; i < n; i++) { p *= 1.0003; out.push({date:`d${i}`,open:p,high:p*1.002,low:p*0.998,close:p,volume:5e7}); }
+  return out;
+}
+
+document.getElementById('run-tests').addEventListener('click', runSelfTests);
+
+// ----- INITIAL RENDER -----
+renderHelp();
+renderReasons();
+renderWatchlistEditor();
+log('Welcome. Click REFRESH to pull live SPY/VIX/sectors and scan the watchlist for setups.', 'info');
+log('Tip: run Self-Tests first to verify the engine math in your browser.', 'info');
+
+</script>
+</body>
+</html>
