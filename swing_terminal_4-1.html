@@ -33,22 +33,22 @@
 }
 
 [data-theme="light"] {
-  --bg:        #f4f6f9;
-  --bg-elev:   #ffffff;
-  --bg-elev2:  #edf0f5;
-  --line:      #d4dae6;
-  --line-soft: #bfc8d8;
-  --text:      #1a2233;
-  --text-dim:  #4a5878;
-  --text-mute: #8a97b0;
-  --green:     #1a7f3c;
-  --red:       #c0142a;
-  --amber:     #b86800;
-  --cyan:      #0070a8;
-  --violet:    #5b3fcc;
-  --warn-bg:   #fff8e6;
-  --pass-bg:   #edfaf2;
-  --fail-bg:   #fdeef0;
+  --bg:        #e8ecf2;
+  --bg-elev:   #f5f7fa;
+  --bg-elev2:  #dde2ea;
+  --line:      #b8c2d4;
+  --line-soft: #a4b0c6;
+  --text:      #0d1520;
+  --text-dim:  #2c3e5a;
+  --text-mute: #566278;
+  --green:     #0e6b2e;
+  --red:       #a8101f;
+  --amber:     #9a5500;
+  --cyan:      #005a8a;
+  --violet:    #4a2fb8;
+  --warn-bg:   #f5e8c8;
+  --pass-bg:   #cceedd;
+  --fail-bg:   #f5d0d4;
 }
 
 #theme-toggle {
@@ -3128,7 +3128,7 @@ document.getElementById('clear-log').addEventListener('click', () => { logEl().t
     try { localStorage.setItem('swing-theme', theme); } catch {}
   }
   const saved = (() => { try { return localStorage.getItem('swing-theme'); } catch { return null; } })();
-  applyTheme(saved === 'light' ? 'light' : 'dark');
+  applyTheme(saved === 'dark' ? 'dark' : 'light');
   btn.addEventListener('click', () => applyTheme(html.dataset.theme === 'light' ? 'dark' : 'light'));
 })();
 document.getElementById('signals-refresh').addEventListener('click', () => scanSignals());
