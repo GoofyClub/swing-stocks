@@ -2235,7 +2235,7 @@ function yahooSymbol(ticker) {
   return ticker; // e.g. "SPY", "^VIX", "AAPL"
 }
 async function fetchYahooFinanceViaUrl(url) {
-  const resp = await fetchWithTimeout(url, {}, 10000);
+  const resp = await fetchWithTimeout(url, 15000);
   if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim());
   const j = await resp.json();
   const result = j?.chart?.result?.[0];
