@@ -25,18 +25,16 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
-function readEnv(key, fallback = '') {
-  const v = import.meta?.env?.[key];
-  return (v === undefined || v === null) ? fallback : String(v);
-}
-
+// Use direct `import.meta.env.VITE_*` references so Vite can inline the values
+// at build time via static text replacement. Dynamic access (e.g. via a variable
+// key) is NOT inlined in production builds and silently falls through to empty.
 export const firebaseConfig = {
-  apiKey:            readEnv('VITE_FIREBASE_API_KEY'),
-  authDomain:        readEnv('VITE_FIREBASE_AUTH_DOMAIN'),
-  projectId:         readEnv('VITE_FIREBASE_PROJECT_ID'),
-  storageBucket:     readEnv('VITE_FIREBASE_STORAGE_BUCKET'),
-  messagingSenderId: readEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
-  appId:             readEnv('VITE_FIREBASE_APP_ID'),
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY            || '',
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        || '',
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID         || '',
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID             || '',
 };
 
 function configLooksValid(cfg) {

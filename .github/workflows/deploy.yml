@@ -29,22 +29,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Diagnose Firebase secret presence (lengths only — never values)
-        env:
-          VITE_FIREBASE_API_KEY:             ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN:         ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID:          ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET:      ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID:              ${{ secrets.VITE_FIREBASE_APP_ID }}
-        run: |
-          echo "VITE_FIREBASE_API_KEY length:             ${#VITE_FIREBASE_API_KEY}"
-          echo "VITE_FIREBASE_AUTH_DOMAIN length:         ${#VITE_FIREBASE_AUTH_DOMAIN}"
-          echo "VITE_FIREBASE_PROJECT_ID length:          ${#VITE_FIREBASE_PROJECT_ID}"
-          echo "VITE_FIREBASE_STORAGE_BUCKET length:      ${#VITE_FIREBASE_STORAGE_BUCKET}"
-          echo "VITE_FIREBASE_MESSAGING_SENDER_ID length: ${#VITE_FIREBASE_MESSAGING_SENDER_ID}"
-          echo "VITE_FIREBASE_APP_ID length:              ${#VITE_FIREBASE_APP_ID}"
-
       - name: Build (Vite static)
         env:
           VITE_FIREBASE_API_KEY:             ${{ secrets.VITE_FIREBASE_API_KEY }}
