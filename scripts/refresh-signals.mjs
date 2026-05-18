@@ -1,0 +1,249 @@
+#!/usr/bin/env node
+// =============================================================================
+// refresh-signals.mjs — GitHub Actions cron worker.
+//
+// Runs on the schedule defined in .github/workflows/refresh-signals.yml.
+// For each market (US, INDIA):
+//   1. Fetch SPY/NIFTY + sector ETFs + every ticker in the starter watchlist.
+//   2. For each ticker, run every pure strategy from /src/strategy/normalize.js.
+//   3. Normalize each detected signal to { entry, tp, sl } and write to
+//      /marketData/{YYYY-MM-DD}/signals/{id} via Firebase Admin SDK.
+//   4. Re-settle any signals from the last 90 days using the freshly-fetched
+//      bars (mark win/loss/open based on whether TP or SL was touched).
+//   5. Prune /marketData docs older than 90 days (3-month retention).
+//
+// Required env vars (set in repo Secrets):
+//   FIREBASE_SERVICE_ACCOUNT_JSON   — JSON string of a service account key
+//   FIREBASE_PROJECT_ID             — the project ID
+//   ALPHAVANTAGE_KEY                — optional but recommended
+//   FINNHUB_KEY                     — optional
+//   FMP_KEY                         — optional; enables PEAD/Insider/Analyst
+// =============================================================================
+
+import admin from 'firebase-admin';
+import { fetchBars } from '../src/data/fetchers.js';
+import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
+import { STRATEGIES, settleSignal } from '../src/strategy/normalize.js';
+import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER } from '../src/data/markets.js';
+
+const RETENTION_DAYS = 90;
+const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s.trim());
+
+function todayKey(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+function daysAgo(n, now = new Date()) {
+  return new Date(now.getTime() - n * 86400_000).toISOString().slice(0, 10);
+}
+
+function initAdmin() {
+  if (admin.apps.length) return admin.firestore();
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const saJson    = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!projectId || !saJson) {
+    throw new Error('FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_JSON must be set.');
+  }
+  const sa = JSON.parse(saJson);
+  admin.initializeApp({
+    credential: admin.credential.cert(sa),
+    projectId,
+  });
+  return admin.firestore();
+}
+
+function buildCtx(market) {
+  return {
+    apiKeys: {
+      alphavantage: process.env.ALPHAVANTAGE_KEY || '',
+      finnhub:      process.env.FINNHUB_KEY     || '',
+      fmp:          process.env.FMP_KEY         || '',
+    },
+    market,
+    enabledSources: new Set(DATA_SOURCE_ORDER),
+    manualBars: null,
+    cache: new Map(),
+    fetchImpl: globalThis.fetch, // Node 18+ has native fetch
+  };
+}
+
+function strategyKeyToShort(key) {
+  return STRATEGIES[key]?.short || key;
+}
+
+async function scanMarket(db, market) {
+  const cfg = MARKET_CONFIGS[market];
+  const ctx = buildCtx(market);
+  const watchlist = market === 'INDIA' ? STARTER_WATCHLIST_INDIA : STARTER_WATCHLIST;
+  console.log(`\n[scan] market=${market} watchlist=${watchlist.length}`);
+
+  // 1. Pull the index for relative-strength regime check.
+  let spyBars = null;
+  try { spyBars = await fetchBars(cfg.indexTicker, ctx); }
+  catch (e) { console.warn(`[scan] could not fetch index ${cfg.indexTicker}: ${e.message}`); }
+
+  const fmpCache = makeFmpCache();
+  const dateBucket = todayKey();
+  const docRef = db.collection('marketData').doc(dateBucket);
+  await docRef.set({
+    market,
+    refreshedAt: admin.firestore.FieldValue.serverTimestamp(),
+    refreshedBy: 'github-actions-cron',
+    sourcesUsed: DATA_SOURCE_ORDER.filter(s => ctx.enabledSources.has(s)),
+  }, { merge: true });
+
+  const sigCol = docRef.collection('signals');
+  let writes = 0, errors = 0;
+
+  for (const item of watchlist) {
+    const ticker = item.t;
+    let bars;
+    try {
+      bars = await fetchBars(ticker, ctx);
+    } catch (e) {
+      errors++;
+      console.warn(`[scan] ${ticker}: ${e.message}`);
+      continue;
+    }
+
+    // FMP-dependent strategies — fetch once per ticker, cached for 1h.
+    let fmpData = null;
+    if (ctx.apiKeys.fmp) {
+      try {
+        fmpData = await fetchFMPData(ticker, { apiKey: ctx.apiKeys.fmp, cache: fmpCache, fetchImpl: ctx.fetchImpl });
+      } catch (e) { console.warn(`[scan] ${ticker} FMP: ${e.message}`); }
+    }
+
+    for (const [stratKey, def] of Object.entries(STRATEGIES)) {
+      if (def.needsFmp && !fmpData) continue;
+      let result;
+      try {
+        result = def.evaluate(bars, { spyBars, fmpData, marketCfg: cfg });
+      } catch (e) {
+        console.warn(`[scan] ${ticker} ${stratKey} threw: ${e.message}`);
+        continue;
+      }
+      if (!result) continue;
+
+      const env = result.envelope;
+      const id = `${ticker}_${stratKey}_${dateBucket}`;
+      const docBody = {
+        ticker,
+        name:         item.t,
+        sector:       item.s,
+        market,
+        strategy:     def.short,
+        strategyKey:  stratKey,
+        side:         env.side,
+        entryPrice:   env.entry,
+        tpPrice:      env.tp,
+        slPrice:      env.sl,
+        signalTs:     new Date().toISOString(),
+        currentPrice: bars[bars.length - 1].close,
+        currentPriceTs: new Date().toISOString(),
+        pctChange:    ((bars[bars.length - 1].close - env.entry) / env.entry) * 100,
+        status:       'open',
+        winLoss:      null,
+        rawReason:    result.raw?.reason || result.raw?.reasons?.[result.raw.reasons.length - 1] || '',
+      };
+      await sigCol.doc(id).set(docBody, { merge: true });
+      writes++;
+    }
+  }
+
+  console.log(`[scan] market=${market} wrote=${writes} errors=${errors}`);
+  return { writes, errors };
+}
+
+// Re-evaluate W/L for signals in the last 90 days based on current bars.
+async function resettleRecentSignals(db, market) {
+  const cfg = MARKET_CONFIGS[market];
+  const ctx = buildCtx(market);
+  const cutoff = daysAgo(RETENTION_DAYS);
+  console.log(`[resettle] market=${market} cutoff=${cutoff}`);
+
+  // Group open signals by ticker so we fetch bars once per ticker.
+  const cg = await db.collectionGroup('signals')
+    .where('market', '==', market)
+    .where('status', '==', 'open')
+    .where('signalTs', '>=', cutoff + 'T00:00:00Z')
+    .get();
+
+  const byTicker = new Map();
+  cg.forEach(s => {
+    const d = s.data();
+    if (!byTicker.has(d.ticker)) byTicker.set(d.ticker, []);
+    byTicker.get(d.ticker).push({ ref: s.ref, ...d });
+  });
+
+  let settled = 0;
+  for (const [ticker, signals] of byTicker) {
+    let bars;
+    try { bars = await fetchBars(ticker, ctx); }
+    catch (e) { console.warn(`[resettle] ${ticker}: ${e.message}`); continue; }
+    const dateMap = new Map();
+    bars.forEach((b, i) => dateMap.set(b.date, i));
+    for (const sig of signals) {
+      const sigDate = (sig.signalTs || '').slice(0, 10);
+      const idx = dateMap.get(sigDate);
+      if (idx == null) continue;
+      const postBars = bars.slice(idx + 1);
+      const verdict = settleSignal({ entry: sig.entryPrice, tp: sig.tpPrice, sl: sig.slPrice }, postBars);
+      if (verdict.status === 'closed') {
+        await sig.ref.update({
+          status:      'closed',
+          winLoss:     verdict.winLoss,
+          settledAt:   verdict.settledAt,
+          hitPrice:    verdict.hitPrice,
+          currentPrice: bars[bars.length - 1].close,
+          pctChange:   ((bars[bars.length - 1].close - sig.entryPrice) / sig.entryPrice) * 100,
+        });
+        settled++;
+      } else {
+        // Just refresh currentPrice
+        await sig.ref.update({
+          currentPrice: bars[bars.length - 1].close,
+          currentPriceTs: new Date().toISOString(),
+          pctChange:   ((bars[bars.length - 1].close - sig.entryPrice) / sig.entryPrice) * 100,
+        });
+      }
+    }
+  }
+  console.log(`[resettle] market=${market} settled=${settled}`);
+}
+
+// Delete /marketData/{date} docs older than 90 days.
+async function pruneOldBuckets(db) {
+  const cutoff = daysAgo(RETENTION_DAYS);
+  const snap = await db.collection('marketData').get();
+  let deleted = 0;
+  for (const docSnap of snap.docs) {
+    if (docSnap.id < cutoff) {
+      // Delete subcollections first
+      const subs = await docSnap.ref.collection('signals').listDocuments();
+      for (const s of subs) await s.delete();
+      await docSnap.ref.delete();
+      deleted++;
+    }
+  }
+  console.log(`[prune] deleted ${deleted} buckets older than ${cutoff}`);
+}
+
+async function main() {
+  const db = initAdmin();
+  const summary = [];
+  for (const m of MARKETS_TO_RUN) {
+    if (!MARKET_CONFIGS[m]) { console.warn(`[main] unknown market ${m}, skip`); continue; }
+    try {
+      const r = await scanMarket(db, m);
+      await resettleRecentSignals(db, m);
+      summary.push({ market: m, ...r });
+    } catch (e) {
+      console.error(`[main] ${m} failed:`, e);
+      summary.push({ market: m, error: e.message });
+    }
+  }
+  try { await pruneOldBuckets(db); } catch (e) { console.warn('[main] prune failed', e.message); }
+  console.log('\n[main] DONE', JSON.stringify(summary));
+}
+
+main().catch(e => { console.error(e); process.exit(1); });

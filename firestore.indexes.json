@@ -1,0 +1,37 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "signals",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "market",    "order": "ASCENDING" },
+        { "fieldPath": "signalTs",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "signals",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "strategy",  "order": "ASCENDING" },
+        { "fieldPath": "signalTs",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "signals",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sector",    "order": "ASCENDING" },
+        { "fieldPath": "signalTs",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "enteredTrades",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",    "order": "ASCENDING" },
+        { "fieldPath": "enteredAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

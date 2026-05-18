@@ -1,0 +1,42 @@
+name: Refresh shared signals
+
+# Cron schedule (UTC) — covers US market hours plus an end-of-day NSE pass.
+#   - Every 30 min between 13:30 and 21:00 UTC, Mon–Fri  (US market hours)
+#   - Daily 11:00 UTC                                   (NSE EOD ~16:30 IST)
+# Adjust as needed; this stays comfortably inside Firebase free quotas.
+on:
+  schedule:
+    - cron: "*/30 13-20 * * 1-5"
+    - cron: "0 21 * * 1-5"
+    - cron: "0 11 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      markets:
+        description: 'Comma-separated markets to refresh'
+        required: false
+        default: 'US,INDIA'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Run refresh script
+        env:
+          FIREBASE_PROJECT_ID:           ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          ALPHAVANTAGE_KEY:              ${{ secrets.ALPHAVANTAGE_KEY }}
+          FINNHUB_KEY:                   ${{ secrets.FINNHUB_KEY }}
+          FMP_KEY:                       ${{ secrets.FMP_KEY }}
+          MARKETS:                       ${{ github.event.inputs.markets || 'US,INDIA' }}
+        run: node scripts/refresh-signals.mjs

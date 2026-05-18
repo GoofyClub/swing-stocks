@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// =============================================================================
+// Swing Terminal — Firestore Security Rules
+// -----------------------------------------------------------------------------
+// Two-layer access model:
+//
+//   /marketData/{date}/signals/{signalId}
+//     READ:  any authenticated user
+//     WRITE: server only (Firebase Admin SDK via GitHub Actions cron)
+//            Clients never write here. Admin SDK bypasses these rules, so the
+//            explicit `allow write: if false;` keeps malicious clients out.
+//
+//   /users/{uid}/**
+//     READ + WRITE: only when request.auth.uid == uid
+//            Enforces that "My Trades", preferences, and watchlist are private
+//            per-user and cannot be read across accounts.
+//
+//   /publicConfig/**
+//     READ:  any authenticated user (e.g. server-published default win/loss rule,
+//            list of available strategies). Optional — safe to leave unused.
+//     WRITE: server only.
+//
+// All other paths are denied by default (no fallthrough rule).
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // -----------------------------------------------------------------------
+    // Shared market data: signals, regime snapshot, sector ranks, etc.
+    // Written exclusively by the GitHub Actions cron via Admin SDK.
+    // -----------------------------------------------------------------------
+    match /marketData/{dateBucket} {
+      allow read: if isSignedIn();
+      allow write: if false;
+
+      match /signals/{signalId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+      }
+
+      match /regime/{regimeId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Per-user private data
+    // -----------------------------------------------------------------------
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /enteredTrades/{tradeId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /watchlist/{tickerId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /preferences/{prefId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Publicly-readable, server-written config (optional)
+    // -----------------------------------------------------------------------
+    match /publicConfig/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}

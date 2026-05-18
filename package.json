@@ -1,0 +1,26 @@
+{
+  "name": "swing-stocks",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Swing Terminal — cloud-backed multi-strategy swing-trading console. GitHub Pages SPA + Firebase Auth/Firestore.",
+  "homepage": "https://goofyclub.github.io/swing-stocks/",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:engine": "node tests/engine-parity.mjs",
+    "refresh:signals": "node scripts/refresh-signals.mjs"
+  },
+  "dependencies": {
+    "chart.js": "^4.4.0",
+    "firebase": "^10.12.0"
+  },
+  "devDependencies": {
+    "firebase-admin": "^12.1.0",
+    "vite": "^5.2.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  GitHub Pages SPA fallback. When a user hits a path that doesn't exist as a
+  static file (e.g. /swing-stocks/some/deep/route), Pages serves this file.
+  We capture the originally-requested URL and rewrite to /swing-stocks/?p=...
+  so the SPA can re-derive the intended route.
+-->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Swing Terminal</title>
+  <script>
+    (function () {
+      var pathSegments = 1; // /swing-stocks/ is one segment of the repo subpath
+      var l = window.location;
+      var segments = l.pathname.split('/').slice(1);
+      var base = '/' + segments.slice(0, pathSegments).join('/') + '/';
+      var tail = segments.slice(pathSegments).join('/');
+      l.replace(
+        l.protocol + '//' + l.host + base + '?p=/' + tail +
+        (l.search ? '&q=' + encodeURIComponent(l.search.slice(1)) : '') +
+        l.hash
+      );
+    })();
+  </script>
+</head>
+<body>Loading…</body>
+</html>
