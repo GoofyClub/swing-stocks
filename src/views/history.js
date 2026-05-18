@@ -1,8 +1,11 @@
 // Signal History — read-only view of the shared /marketData/{date}/signals/* collection.
+// Each row has a ★ button to add it to /users/{uid}/enteredTrades.
 
 import { state } from '../core/state.js';
 import { initFirebase } from '../data/firebase.js';
 import { collection, query, orderBy, limit, getDocs, collectionGroup } from 'firebase/firestore';
+import { enterTrade, removeTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
+import { openModal } from '../ui/modal.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -24,8 +27,6 @@ async function loadHistory({ days = 90 } = {}) {
   const { db, ok } = initFirebase();
   if (!ok) return { rows: [], err: 'Firebase not configured (see SETUP.md)' };
   try {
-    // Pull the collectionGroup across all daily buckets, capped at recent N days.
-    // The cron writes signals with `signalTs` (ISO string) so we can order on that.
     const q1 = query(collectionGroup(db, 'signals'), orderBy('signalTs', 'desc'), limit(500));
     const snap = await getDocs(q1);
     const cutoff = Date.now() - days * 86400_000;
@@ -66,7 +67,7 @@ export async function renderHistory(root) {
   root.innerHTML = `
     <div class="view">
       <h1>Signal History</h1>
-      <p class="subtitle">All signals from the last 3 months. Filterable and exportable.</p>
+      <p class="subtitle">All signals from the last 3 months. Click <span style="color:var(--amber)">★</span> on any row to track it on My Trades.</p>
 
       <div class="card">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -86,7 +87,13 @@ export async function renderHistory(root) {
     </div>
   `;
 
-  const { rows, err } = await loadHistory();
+  const [{ rows, err }, enteredIds] = await Promise.all([
+    loadHistory(),
+    loadEnteredTradeIds(),
+  ]);
+  // Mutable set so we can toggle in-place after enter/remove.
+  const entered = new Set(enteredIds);
+
   const root$ = (id) => document.getElementById(id);
 
   if (err) {
@@ -94,13 +101,11 @@ export async function renderHistory(root) {
     return;
   }
 
-  // Build filter dropdowns from actual data.
   const strats = [...new Set(rows.map(r => r.strategy).filter(Boolean))].sort();
   const sectors = [...new Set(rows.map(r => r.sector).filter(Boolean))].sort();
   root$('f-strategy').insertAdjacentHTML('beforeend', strats.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
   root$('f-sector').insertAdjacentHTML('beforeend', sectors.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
 
-  // Pre-seed filters from URL query (Dashboard tiles can deep-link with ?side=buy).
   if (params.side) root$('f-side').value = params.side;
 
   function refresh() {
@@ -120,6 +125,7 @@ export async function renderHistory(root) {
     const html = `
       <table class="data">
         <thead><tr>
+          <th></th>
           <th>DATE</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>STRATEGY</th>
           <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th>
           <th class="num">CURRENT</th><th class="num">%Δ</th><th>W/L</th>
@@ -131,7 +137,12 @@ export async function renderHistory(root) {
                      : r.winLoss === 'win'  ? '<span class="badge win">WIN</span>'
                      : r.winLoss === 'loss' ? '<span class="badge loss">LOSS</span>'
                      : '<span class="badge">—</span>';
-            return `<tr>
+            const id = tradeIdFor(r);
+            const isEntered = entered.has(id);
+            return `<tr data-signal-id="${escapeHtml(id)}">
+              <td>
+                <button class="star-btn" data-action="${isEntered ? 'remove' : 'enter'}" data-signal-id="${escapeHtml(id)}" title="${isEntered ? 'Remove from My Trades' : 'Track on My Trades'}" aria-label="${isEntered ? 'Remove' : 'Enter'} trade for ${escapeHtml(r.ticker)}">${isEntered ? '★' : '☆'}</button>
+              </td>
               <td>${escapeHtml((r.signalTs || '').slice(0, 10))}</td>
               <td>${escapeHtml(r.name || '—')}</td>
               <td>${escapeHtml(r.ticker || '')}</td>
@@ -149,6 +160,71 @@ export async function renderHistory(root) {
       </table>
     `;
     root$('history-table').innerHTML = html;
+
+    // Wire star buttons.
+    root$('history-table').querySelectorAll('.star-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sid = btn.dataset.signalId;
+        const sig = rows.find(r => tradeIdFor(r) === sid);
+        if (!sig) return;
+        if (btn.dataset.action === 'enter') openEnterModal(sig, btn);
+        else openRemoveModal(sig, btn);
+      });
+    });
+  }
+
+  function openEnterModal(signal, btn) {
+    const body = `
+      <div class="row" style="grid-template-columns:120px 1fr;align-items:center;gap:10px">
+        <div style="color:var(--text);font-family:var(--font-mono)">${escapeHtml(signal.ticker)}</div>
+        <div>${escapeHtml(signal.name || '')} · ${escapeHtml(signal.strategy || '')}</div>
+        <div style="color:var(--text-mute);font-size:11px">SIGNAL ENTRY</div>
+        <div style="font-family:var(--font-mono)">${(signal.entryPrice ?? 0).toFixed(2)} · TP ${(signal.tpPrice ?? 0).toFixed(2)} · SL ${(signal.slPrice ?? 0).toFixed(2)}</div>
+      </div>
+      <div class="row">
+        <label for="ov-entry">Override entry price (optional)</label>
+        <input id="ov-entry" type="number" step="0.01" placeholder="${(signal.entryPrice ?? 0).toFixed(2)}">
+      </div>
+      <div class="row">
+        <label for="notes">Notes (optional)</label>
+        <textarea id="notes" maxlength="500" placeholder="Why did you take this trade? Position size?"></textarea>
+      </div>
+    `;
+    openModal({
+      title: `Enter trade · ${signal.ticker}`,
+      bodyHtml: body,
+      primaryLabel: 'Add to My Trades',
+      onPrimary: async (dialog) => {
+        const ovStr = dialog.querySelector('#ov-entry').value.trim();
+        const override = ovStr ? Number(ovStr) : null;
+        if (override !== null && (!Number.isFinite(override) || override <= 0)) {
+          throw new Error('Override entry must be a positive number.');
+        }
+        const notes = dialog.querySelector('#notes').value || '';
+        await enterTrade({ signal, notes, overrideEntryPrice: override });
+        entered.add(tradeIdFor(signal));
+        btn.dataset.action = 'remove';
+        btn.textContent = '★';
+        btn.title = 'Remove from My Trades';
+      },
+    });
+  }
+
+  function openRemoveModal(signal, btn) {
+    const body = `<div>Remove <b>${escapeHtml(signal.ticker)}</b> · ${escapeHtml(signal.strategy)} from My Trades?</div>`;
+    openModal({
+      title: 'Remove trade',
+      bodyHtml: body,
+      primaryLabel: 'Remove',
+      onPrimary: async () => {
+        await removeTrade(tradeIdFor(signal));
+        entered.delete(tradeIdFor(signal));
+        btn.dataset.action = 'enter';
+        btn.textContent = '☆';
+        btn.title = 'Track on My Trades';
+      },
+    });
   }
 
   ['f-side', 'f-strategy', 'f-sector', 'f-winloss'].forEach(id => root$(id).addEventListener('change', refresh));

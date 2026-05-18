@@ -415,6 +415,26 @@ table.data tr:hover td { background: var(--bg-elev2); }
   border-radius: var(--radius);
 }
 
+/* Star button (Signal History → "track on My Trades") */
+.star-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-mute);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s, transform 0.08s;
+}
+.star-btn:hover { color: var(--amber); background: var(--bg-elev2); }
+.star-btn:active { transform: scale(0.92); }
+.star-btn[data-action="remove"] { color: var(--amber); }
+.star-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+table.data .remove-btn {
+  padding: 2px 8px; font-size: 13px;
+}
+
 .skeleton {
   background: linear-gradient(90deg, var(--bg-elev2) 0%, var(--bg-elev3) 50%, var(--bg-elev2) 100%);
   background-size: 200% 100%;
