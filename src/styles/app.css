@@ -199,6 +199,32 @@ button { font-family: inherit; cursor: pointer; }
   font-family: var(--font-mono); font-size: 12px;
   padding: 7px 10px; border-radius: 4px;
 }
+.market-toggle {
+  display: flex;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.market-toggle button {
+  background: var(--bg-elev2);
+  border: none;
+  border-right: 1px solid var(--line-soft);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+.market-toggle button:last-child { border-right: none; }
+.market-toggle button:hover { background: var(--bg-elev3); color: var(--text); }
+.market-toggle button.active {
+  background: var(--cyan); color: var(--bg);
+}
+.market-toggle button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
 .topbar .meta {
   margin-left: auto;
   display: flex; gap: 18px; align-items: center;
@@ -329,6 +355,75 @@ button { font-family: inherit; cursor: pointer; }
 }
 .tile .delta.up   { color: var(--green); }
 .tile .delta.down { color: var(--red); }
+.tile .tile-spark { margin-top: 12px; height: 28px; line-height: 0; opacity: 0.85; }
+.tile .tile-spark svg { display: block; width: 100%; height: 100%; }
+
+/* =============================================================================
+   Regime banner
+   ============================================================================= */
+.regime-banner {
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 4px;
+}
+.regime-banner .rb-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-mute);
+  text-transform: uppercase;
+}
+.regime-banner .rb-headline {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.regime-banner .rb-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.regime-banner .rb-sub .ok   { color: var(--green); margin-right: 2px; }
+.regime-banner .rb-sub .fail { color: var(--red);   margin-right: 2px; }
+.regime-good { border-color: var(--green); box-shadow: inset 4px 0 0 var(--green); }
+.regime-good .rb-headline { color: var(--green); }
+.regime-warn { border-color: var(--amber); box-shadow: inset 4px 0 0 var(--amber); }
+.regime-warn .rb-headline { color: var(--amber); }
+.regime-bad  { border-color: var(--red);   box-shadow: inset 4px 0 0 var(--red); }
+.regime-bad  .rb-headline { color: var(--red); }
+.regime-unknown .rb-headline { color: var(--text-dim); }
+
+/* =============================================================================
+   Two-column responsive split (e.g. Today's signals + Sector ranks side-by-side)
+   ============================================================================= */
+.two-col {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 1000px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
+/* =============================================================================
+   Sector rank bars
+   ============================================================================= */
+table.sector-ranks .bar-col { width: 28%; padding-left: 0; }
+.rank-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--cyan);
+  opacity: 0.7;
+}
+.rank-bar.up   { background: var(--green); }
+.rank-bar.down { background: var(--red); }
 
 /* =============================================================================
    Card / panel

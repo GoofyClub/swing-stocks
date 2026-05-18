@@ -4,7 +4,7 @@
 
 import './styles/app.css';
 import { route, defaultRoute, start, navigate } from './core/router.js';
-import { state, setUser } from './core/state.js';
+import { state, setUser, subscribe } from './core/state.js';
 import { initFirebase, onUser, ensureUserDoc, completeRedirectIfAny } from './data/firebase.js';
 import { renderLogin } from './auth/ui.js';
 import { renderSidebar, highlightActive } from './ui/sidebar.js';
@@ -46,12 +46,18 @@ function mountAppShell() {
   route('watchlist', renderWatchlist);
   route('settings',  renderSettings);
   defaultRoute('dashboard');
-  start(main);
+  const dispatch = start(main);
 
   // Reflect route changes in sidebar highlight.
   window.addEventListener('hashchange', () => {
     const cur = (window.location.hash || '').replace(/^#\/?/, '').split('?')[0] || 'dashboard';
     highlightActive(document.getElementById('sidebar'), cur);
+  });
+
+  // When the user flips market (US/INDIA) in the topbar, re-render the active
+  // view so data scoped to the chosen market reloads.
+  subscribe((reason) => {
+    if (reason === 'market') dispatch();
   });
 
   // Keyboard shortcuts.

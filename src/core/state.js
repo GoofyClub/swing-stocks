@@ -6,10 +6,17 @@
 
 import { MARKET_CONFIGS, DATA_SOURCE_ORDER, STARTER_WATCHLIST } from '../data/markets.js';
 
+// Restore last-selected market from localStorage on module load. Defaults to US.
+let _bootMarket = 'US';
+try {
+  const stored = localStorage.getItem('swing.market');
+  if (stored && MARKET_CONFIGS[stored]) _bootMarket = stored;
+} catch {}
+
 export const state = {
   user: null,                       // Firebase User or null
-  market: 'US',                     // 'US' | 'INDIA'
-  marketCfg: MARKET_CONFIGS.US,
+  market: _bootMarket,              // 'US' | 'INDIA'
+  marketCfg: MARKET_CONFIGS[_bootMarket],
   prefs: {
     theme:    'dark',
     fontSize: 'M',
@@ -20,7 +27,7 @@ export const state = {
   // Data fetch context — shared by both interactive scans and any client-side refresh.
   fetchCtx: {
     apiKeys: { alphavantage: '', finnhub: '', fmp: '' },
-    market: 'US',
+    market: _bootMarket,
     enabledSources: new Set(DATA_SOURCE_ORDER),
     manualBars: new Map(),
     cache: new Map(),

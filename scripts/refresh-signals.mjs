@@ -24,6 +24,7 @@ import admin from 'firebase-admin';
 import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
 import { STRATEGIES, settleSignal } from '../src/strategy/normalize.js';
+import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER } from '../src/data/markets.js';
 
 const RETENTION_DAYS = 90;
@@ -81,6 +82,20 @@ async function scanMarket(db, market) {
   try { spyBars = await fetchBars(cfg.indexTicker, ctx); }
   catch (e) { console.warn(`[scan] could not fetch index ${cfg.indexTicker}: ${e.message}`); }
 
+  // VIX for regime
+  let vixBars = null;
+  if (cfg.vixTicker) {
+    try { vixBars = await fetchBars(cfg.vixTicker, ctx); }
+    catch (e) { console.warn(`[scan] could not fetch VIX ${cfg.vixTicker}: ${e.message}`); }
+  }
+
+  // Sector ETFs for sector ranks
+  const sectorBars = {};
+  for (const etf of cfg.sectorEtfs || []) {
+    try { sectorBars[etf] = await fetchBars(etf, ctx); }
+    catch (e) { console.warn(`[scan] could not fetch sector ${etf}: ${e.message}`); }
+  }
+
   const fmpCache = makeFmpCache();
   const dateBucket = todayKey();
   const docRef = db.collection('marketData').doc(dateBucket);
@@ -93,6 +108,16 @@ async function scanMarket(db, market) {
 
   const sigCol = docRef.collection('signals');
   let writes = 0, errors = 0;
+
+  // Aggregates collected during the scan so we can write a per-market summary at the end.
+  const agg = {
+    market,
+    buyCount: 0,
+    sellCount: 0,
+    totalCount: 0,
+    byStrategy: {}, // strategyShort -> count
+    bySector:   {}, // sectorCode    -> count
+  };
 
   for (const item of watchlist) {
     const ticker = item.t;
@@ -147,11 +172,60 @@ async function scanMarket(db, market) {
       };
       await sigCol.doc(id).set(docBody, { merge: true });
       writes++;
+
+      // Update aggregates
+      agg.totalCount++;
+      if (env.side === 'buy')  agg.buyCount++;
+      if (env.side === 'sell') agg.sellCount++;
+      agg.byStrategy[def.short] = (agg.byStrategy[def.short] || 0) + 1;
+      agg.bySector[item.s]      = (agg.bySector[item.s] || 0) + 1;
     }
   }
 
-  console.log(`[scan] market=${market} wrote=${writes} errors=${errors}`);
-  return { writes, errors };
+  // Daily aggregates — stored under `summaries.{market}` so US + INDIA coexist on
+  // the same date bucket without overwriting one another.
+  await docRef.set({
+    [`summaries.${market}`]: {
+      ...agg,
+      computedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+  }, { merge: true });
+
+  // Per-market regime snapshot for dashboard banner.
+  try {
+    const regime = regimeCheck(spyBars, vixBars, null, {
+      vixThreshold: cfg.vixThreshold,
+      vixPanic:     cfg.vixPanic,
+      indexLabel:   cfg.indexLabel,
+    });
+    const sectorMap = {};
+    for (const [etf, bars] of Object.entries(sectorBars)) {
+      if (!bars || !Array.isArray(bars)) continue;
+      sectorMap[etf] = bars;
+    }
+    const ranks = sectorRank(sectorMap).map(r => ({
+      etf: r.etf,
+      name: cfg.sectorNames?.[r.etf] || r.etf,
+      ret_20d: r.ret_20d,
+      rank: r.rank,
+    }));
+    await docRef.collection('regime').doc(market).set({
+      market,
+      tradeable:  regime.tradeable,
+      go_to_cash: regime.go_to_cash,
+      indexLabel: cfg.indexLabel,
+      vixLabel:   cfg.vixLabel,
+      details:    regime.details,
+      checks:     regime.checks,
+      sectorRanks: ranks,
+      computedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: false });
+  } catch (e) {
+    console.warn(`[scan] regime write failed for ${market}: ${e.message}`);
+  }
+
+  console.log(`[scan] market=${market} wrote=${writes} errors=${errors} buys=${agg.buyCount} sells=${agg.sellCount}`);
+  return { writes, errors, ...agg };
 }
 
 // Re-evaluate W/L for signals in the last 90 days based on current bars.
