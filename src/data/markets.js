@@ -183,6 +183,27 @@ export const MARKET_CONFIGS = {
 };
 MARKET_CONFIGS.US.starterWatchlist = STARTER_WATCHLIST;
 
+// Extract the human company name from a watchlist entry. The `why` text follows
+// the convention "<Name>. <rationale>", so the name is everything before the
+// first period. Falls back to the ticker if the convention is broken.
+export function companyName(item) {
+  if (!item) return '';
+  if (item.name) return item.name;
+  const why = item.why || '';
+  const i = why.indexOf('.');
+  if (i > 0) return why.slice(0, i).trim();
+  return item.t || '';
+}
+
+// Lookup map: ticker -> company name. Built once from the starter watchlists.
+const _nameByTicker = new Map();
+for (const item of [...STARTER_WATCHLIST, ...STARTER_WATCHLIST_INDIA]) {
+  _nameByTicker.set(item.t, companyName(item));
+}
+export function nameForTicker(ticker) {
+  return _nameByTicker.get(ticker) || ticker;
+}
+
 // Default data source priority order, top-down. Override per-deployment in fetchers config.
 export const DATA_SOURCE_ORDER = [
   'alphavantage',     // most reliable when a key is set (CSV, native CORS)

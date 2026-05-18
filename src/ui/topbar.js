@@ -16,6 +16,7 @@ export function renderTopbar(el) {
     </div>
     <input class="search" id="universal-search" type="search" placeholder="/ search ticker, name, sector" aria-label="Search">
     <div class="meta">
+      <button class="btn-bare btn-fs" id="btn-fs" type="button" title="Cycle font size (S / M / L)">A</button>
       <button class="btn-bare" id="btn-theme" type="button" title="Toggle theme">DARK</button>
       <button class="btn-bare" id="btn-signout" type="button">SIGN OUT</button>
       <div class="avatar" id="avatar" title="${escapeAttr(u?.email || '')}">
@@ -45,8 +46,28 @@ export function renderTopbar(el) {
     document.documentElement.setAttribute('data-theme', next);
     document.getElementById('btn-theme').textContent = next.toUpperCase();
     state.prefs.theme = next;
+    try { localStorage.setItem('swing.theme', next); } catch {}
   });
   document.getElementById('btn-theme').textContent = (document.documentElement.getAttribute('data-theme') || 'dark').toUpperCase();
+
+  const FS_ORDER = ['S', 'M', 'L'];
+  const fsBtn = document.getElementById('btn-fs');
+  function refreshFsLabel() {
+    const cur = document.documentElement.getAttribute('data-fs') || 'M';
+    fsBtn.textContent = `A·${cur}`;
+    // Visually scale the glyph so it telegraphs "size".
+    fsBtn.style.fontSize = cur === 'S' ? '10px' : cur === 'L' ? '14px' : '12px';
+  }
+  fsBtn.addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-fs') || 'M';
+    const idx = FS_ORDER.indexOf(cur);
+    const next = FS_ORDER[(idx + 1) % FS_ORDER.length];
+    document.documentElement.setAttribute('data-fs', next);
+    state.prefs.fontSize = next;
+    try { localStorage.setItem('swing.fs', next); } catch {}
+    refreshFsLabel();
+  });
+  refreshFsLabel();
 
   document.getElementById('btn-signout').addEventListener('click', async () => {
     try { await signOut(); } catch (e) { console.error(e); }

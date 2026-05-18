@@ -238,6 +238,7 @@ button { font-family: inherit; cursor: pointer; }
   border-radius: 4px; transition: border-color 0.12s, color 0.12s;
 }
 .btn-bare:hover { border-color: var(--cyan); color: var(--cyan); }
+.btn-fs { min-width: 38px; text-align: center; font-family: var(--font-sans); font-weight: 600; transition: font-size 0.12s, border-color 0.12s, color 0.12s; }
 .avatar {
   width: 28px; height: 28px; border-radius: 50%;
   border: 1px solid var(--line-soft);

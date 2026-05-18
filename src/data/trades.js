@@ -9,6 +9,7 @@ import {
   query, where, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { initFirebase } from './firebase.js';
+import { nameForTicker } from './markets.js';
 
 // Trade ID is deterministically derived from the signal ID. This prevents
 // double-entering the same signal (Firestore set merges idempotently).
@@ -50,7 +51,7 @@ export async function enterTrade({ signal, notes, overrideEntryPrice }) {
     signalDate:   (signal.signalTs || '').slice(0, 10),
     // Copy the descriptive fields so My Trades renders without a second read.
     ticker:       signal.ticker,
-    name:         signal.name || null,
+    name:         signal.name || nameForTicker(signal.ticker) || null,
     sector:       signal.sector || null,
     market:       signal.market || null,
     strategy:     signal.strategy || null,

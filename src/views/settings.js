@@ -86,9 +86,10 @@ export function renderSettings(root) {
   m.addEventListener('change', () => setMarket(m.value));
 
   const fs = document.getElementById('pref-fs');
-  fs.value = state.prefs.fontSize || 'M';
+  fs.value = document.documentElement.getAttribute('data-fs') || state.prefs.fontSize || 'M';
   fs.addEventListener('change', () => {
     state.prefs.fontSize = fs.value;
     document.documentElement.setAttribute('data-fs', fs.value);
+    try { localStorage.setItem('swing.fs', fs.value); } catch {}
   });
 }

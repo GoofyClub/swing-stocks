@@ -25,7 +25,7 @@ import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
 import { STRATEGIES, settleSignal } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
-import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER } from '../src/data/markets.js';
+import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
 
 const RETENTION_DAYS = 90;
 const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s.trim());
@@ -71,9 +71,9 @@ function strategyKeyToShort(key) {
   return STRATEGIES[key]?.short || key;
 }
 
-async function scanMarket(db, market) {
+async function scanMarket(db, market, ctxIn) {
   const cfg = MARKET_CONFIGS[market];
-  const ctx = buildCtx(market);
+  const ctx = ctxIn || buildCtx(market);
   const watchlist = market === 'INDIA' ? STARTER_WATCHLIST_INDIA : STARTER_WATCHLIST;
   console.log(`\n[scan] market=${market} watchlist=${watchlist.length}`);
 
@@ -153,7 +153,7 @@ async function scanMarket(db, market) {
       const id = `${ticker}_${stratKey}_${dateBucket}`;
       const docBody = {
         ticker,
-        name:         item.t,
+        name:         companyName(item),
         sector:       item.s,
         market,
         strategy:     def.short,
@@ -229,9 +229,9 @@ async function scanMarket(db, market) {
 }
 
 // Re-evaluate W/L for signals in the last 90 days based on current bars.
-async function resettleRecentSignals(db, market) {
+async function resettleRecentSignals(db, market, ctxIn) {
   const cfg = MARKET_CONFIGS[market];
-  const ctx = buildCtx(market);
+  const ctx = ctxIn || buildCtx(market);
   const cutoff = daysAgo(RETENTION_DAYS);
   console.log(`[resettle] market=${market} cutoff=${cutoff}`);
 
@@ -285,6 +285,102 @@ async function resettleRecentSignals(db, market) {
   console.log(`[resettle] market=${market} settled=${settled}`);
 }
 
+// =============================================================================
+// Per-user trade settlement.
+//
+// Walks all open trades across all users via a collection-group query, settles
+// each against its OWN tp/sl (which may differ from the source signal's tp/sl
+// when the user overrode the entry price), and writes back the verdict.
+//
+// We reuse settleSignal() from /src/strategy/normalize.js so the W/L math is
+// identical to the client's preview computation.
+// =============================================================================
+async function settleUserTrades(db, market, ctxIn) {
+  const ctx = ctxIn || buildCtx(market);
+  console.log(`[settle-trades] market=${market} start`);
+
+  // Collection-group query — Admin SDK bypasses Firestore Security Rules so we
+  // can read across all /users/*/enteredTrades subcollections in one shot.
+  // Single-field equality only — no composite index required.
+  let snap;
+  try {
+    snap = await db.collectionGroup('enteredTrades').where('status', '==', 'open').get();
+  } catch (e) {
+    console.warn(`[settle-trades] collection-group query failed: ${e.message}`);
+    return { settled: 0, refreshed: 0, errors: 1 };
+  }
+
+  // Filter to this market client-side and group by ticker so we fetch each
+  // ticker's bars at most once even if multiple users have trades on it.
+  const tradesByTicker = new Map();
+  snap.forEach(s => {
+    const d = s.data();
+    if (d.market && d.market !== market) return;
+    if (!d.ticker || !d.signalDate) return;
+    if (!tradesByTicker.has(d.ticker)) tradesByTicker.set(d.ticker, []);
+    tradesByTicker.get(d.ticker).push({ ref: s.ref, ...d });
+  });
+
+  let settled = 0, refreshed = 0, errors = 0;
+
+  for (const [ticker, trades] of tradesByTicker) {
+    let bars;
+    try { bars = await fetchBars(ticker, ctx); }
+    catch (e) {
+      console.warn(`[settle-trades] ${ticker}: ${e.message}`);
+      errors++;
+      continue;
+    }
+    const dateMap = new Map();
+    bars.forEach((b, i) => dateMap.set(b.date, i));
+    const lastClose = bars[bars.length - 1]?.close;
+
+    for (const t of trades) {
+      const idx = dateMap.get(t.signalDate);
+      if (idx == null) {
+        // Refresh currentPrice even if we can't find the bar (rare).
+        try {
+          await t.ref.update({
+            currentPrice: lastClose ?? null,
+            currentPriceTs: new Date().toISOString(),
+          });
+          refreshed++;
+        } catch {}
+        continue;
+      }
+      // settleSignal() walks bars *after* the signal day and returns the first
+      // touch of tp (win) or sl (loss). Identical math to the client's preview.
+      const verdict = settleSignal(
+        { entry: t.entryPrice, tp: t.tpPrice, sl: t.slPrice },
+        bars.slice(idx + 1),
+      );
+      const updates = {
+        currentPrice:   lastClose ?? null,
+        currentPriceTs: new Date().toISOString(),
+      };
+      if (verdict.status === 'closed') {
+        updates.status      = 'closed';
+        updates.winLoss     = verdict.winLoss;
+        updates.settledAt   = verdict.settledAt;
+        updates.hitPrice    = verdict.hitPrice;
+        updates.realizedPct = ((verdict.hitPrice - t.entryPrice) / t.entryPrice) * 100;
+      } else if (lastClose != null && t.entryPrice) {
+        updates.unrealizedPct = ((lastClose - t.entryPrice) / t.entryPrice) * 100;
+      }
+      try {
+        await t.ref.update(updates);
+        if (verdict.status === 'closed') settled++; else refreshed++;
+      } catch (e) {
+        console.warn(`[settle-trades] update failed for ${t.ref.path}: ${e.message}`);
+        errors++;
+      }
+    }
+  }
+
+  console.log(`[settle-trades] market=${market} settled=${settled} refreshed=${refreshed} errors=${errors}`);
+  return { settled, refreshed, errors };
+}
+
 // Delete /marketData/{date} docs older than 90 days.
 async function pruneOldBuckets(db) {
   const cutoff = daysAgo(RETENTION_DAYS);
@@ -308,9 +404,14 @@ async function main() {
   for (const m of MARKETS_TO_RUN) {
     if (!MARKET_CONFIGS[m]) { console.warn(`[main] unknown market ${m}, skip`); continue; }
     try {
-      const r = await scanMarket(db, m);
-      await resettleRecentSignals(db, m);
-      summary.push({ market: m, ...r });
+      // Build the per-market context ONCE and pass it through every pass so we
+      // benefit from the bar cache (Map populated during scanMarket — re-used by
+      // resettleRecentSignals and settleUserTrades for free).
+      const ctx = buildCtx(m);
+      const r = await scanMarket(db, m, ctx);
+      await resettleRecentSignals(db, m, ctx);
+      const trades = await settleUserTrades(db, m, ctx);
+      summary.push({ market: m, ...r, userTrades: trades });
     } catch (e) {
       console.error(`[main] ${m} failed:`, e);
       summary.push({ market: m, error: e.message });
