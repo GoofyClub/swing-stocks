@@ -15,13 +15,13 @@ import { renderHistory } from './views/history.js';
 import { renderMyTrades } from './views/mytrades.js';
 import { renderWatchlist } from './views/watchlist.js';
 import { renderSettings } from './views/settings.js';
+import { renderGuide } from './views/guide.js';
 import { onForegroundMessage, isFCMSupported } from './data/messaging.js';
 
-// Theme bootstrap — read from localStorage before first paint to avoid flash.
-const storedTheme = localStorage.getItem('swing.theme') || 'dark';
-document.documentElement.setAttribute('data-theme', storedTheme);
-const storedFs = localStorage.getItem('swing.fs') || 'M';
-document.documentElement.setAttribute('data-fs', storedFs);
+// Theme + font-size attributes are pre-set by an inline script in index.html
+// (runs before this bundle loads — eliminates flicker AND guarantees the
+// settings always apply, even if this module never finishes loading).
+// We just keep them in sync with state.prefs for the rest of the app.
 
 const appRoot = document.getElementById('app');
 
@@ -46,6 +46,7 @@ function mountAppShell() {
   route('mytrades',  renderMyTrades);
   route('watchlist', renderWatchlist);
   route('settings',  renderSettings);
+  route('guide',     renderGuide);
   defaultRoute('dashboard');
   const dispatch = start(main);
 

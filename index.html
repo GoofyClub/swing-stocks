@@ -10,6 +10,22 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Apply stored font-size + theme BEFORE the bundle loads, so the page renders
+       at the user's chosen scale immediately and never flashes the default. -->
+  <script>
+    (function () {
+      try {
+        var fs = localStorage.getItem('swing.fs');
+        var th = localStorage.getItem('swing.theme');
+        document.documentElement.setAttribute('data-fs',    (fs === 'S' || fs === 'L' || fs === 'M') ? fs : 'M');
+        document.documentElement.setAttribute('data-theme', th === 'light' ? 'light' : 'dark');
+      } catch (e) {
+        document.documentElement.setAttribute('data-fs', 'M');
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
 </head>
 <body>
   <div id="app"></div>

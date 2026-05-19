@@ -172,8 +172,19 @@ export async function renderHistory(root) {
   const $ = (id) => document.getElementById(id);
 
   if (err) {
-    $('history-table').innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err)}</div>`;
+    $('history-table').innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err)}<br><br>If this mentions a missing index, deploy Firestore indexes: <code>firebase deploy --only firestore:indexes</code> — then click the URL in the browser console to create it on first try.</div>`;
     $('summary-table').innerHTML = `<div class="empty">—</div>`;
+    return;
+  }
+  if (!rows.length) {
+    const today = fmtDate(new Date());
+    $('history-table').innerHTML = `<div class="empty">
+      <b>No signal history yet.</b><br><br>
+      The scheduled cron job populates this view by running every strategy across the watchlist once per refresh window. Today is <code>${escapeHtml(today)}</code>.<br><br>
+      Trigger the first run manually: <b>GitHub → Actions → Refresh shared signals → Run workflow</b>. It takes 60–90 seconds. Refresh this page when it completes.<br><br>
+      For an instant scan in your browser, use <b>Live Signals → RUN SCAN</b> — those results don't get saved to history but show what the engine sees right now.
+    </div>`;
+    $('summary-table').innerHTML = `<div class="empty">Nothing to summarise yet.</div>`;
     return;
   }
 

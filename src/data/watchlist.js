@@ -95,6 +95,48 @@ export async function importStarterWatchlist(market) {
   return list.length;
 }
 
+// Bulk-add: parse pasted text/CSV and write each ticker. One ticker per line.
+// Accepts: "TICKER" or "TICKER, sector" or "TICKER, sector, notes".
+// Returns { added, skipped, errors:[...] }.
+export async function bulkAddWatchlist(text, market) {
+  if (!text || typeof text !== 'string') return { added: 0, skipped: 0, errors: [] };
+  const { db, user } = await requireUser();
+  const lines = text.split(/\r?\n/);
+  const errors = [];
+  const seen = new Set();
+  let added = 0, skipped = 0;
+  const batch = writeBatch(db);
+  for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+    const raw = lines[lineNo].trim();
+    if (!raw || raw.startsWith('#') || /^ticker/i.test(raw)) { skipped++; continue; }
+    // Tolerant CSV: comma OR tab OR multiple spaces as separator
+    const parts = raw.split(/\s*[,\t]\s*|\s{2,}/).map(p => p.trim()).filter(Boolean);
+    const ticker = (parts[0] || '').toUpperCase();
+    if (!ticker) { skipped++; continue; }
+    if (!/^[\^A-Z0-9._\-&]+$/.test(ticker)) {
+      errors.push(`Line ${lineNo + 1}: "${ticker}" has invalid characters.`);
+      continue;
+    }
+    if (seen.has(ticker)) { skipped++; continue; }
+    seen.add(ticker);
+    const sector = parts[1] || null;
+    const notes  = parts.slice(2).join(', ') || '';
+    const ref = doc(db, 'users', user.uid, 'watchlist', ticker);
+    batch.set(ref, {
+      ticker,
+      name:   nameForTicker(ticker) || ticker,
+      sector,
+      notes:  notes.slice(0, 500),
+      market: market || null,
+      addedAt:   serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    added++;
+  }
+  if (added > 0) await batch.commit();
+  return { added, skipped, errors };
+}
+
 // Convenience: for a given market, returns the sectors known to the config.
 export function sectorOptionsForMarket(market) {
   const cfg = MARKET_CONFIGS[market];

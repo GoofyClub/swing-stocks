@@ -11,6 +11,7 @@ const NAV = [
     { id: 'watchlist', icon: '≡', label: 'Watchlist' },
   ]},
   { group: 'System', items: [
+    { id: 'guide',     icon: 'i', label: 'User Guide' },
     { id: 'settings',  icon: '⚙', label: 'Settings' },
   ]},
 ];

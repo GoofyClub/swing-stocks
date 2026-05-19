@@ -15,7 +15,7 @@ import { fetchBars, DataFetchError } from '../data/fetchers.js';
 import { scanAllStrategies } from '../strategy/normalize.js';
 import { loadWatchlist } from '../data/watchlist.js';
 import {
-  STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, companyName,
+  STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, companyName, nameForTicker,
 } from '../data/markets.js';
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
@@ -52,10 +52,17 @@ function notifyTick() {
 }
 
 async function loadScanTickers(market) {
+  // Helper: pick the most informative name we have for a ticker.
+  // The watchlist doc's `name` may be missing or just the ticker (legacy data),
+  // so always fall through to the curated nameForTicker() lookup.
+  const resolveName = (ticker, wlName) => {
+    if (wlName && wlName !== ticker) return wlName;
+    return nameForTicker(ticker) || ticker;
+  };
   try {
     const wl = await loadWatchlist(market);
     if (wl && wl.length) {
-      return wl.map(w => ({ t: w.ticker, s: w.sector, name: w.name || w.ticker }));
+      return wl.map(w => ({ t: w.ticker, s: w.sector, name: resolveName(w.ticker, w.name) }));
     }
   } catch {}
   const starter = market === 'INDIA' ? STARTER_WATCHLIST_INDIA : STARTER_WATCHLIST;
