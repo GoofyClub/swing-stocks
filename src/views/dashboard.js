@@ -248,6 +248,15 @@ export async function renderDashboard(root) {
       <h1>Dashboard</h1>
       <p class="subtitle">Current market regime, today's signals, and your open positions.</p>
 
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <a href="https://github.com/GoofyClub/swing-stocks/actions/workflows/refresh-signals.yml" target="_blank" rel="noopener" class="btn-bare">
+          ▶ TRIGGER REFRESH ↗
+        </a>
+        <span style="color:var(--text-mute);font-size:0.85rem">
+          Opens GitHub Actions in a new tab — click <b>Run workflow → Run workflow</b>. Takes ~90 seconds.
+        </span>
+      </div>
+
       <div id="regime-slot">
         <div class="regime-banner skeleton" style="height:88px"></div>
       </div>

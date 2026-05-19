@@ -25,10 +25,9 @@ function escapeHtml(s) {
 }
 
 // ----- Module-level persistence (per market) -----
-const _scans = {
-  US:    blankScan(),
-  INDIA: blankScan(),
-};
+// Survives view re-mounts. After a HARD page reload, the in-memory state is
+// gone — but we serialize a slimmed copy to localStorage on every change so
+// scans rehydrate on next boot.
 function blankScan() {
   return {
     detected: [],
@@ -43,12 +42,80 @@ function blankScan() {
   };
 }
 
+const SCAN_LS_PREFIX = 'swing.scan.';
+const SCAN_LS_VERSION = 1;
+const SCAN_LS_MAX_HITS = 500;
+const SCAN_LS_MAX_LOG  = 200;
+
+// Try to load a previously-saved scan. Returns blankScan() on miss or corruption.
+function loadScanFromLs(market) {
+  try {
+    const raw = localStorage.getItem(SCAN_LS_PREFIX + market);
+    if (!raw) return blankScan();
+    const parsed = JSON.parse(raw);
+    if (parsed.v !== SCAN_LS_VERSION) return blankScan();
+    return {
+      detected:   Array.isArray(parsed.detected) ? parsed.detected : [],
+      log:        Array.isArray(parsed.log) ? parsed.log : [],
+      lastRunTs:  Number.isFinite(parsed.lastRunTs) ? parsed.lastRunTs : null,
+      inProgress: false,        // Never restore "in progress" — would deadlock the run button.
+      stopRequested: false,
+      tickersTotal: parsed.tickersTotal || 0,
+      tickersDone:  parsed.tickersDone || 0,
+      errors:       parsed.errors || 0,
+      enteredIds:   new Set(),  // Refreshed from Firestore on each mount.
+    };
+  } catch (e) {
+    console.warn('[signals] failed to load scan from localStorage', e?.message);
+    return blankScan();
+  }
+}
+
+// Save a slimmed snapshot (drops raw strategy output blobs — re-derivable from cron).
+let _saveDebounce = null;
+function saveScanToLs(market, sc) {
+  if (_saveDebounce) clearTimeout(_saveDebounce);
+  _saveDebounce = setTimeout(() => {
+    try {
+      // Trim and slim to fit comfortably within the ~5 MB localStorage budget.
+      const detected = sc.detected.slice(0, SCAN_LS_MAX_HITS).map(d => ({
+        ticker: d.ticker, sector: d.sector, name: d.name,
+        strategy: d.strategy, short: d.short, tier: d.tier,
+        envelope: d.envelope,
+        // Keep reason text but drop deep raw blobs.
+        raw: { reason: d.raw?.reason },
+      }));
+      const log = sc.log.slice(-SCAN_LS_MAX_LOG);
+      const payload = {
+        v: SCAN_LS_VERSION,
+        detected, log,
+        lastRunTs:    sc.lastRunTs,
+        tickersTotal: sc.tickersTotal,
+        tickersDone:  sc.tickersDone,
+        errors:       sc.errors,
+      };
+      localStorage.setItem(SCAN_LS_PREFIX + market, JSON.stringify(payload));
+    } catch (e) {
+      // Most likely cause: QuotaExceeded. Drop the saved scan so we don't keep failing.
+      console.warn('[signals] localStorage save failed — dropping cache', e?.message);
+      try { localStorage.removeItem(SCAN_LS_PREFIX + market); } catch {}
+    }
+  }, 250);
+}
+
+const _scans = {
+  US:    loadScanFromLs('US'),
+  INDIA: loadScanFromLs('INDIA'),
+};
+
 // The currently-mounted view installs a hook; the scan loop pings it on every
 // state change. Survives any number of view re-mounts; always points to the
-// latest one.
+// latest one. We also persist to localStorage on every tick (debounced).
 let _renderHook = null;
+let _activeMarket = null;
 function notifyTick() {
   try { _renderHook?.(); } catch (e) { console.warn('[signals] tick failed', e); }
+  if (_activeMarket && _scans[_activeMarket]) saveScanToLs(_activeMarket, _scans[_activeMarket]);
 }
 
 async function loadScanTickers(market) {
@@ -93,6 +160,7 @@ function tierBadge(t) {
 async function executeScan(market) {
   const sc = _scans[market];
   if (sc.inProgress) return;
+  _activeMarket = market;
 
   sc.detected = [];
   sc.log = [];
@@ -177,6 +245,7 @@ async function executeScan(market) {
 export async function renderSignals(root) {
   const market = state.market;
   const sc = _scans[market] ?? (_scans[market] = blankScan());
+  _activeMarket = market;
 
   root.innerHTML = `
     <div class="view">
@@ -469,6 +538,7 @@ export async function renderSignals(root) {
   });
   $('btn-clear').addEventListener('click', () => {
     _scans[market] = blankScan();
+    try { localStorage.removeItem(SCAN_LS_PREFIX + market); } catch {}
     renderSignals(root);
   });
   $('btn-reset').addEventListener('click', () => {

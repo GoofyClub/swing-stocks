@@ -204,6 +204,35 @@ console.log('\n--- parseStooqCsv() ---');
   approx(parsed[1].close, 101.7, 'parses close');
 }
 
+console.log('\n--- Normalizer TP calibration ---');
+{
+  const { STRATEGY_TARGETS, STRATEGIES } = await import('../src/strategy/normalize.js');
+  // Verify each strategy's target-pct band looks sane (no RSI with 20% target etc.)
+  const expectedRanges = {
+    pullback:     [3,   8],
+    quality_dip:  [7,   15],
+    vcp:          [12,  25],
+    rsi2:         [1,   3],
+    pocket_pivot: [5,   12],
+    htf:          [50,  300],
+    nr7:          [2,   8],
+    fifty_two_wh: [5,   15],
+    peg:          [8,   20],
+    pead:         [8,   20],
+    insider:      [10,  25],
+    analyst:      [6,   15],
+  };
+  for (const [key, [lo, hi]] of Object.entries(expectedRanges)) {
+    const t = STRATEGY_TARGETS[key];
+    shape(t, x => x && x.targetPct >= lo && x.targetPct <= hi, `${key} targetPct ${t?.targetPct} ∈ [${lo}, ${hi}]`);
+    shape(t, x => x && x.minR > 0 && x.maxR > x.minR, `${key} R guardrails sane`);
+  }
+  // Sanity: every STRATEGIES entry has a matching STRATEGY_TARGETS entry.
+  for (const key of Object.keys(STRATEGIES)) {
+    shape(STRATEGY_TARGETS[key], x => !!x, `${key} has STRATEGY_TARGETS entry`);
+  }
+}
+
 console.log('\n=============================================');
 console.log(`PASS ${passes} · FAIL ${fails}`);
 console.log('=============================================');

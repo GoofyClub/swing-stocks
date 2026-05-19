@@ -83,22 +83,28 @@ why the GitHub Pages subpath works without further OAuth configuration.
 
 ---
 
-## 4 · Deploy Firestore rules
+## 4 · Deploy Firestore rules + indexes
 
 ```bash
 # One-time tooling install
 npm install -g firebase-tools
-
 firebase login
+```
 
-create firebase.json file with the below data.
+Create `firebase.json` at the repo root (one time, optional — many people commit this):
+
+```json
 {
   "firestore": {
-    "rules": "firestore.rules",
+    "rules":   "firestore.rules",
     "indexes": "firestore.indexes.json"
   }
 }
+```
 
+Then:
+
+```bash
 firebase use --add   # pick your project; alias it as `default`
 
 # Deploy rules + indexes
@@ -106,7 +112,9 @@ firebase deploy --only firestore:rules
 firebase deploy --only firestore:indexes
 ```
 
-Rules are in `firestore.rules`; composite indexes in `firestore.indexes.json`.
+Rules live in `firestore.rules`; composite + collection-group indexes in `firestore.indexes.json`.
+
+> **⚠ Important** — the cron worker uses collection-group queries to resettle open signals and trades. **You must deploy `firestore.indexes.json`**, otherwise the cron throws `FAILED_PRECONDITION: The query requires an index` and Signal History / settlements won't work. Indexes build asynchronously in Firebase — they take 1–5 minutes to come online after deploy.
 
 ---
 
@@ -123,10 +131,36 @@ rules) to write the shared signal collection. It needs a service account key.
    - Value: paste the full JSON
 5. Add `FIREBASE_PROJECT_ID` (the same value as `VITE_FIREBASE_PROJECT_ID`).
 
-Optional secrets (if missing, the corresponding source is skipped):
-- `ALPHAVANTAGE_KEY` — free at <https://www.alphavantage.co/support/#api-key> (25/day)
-- `FINNHUB_KEY`      — free at <https://finnhub.io/register>
-- `FMP_KEY`          — paid; required only to enable PEAD / Insider / Analyst strategies
+### Data-source API keys (all optional, all stored as GitHub Secrets)
+
+The cron worker fetches OHLCV bars from a priority list of sources. Higher-priority
+sources need keys; the lower-priority ones (Yahoo Finance, Stooq + 3 CORS proxies)
+are free and keyless. **Without any keys**, the cron still works — it just falls
+through to the free sources first.
+
+| Secret name        | What it unlocks                                          | Where to get it                                                            | Cost            |
+|--------------------|----------------------------------------------------------|----------------------------------------------------------------------------|-----------------|
+| `ALPHAVANTAGE_KEY` | Top-priority CSV source. Best when you have it.          | <https://www.alphavantage.co/support/#api-key>                              | Free (25/day)   |
+| `FINNHUB_KEY`      | JSON daily candles. Wider symbol coverage.               | <https://finnhub.io/register>                                              | Free (60/min)   |
+| `FMP_KEY`          | Enables **PEAD / Insider Cluster / Analyst Upgrade** strategies. Without it, these are skipped silently. | <https://financialmodelingprep.com>                  | ~$19/mo         |
+
+To add a key:
+1. Get the key from the provider (sign up — free tiers don't require a credit card).
+2. Repo → **Settings → Secrets and variables → Actions → New repository secret**.
+3. Name = the column above (e.g. `ALPHAVANTAGE_KEY`), value = your key.
+4. Re-run **Actions → Refresh shared signals → Run workflow** to use it immediately.
+
+### Can I run PEAD / Insider / Analyst without paying for FMP?
+
+Short answer: **no good free alternative right now.** The free FMP tier doesn't expose
+the `/earnings-surprises`, `/insider-trading`, or `/upgrades-downgrades` endpoints —
+those are paid only. Free alternatives:
+
+- **Yahoo Finance scraping** — fragile (frequent breakage) and rate-limited.
+- **Alpha Vantage `EARNINGS`** — free 25/day, but doesn't give actual-vs-estimate surprise %.
+- **Skip these strategies and rely on PEG** — the **Power Earnings Gap (PEG)** strategy is a pure-price proxy for PEAD (gap-up ≥4% on 2× volume held for 3+ days). It captures most of the same edge using only OHLCV data. PEG is free.
+
+The cron silently skips FMP-gated strategies when no key is set, so removing the key just hides those three from results — everything else keeps working.
 
 ---
 
