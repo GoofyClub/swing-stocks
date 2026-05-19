@@ -114,7 +114,20 @@ firebase deploy --only firestore:indexes
 
 Rules live in `firestore.rules`; composite + collection-group indexes in `firestore.indexes.json`.
 
-> **⚠ Important** — the cron worker uses collection-group queries to resettle open signals and trades. **You must deploy `firestore.indexes.json`**, otherwise the cron throws `FAILED_PRECONDITION: The query requires an index` and Signal History / settlements won't work. Indexes build asynchronously in Firebase — they take 1–5 minutes to come online after deploy.
+> **⚠ Both files must be deployed — they fix different errors.**
+>
+> | If you see this error… | …deploy this |
+> |---|---|
+> | `Missing or insufficient permissions` (e.g. on Signal History) | `firebase deploy --only firestore:rules` |
+> | `FAILED_PRECONDITION: The query requires an index` (cron log or History view) | `firebase deploy --only firestore:indexes` |
+>
+> The cron worker uses collection-group queries to resettle open signals and trades; the History view uses them to list signals across days. Both require:
+> 1. **A wildcard rule** (`match /{path=**}/signals/{id}` in `firestore.rules`) — without this, clients get `permission-denied` even with the path-specific rule.
+> 2. **Collection-group composite indexes** (in `firestore.indexes.json`) — without these, the queries throw `FAILED_PRECONDITION`.
+>
+> Indexes build asynchronously — 1–5 minutes after deploy. Rules are instant.
+>
+> **Re-deploy both whenever you edit `firestore.rules` or `firestore.indexes.json`.**
 
 ---
 

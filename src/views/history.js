@@ -184,7 +184,34 @@ export async function renderHistory(root) {
   const $ = (id) => document.getElementById(id);
 
   if (err) {
-    $('history-table').innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err)}<br><br>If this mentions a missing index, deploy Firestore indexes: <code>firebase deploy --only firestore:indexes</code> — then click the URL in the browser console to create it on first try.</div>`;
+    const isPermission = /permission|insufficient/i.test(err);
+    const isIndex      = /requires an index|FAILED_PRECONDITION/i.test(err);
+    let hint = '';
+    if (isPermission) {
+      hint = `
+        <div class="guide-warn" style="text-align:left;margin-top:14px">
+          <b>Looks like a Firestore Security Rules issue.</b> Deploy the latest rules:
+          <pre style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:8px 0;font-family:var(--font-mono);font-size:0.85rem;color:var(--text);overflow-x:auto">firebase deploy --only firestore:rules</pre>
+          The History view uses a <code>collectionGroup</code> query which needs the wildcard rule
+          <code>match /{path=**}/signals/{id}</code> — included in <code>firestore.rules</code> at the repo root.
+        </div>
+      `;
+    } else if (isIndex) {
+      hint = `
+        <div class="guide-warn" style="text-align:left;margin-top:14px">
+          <b>Missing Firestore index.</b> Deploy the index manifest:
+          <pre style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:8px 0;font-family:var(--font-mono);font-size:0.85rem;color:var(--text);overflow-x:auto">firebase deploy --only firestore:indexes</pre>
+          Or click the URL in the browser console (F12) to auto-create the index on first try. Indexes build asynchronously — wait 1–5 minutes after deploy.
+        </div>
+      `;
+    } else {
+      hint = `<div style="margin-top:10px;color:var(--text-mute);font-size:0.85rem">Check the browser console (F12) for the full error.</div>`;
+    }
+    $('history-table').innerHTML = `<div class="empty" style="text-align:left">
+      <b>Couldn't load history.</b><br>
+      <span style="color:var(--red);font-family:var(--font-mono);font-size:0.92rem">${escapeHtml(err)}</span>
+      ${hint}
+    </div>`;
     $('summary-table').innerHTML = `<div class="empty">—</div>`;
     return;
   }

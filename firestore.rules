@@ -6,52 +6,53 @@ rules_version = '2';
 // Two-layer access model:
 //
 //   /marketData/{date}/signals/{signalId}
-//     READ:  any authenticated user
+//   /marketData/{date}/regime/{marketId}
+//     READ:  any authenticated user, including via collection-group queries
 //     WRITE: server only (Firebase Admin SDK via GitHub Actions cron)
-//            Clients never write here. Admin SDK bypasses these rules, so the
-//            explicit `allow write: if false;` keeps malicious clients out.
 //
 //   /users/{uid}/**
 //     READ + WRITE: only when request.auth.uid == uid
-//            Enforces that "My Trades", preferences, and watchlist are private
-//            per-user and cannot be read across accounts.
 //
-//   /publicConfig/**
-//     READ:  any authenticated user (e.g. server-published default win/loss rule,
-//            list of available strategies). Optional — safe to leave unused.
-//     WRITE: server only.
+// IMPORTANT: collection-group queries require a top-level wildcard match. The
+// History view uses `collectionGroup(db, 'signals').orderBy('signalTs', ...)`
+// which Firestore evaluates against a recursive-wildcard rule, NOT the nested
+// /marketData/{date}/signals/{id} rule. Both rules are kept for clarity:
+//   - The `{path=**}/signals/{id}` rule authorises collection-group reads.
+//   - The nested rule documents the intended location of these docs.
 //
-// All other paths are denied by default (no fallthrough rule).
+// After editing this file, deploy with:
+//   firebase deploy --only firestore:rules
 // =============================================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
 
-    function isOwner(uid) {
-      return isSignedIn() && request.auth.uid == uid;
+    // -----------------------------------------------------------------------
+    // Collection-group reads for shared market data.
+    // The `{path=**}` recursive wildcard is what makes
+    // `collectionGroup(db, 'signals')` work — without this, the History view
+    // gets "Missing or insufficient permissions" even though the nested
+    // /marketData/{date}/signals/{id} rule would allow direct reads.
+    // -----------------------------------------------------------------------
+    match /{path=**}/signals/{signalId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+    match /{path=**}/regime/{regimeId} {
+      allow read: if isSignedIn();
+      allow write: if false;
     }
 
     // -----------------------------------------------------------------------
-    // Shared market data: signals, regime snapshot, sector ranks, etc.
-    // Written exclusively by the GitHub Actions cron via Admin SDK.
+    // Shared market data — direct path rules (redundant with the wildcards
+    // above, kept for documentation of intended location + explicit write deny)
     // -----------------------------------------------------------------------
     match /marketData/{dateBucket} {
       allow read: if isSignedIn();
       allow write: if false;
-
-      match /signals/{signalId} {
-        allow read: if isSignedIn();
-        allow write: if false;
-      }
-
-      match /regime/{regimeId} {
-        allow read: if isSignedIn();
-        allow write: if false;
-      }
     }
 
     // -----------------------------------------------------------------------
@@ -69,6 +70,13 @@ service cloud.firestore {
       }
 
       match /preferences/{prefId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // FCM push notification tokens — written by the client when the user
+      // enables notifications in Settings. Cron worker reads via Admin SDK
+      // (bypasses these rules), so only the user's own writes need authorising.
+      match /fcmTokens/{token} {
         allow read, write: if isOwner(uid);
       }
     }
