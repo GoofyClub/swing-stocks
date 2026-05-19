@@ -98,8 +98,60 @@ const REGIME_HELP = {
 };
 
 function helpIconHtml(text) {
-  // Inline SVG question-mark badge with native `title` tooltip + ARIA.
   return `<span class="help-icon" tabindex="0" role="button" aria-label="What does this mean?" data-help="${escapeHtml(text)}">?</span>`;
+}
+
+// Build a rich, glossary-style help payload using the live regime numbers.
+// Renders as HTML inside the help modal so we can format it with headings and code.
+function regimeHelpHtml(regime, head, helpText) {
+  const idx = regime?.indexLabel || 'the index';
+  const details = regime?.details || {};
+  const cur     = details.spy_close;
+  const s200    = details.spy_50sma != null ? details.spy_200sma : details.spy_200sma;
+  const s50     = details.spy_50sma;
+  const vix     = details.vix;
+
+  const fmt = (v) => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(2) : '—';
+  const pctVs = (a, b) => (a != null && b != null && b > 0) ? `(${(((a - b) / b) * 100).toFixed(1)}% ${a >= b ? 'above' : 'below'})` : '';
+
+  const market = regime?.market;
+  // Threshold table differs by market — the engine uses these:
+  const vixThresh = market === 'INDIA' ? 20 : 25;
+  const vixLabel  = market === 'INDIA' ? 'India VIX' : 'VIX';
+
+  return `
+    <h4 style="margin:0 0 8px;font-weight:500">What is market regime?</h4>
+    <p style="margin:0 0 14px;color:var(--text-dim);line-height:1.55">
+      A daily three-check health-test on the broad market. If all checks pass, the system says it's safe to take new swing entries. If too many fail, it says go to cash. Same logic, same thresholds, every trading day.
+    </p>
+
+    <h4 style="margin:14px 0 6px;font-weight:500">The three checks (plain English)</h4>
+    <ul style="margin:0 0 14px;padding-left:18px;color:var(--text-dim);line-height:1.6">
+      <li>
+        <b style="color:var(--text)">${escapeHtml(idx)} &gt; 200-SMA</b> — Is the index above its 200-day Simple Moving Average?
+        The 200-SMA is the average closing price of the last 200 trading days (~10 months). It's the most widely-watched long-term trend line on Wall Street. Above it = long-term uptrend intact; below = long-term trend broken.
+        <br><span style="font-family:var(--font-mono);color:var(--cyan)">Now: ${escapeHtml(idx)} = ${fmt(cur)}, 200-SMA = ${fmt(details.spy_200sma)} ${escapeHtml(pctVs(cur, details.spy_200sma))}</span>
+      </li>
+      <li style="margin-top:8px">
+        <b style="color:var(--text)">${escapeHtml(idx)} &gt; 50-SMA</b> — Same idea but over 50 trading days (~2.5 months). Catches medium-term shifts the slow 200-SMA misses.
+        <br><span style="font-family:var(--font-mono);color:var(--cyan)">Now: ${escapeHtml(idx)} = ${fmt(cur)}, 50-SMA = ${fmt(s50)} ${escapeHtml(pctVs(cur, s50))}</span>
+      </li>
+      <li style="margin-top:8px">
+        <b style="color:var(--text)">${escapeHtml(vixLabel)} &lt; ${vixThresh}</b> — A volatility ("fear") index derived from options on the index. Higher = more fear / wider price swings expected. Below ${vixThresh} = calm-to-normal; above = stress.
+        <br><span style="font-family:var(--font-mono);color:var(--cyan)">Now: ${escapeHtml(vixLabel)} = ${fmt(vix)}</span>
+      </li>
+    </ul>
+
+    <h4 style="margin:14px 0 6px;font-weight:500">The verdict</h4>
+    <p style="margin:0 0 6px;color:var(--text-dim);line-height:1.55">
+      <b style="color:var(--text)">TRADEABLE</b> — at least 3 checks pass AND both trend gates pass. Take signals normally.<br>
+      <b style="color:var(--text)">CAUTION</b> — mixed signals. One trend gate or VIX is borderline. Smaller size, only A+ setups.<br>
+      <b style="color:var(--text)">GO TO CASH</b> — the 200-SMA gate fails, OR two checks fail, OR VIX is in panic territory. Don't open new longs.
+    </p>
+
+    <h4 style="margin:14px 0 6px;font-weight:500">Right now (${escapeHtml(head)})</h4>
+    <p style="margin:0;color:var(--text-dim);line-height:1.55">${escapeHtml(helpText)}</p>
+  `;
 }
 
 function regimeBannerHtml(regime) {
@@ -122,17 +174,23 @@ function regimeBannerHtml(regime) {
     .filter(c => c.pass !== null)
     .map(c => `<span class="${c.pass ? 'ok' : 'fail'}">${c.pass ? '✓' : '✗'} ${escapeHtml(c.name)}</span>`)
     .join(' · ');
+  // Stash the full HTML payload on the icon so the click handler can pull it.
+  // (Use a global keyed registry instead of dataset because dataset truncates / escapes HTML.)
+  const helpKey = `regime-${Math.random().toString(36).slice(2, 9)}`;
+  _helpRegistry.set(helpKey, regimeHelpHtml(regime, head, helpText));
   return `
     <div class="regime-banner ${cls}">
       <div class="rb-label">
         MARKET REGIME · ${escapeHtml(regime.indexLabel || '')} · as of ${escapeHtml(regime.date || '')}
-        ${helpIconHtml(`What is market regime? — A daily health-check of the broad market. Uses the index trend (above/below 200-day and 50-day moving averages) and volatility (VIX / India VIX). The result tells you whether the environment supports new long entries.\n\nCurrent state — ${head}: ${helpText}`)}
+        <span class="help-icon" tabindex="0" role="button" aria-label="What does this mean?" data-help-key="${helpKey}">?</span>
       </div>
       <div class="rb-headline">${icon} ${head}</div>
       <div class="rb-sub">${checks || '—'}</div>
     </div>
   `;
 }
+
+const _helpRegistry = new Map();
 
 // ---- KPI tile w/ sparkline -------------------------------------------------------
 
@@ -232,9 +290,12 @@ export async function renderDashboard(root) {
   // Wire help-icon click/keyboard to a lightweight modal popover.
   document.querySelectorAll('.help-icon').forEach(icon => {
     const show = () => {
+      // Prefer the rich-HTML payload via key registry; fall back to plain `data-help` text.
+      const richHtml = icon.dataset.helpKey ? _helpRegistry.get(icon.dataset.helpKey) : null;
+      const bodyHtml = richHtml || `<div style="white-space:pre-wrap;color:var(--text-dim);font-size:1rem;line-height:1.55">${escapeHtml(icon.dataset.help || '')}</div>`;
       openModal({
         title: 'About Market Regime',
-        bodyHtml: `<div style="white-space:pre-wrap;color:var(--text-dim);font-size:1rem;line-height:1.55">${escapeHtml(icon.dataset.help || '')}</div>`,
+        bodyHtml,
         primaryLabel: 'Got it',
         onPrimary: () => true,
       });
