@@ -135,17 +135,29 @@ export async function renderHistory(root) {
         </div>
         <!-- Filter row -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <select id="f-tier" class="btn-bare">
-            <option value="">All tiers</option>
-            <option value="A+">A+ only</option>
-            <option value="Tier 1">Tier 1</option>
-            <option value="Tier 2">Tier 2</option>
-          </select>
-          <select id="f-side" class="btn-bare"><option value="">All sides</option><option value="buy">Buys</option><option value="sell">Sells</option></select>
-          <select id="f-winloss" class="btn-bare"><option value="">All W/L</option><option value="open">Open</option><option value="win">Wins</option><option value="loss">Losses</option></select>
-          <select id="f-strategy" class="btn-bare"><option value="">All strategies</option></select>
-          <select id="f-sector"   class="btn-bare"><option value="">All sectors</option></select>
-          <input  id="f-q"   class="search" type="search" placeholder="ticker / name" style="max-width:240px">
+          <div class="seg-group" id="seg-tier" role="group" aria-label="Tier filter">
+            <span class="seg-label">Tier</span>
+            <button data-value=""       class="active" type="button">ALL</button>
+            <button data-value="A+"     class="tier-aplus" type="button">A+</button>
+            <button data-value="Tier 1" class="tier-t1"    type="button">T1</button>
+            <button data-value="Tier 2" class="tier-t2"    type="button">T2</button>
+          </div>
+          <div class="seg-group" id="seg-side" role="group" aria-label="Side filter">
+            <span class="seg-label">Side</span>
+            <button data-value=""     class="active" type="button">ALL</button>
+            <button data-value="buy"  type="button">BUYS</button>
+            <button data-value="sell" type="button">SELLS</button>
+          </div>
+          <div class="seg-group" id="seg-winloss" role="group" aria-label="Win/Loss filter">
+            <span class="seg-label">W/L</span>
+            <button data-value=""     class="active" type="button">ALL</button>
+            <button data-value="open" type="button">OPEN</button>
+            <button data-value="win"  class="wl-win"  type="button">WIN</button>
+            <button data-value="loss" class="wl-loss" type="button">LOSS</button>
+          </div>
+          <select id="f-strategy" class="btn-bare" title="Filter by strategy"><option value="">All strategies</option></select>
+          <select id="f-sector"   class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
+          <input  id="f-q"   class="search" type="search" placeholder="ticker / name" style="max-width:220px">
           <button id="btn-csv" class="btn-bare" type="button">CSV ↓</button>
           <span id="row-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
         </div>
@@ -195,8 +207,8 @@ export async function renderHistory(root) {
   $('f-sector').insertAdjacentHTML('beforeend', sectors.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
 
   // Pre-seed filters from URL query (Dashboard tiles can deep-link with ?side=buy or ?tier=A+).
-  if (params.side) $('f-side').value = params.side;
-  if (params.tier) $('f-tier').value = params.tier;
+  if (params.side) setSeg('seg-side', params.side);
+  if (params.tier) setSeg('seg-tier', params.tier);
   if (params.strategy) $('f-strategy').value = params.strategy;
 
   // ---- Timeframe state ----
@@ -248,15 +260,37 @@ export async function renderHistory(root) {
 
   refreshTfLabel();
 
+  // Compact helpers for the segmented-button filter groups (replace the legacy
+  // selects). Each `.seg-group` keeps its current value as a `.active` class on
+  // one of its inner buttons; `data-value=""` means "no filter".
+  function getSeg(id) {
+    return $(id)?.querySelector('button.active')?.dataset.value || '';
+  }
+  function setSeg(id, value) {
+    const el = $(id);
+    if (!el) return;
+    el.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', (b.dataset.value || '') === value);
+    });
+  }
+  function wireSeg(id, onChange) {
+    $(id).querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        setSeg(id, btn.dataset.value || '');
+        onChange();
+      });
+    });
+  }
+
   function currentFilters() {
     const r = activeRange();
     return {
       from: r.from, to: r.to,
-      side:     $('f-side').value,
-      tier:     $('f-tier').value,
+      side:     getSeg('seg-side'),
+      tier:     getSeg('seg-tier'),
       strategy: $('f-strategy').value,
       sector:   $('f-sector').value,
-      winLoss:  $('f-winloss').value,
+      winLoss:  getSeg('seg-winloss'),
       q:        $('f-q').value.trim(),
     };
   }
@@ -431,7 +465,10 @@ export async function renderHistory(root) {
     });
   }
 
-  ['f-side', 'f-strategy', 'f-sector', 'f-winloss', 'f-tier'].forEach(id => $(id).addEventListener('change', refresh));
+  wireSeg('seg-tier',    refresh);
+  wireSeg('seg-side',    refresh);
+  wireSeg('seg-winloss', refresh);
+  ['f-strategy', 'f-sector'].forEach(id => $(id).addEventListener('change', refresh));
   $('f-q').addEventListener('input', refresh);
 
   $('btn-csv').addEventListener('click', () => {

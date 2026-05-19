@@ -697,6 +697,52 @@ table.data .badge.tier-t2 { min-width: 38px; text-align: center; }
   border-color: var(--cyan);
 }
 
+/* Compact segmented button group — quick-select filter without dropdown overhead.
+   Used on Live Signals + Signal History for tier/side/W-L style enums. */
+.seg-group {
+  display: inline-flex;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.seg-group .seg-label {
+  background: var(--bg-elev2);
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 0.69rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  border-right: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+.seg-group button {
+  background: var(--bg-elev2);
+  border: none;
+  border-right: 1px solid var(--line-soft);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.77rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+.seg-group button:last-child { border-right: none; }
+.seg-group button:hover { background: var(--bg-elev3); color: var(--text); }
+.seg-group button.active { background: var(--cyan); color: var(--bg); }
+.seg-group button.active.tier-aplus { background: var(--cyan); }
+.seg-group button.active.tier-t1    { background: var(--green); }
+.seg-group button.active.tier-t2    { background: var(--amber); }
+.seg-group button.active.wl-win     { background: var(--green); }
+.seg-group button.active.wl-loss    { background: var(--red);   color: white; }
+.seg-group button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; position: relative; z-index: 1; }
+
 .empty {
   padding: 32px 16px;
   text-align: center;

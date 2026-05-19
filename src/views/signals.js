@@ -195,20 +195,22 @@ export async function renderSignals(root) {
 
       <div class="card" id="filter-card" style="display:none">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <select id="f-tier" class="btn-bare">
-            <option value="">All tiers</option>
-            <option value="A+">A+ only</option>
-            <option value="Tier 1">Tier 1</option>
-            <option value="Tier 2">Tier 2</option>
-          </select>
-          <select id="f-side" class="btn-bare">
-            <option value="">All sides</option>
-            <option value="buy">Buys</option>
-            <option value="sell">Sells</option>
-          </select>
-          <select id="f-sector" class="btn-bare"><option value="">All sectors</option></select>
-          <input id="f-min" type="number" step="0.01" placeholder="min price" class="btn-bare" style="width:110px">
-          <input id="f-max" type="number" step="0.01" placeholder="max price" class="btn-bare" style="width:110px">
+          <div class="seg-group" id="seg-tier" role="group" aria-label="Tier filter">
+            <span class="seg-label">Tier</span>
+            <button data-value=""       class="active" type="button">ALL</button>
+            <button data-value="A+"     class="tier-aplus" type="button">A+</button>
+            <button data-value="Tier 1" class="tier-t1"    type="button">T1</button>
+            <button data-value="Tier 2" class="tier-t2"    type="button">T2</button>
+          </div>
+          <div class="seg-group" id="seg-side" role="group" aria-label="Side filter">
+            <span class="seg-label">Side</span>
+            <button data-value=""     class="active" type="button">ALL</button>
+            <button data-value="buy"  type="button">BUYS</button>
+            <button data-value="sell" type="button">SELLS</button>
+          </div>
+          <select id="f-sector" class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
+          <input id="f-min" type="number" step="0.01" placeholder="min price" class="btn-bare" style="width:100px">
+          <input id="f-max" type="number" step="0.01" placeholder="max price" class="btn-bare" style="width:100px">
           <input id="f-q" type="search" placeholder="ticker / name" class="search" style="max-width:200px">
           <button id="btn-reset" class="btn-bare" type="button">RESET</button>
           <span id="hit-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
@@ -274,9 +276,28 @@ export async function renderSignals(root) {
     }
     sel.value = cur;
   }
+  function getSeg(id) {
+    return $(id)?.querySelector('button.active')?.dataset.value || '';
+  }
+  function setSeg(id, value) {
+    const el = $(id);
+    if (!el) return;
+    el.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', (b.dataset.value || '') === value);
+    });
+  }
+  function wireSeg(id, onChange) {
+    $(id).querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        setSeg(id, btn.dataset.value || '');
+        onChange();
+      });
+    });
+  }
+
   function applyFilters(rows) {
-    const tier   = $('f-tier').value;
-    const side   = $('f-side').value;
+    const tier   = getSeg('seg-tier');
+    const side   = getSeg('seg-side');
     const sector = $('f-sector').value;
     const minP   = parseFloat($('f-min').value);
     const maxP   = parseFloat($('f-max').value);
@@ -451,14 +472,16 @@ export async function renderSignals(root) {
     renderSignals(root);
   });
   $('btn-reset').addEventListener('click', () => {
-    $('f-tier').value = '';
-    $('f-side').value = '';
+    setSeg('seg-tier', '');
+    setSeg('seg-side', '');
     $('f-sector').value = '';
     $('f-min').value = '';
     $('f-max').value = '';
     $('f-q').value = '';
     renderResults();
   });
-  ['f-tier', 'f-side', 'f-sector'].forEach(id => $(id).addEventListener('change', renderResults));
+  wireSeg('seg-tier', renderResults);
+  wireSeg('seg-side', renderResults);
+  $('f-sector').addEventListener('change', renderResults);
   ['f-min', 'f-max', 'f-q'].forEach(id => $(id).addEventListener('input', renderResults));
 }
