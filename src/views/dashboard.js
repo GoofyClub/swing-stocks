@@ -46,6 +46,35 @@ async function loadRegime(market) {
   return null;
 }
 
+// Find the most recent /marketData/{date} doc and pull its refreshedAt timestamp.
+async function loadLastRefresh(market) {
+  const { db, ok } = initFirebase();
+  if (!ok) return null;
+  for (const d of nDayKeys(5)) {
+    try {
+      const snap = await getDoc(doc(db, 'marketData', d));
+      if (!snap.exists()) continue;
+      const data = snap.data();
+      // `refreshedAt` is a Firestore Timestamp. Convert to JS Date.
+      const ts = data.refreshedAt?.toDate?.();
+      if (ts) return { date: d, refreshedAt: ts, summaries: data.summaries || {} };
+    } catch {}
+  }
+  return null;
+}
+
+function fmtRelative(date) {
+  if (!date) return 'never';
+  const diff = Date.now() - date.getTime();
+  const mins = Math.round(diff / 60000);
+  if (mins < 1)   return 'just now';
+  if (mins < 60)  return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24)   return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.round(hrs / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
 // Find the most recent date bucket that has signals (handles weekends).
 async function loadTodaysSignals(market) {
   const { db, ok } = initFirebase();
@@ -154,6 +183,44 @@ function regimeHelpHtml(regime, head, helpText) {
   `;
 }
 
+// Per-check rendering — one row per check, with the actual price values inline
+// so the user can verify the math themselves instead of trusting just a ✓/✗.
+function regimeCheckRowHtml(c, details = {}, indexLabel = '') {
+  const passClass = c.pass === true ? 'ok' : c.pass === false ? 'fail' : 'unknown';
+  const icon      = c.pass === true ? '✓'  : c.pass === false ? '✗' : '–';
+  // Build a numeric breakdown when we have the values. The regimeCheck() engine
+  // function emits `note` like "5800.12 vs 5210.40" but that doesn't tell you
+  // which value is which. Here we synthesise a clearer "INDEX X < THRESHOLD Y"
+  // string using `regime.details` (spy_close, spy_200sma, spy_50sma, vix).
+  let prettyNote = '';
+  const cur = details.spy_close;
+  if (c.name?.includes('200-SMA') && Number.isFinite(cur) && Number.isFinite(details.spy_200sma)) {
+    const cmp = cur > details.spy_200sma ? '>' : cur < details.spy_200sma ? '<' : '=';
+    prettyNote = `${escapeHtml(indexLabel)} <b>${cur.toFixed(2)}</b> ${cmp} 200-SMA <b>${details.spy_200sma.toFixed(2)}</b>`;
+  } else if (c.name?.includes('50-SMA') && Number.isFinite(cur) && Number.isFinite(details.spy_50sma)) {
+    const cmp = cur > details.spy_50sma ? '>' : cur < details.spy_50sma ? '<' : '=';
+    prettyNote = `${escapeHtml(indexLabel)} <b>${cur.toFixed(2)}</b> ${cmp} 50-SMA <b>${details.spy_50sma.toFixed(2)}</b>`;
+  } else if (c.name?.startsWith('VIX') && Number.isFinite(details.vix)) {
+    const thresholdMatch = (c.name.match(/< (\d+)/) || [])[1];
+    if (thresholdMatch) {
+      const t = Number(thresholdMatch);
+      const cmp = details.vix < t ? '<' : '≥';
+      prettyNote = `VIX <b>${details.vix.toFixed(2)}</b> ${cmp} threshold <b>${t}</b>`;
+    } else {
+      prettyNote = `VIX <b>${details.vix.toFixed(2)}</b>`;
+    }
+  } else {
+    prettyNote = escapeHtml(c.note || '');
+  }
+  return `
+    <div class="rb-check ${passClass}">
+      <span class="rb-icon">${icon}</span>
+      <span class="rb-name">${escapeHtml(c.name)}</span>
+      <span class="rb-note">${prettyNote}</span>
+    </div>
+  `;
+}
+
 function regimeBannerHtml(regime) {
   if (!regime) {
     return `
@@ -170,12 +237,12 @@ function regimeBannerHtml(regime) {
   const icon  = cash ? '⚠' : (tradeable ? '✓' : '○');
   const head  = cash ? 'GO TO CASH' : (tradeable ? 'TRADEABLE' : 'CAUTION');
   const helpText = REGIME_HELP[head] || '';
+  const details = regime.details || {};
   const checks = (regime.checks || [])
     .filter(c => c.pass !== null)
-    .map(c => `<span class="${c.pass ? 'ok' : 'fail'}">${c.pass ? '✓' : '✗'} ${escapeHtml(c.name)}</span>`)
-    .join(' · ');
+    .map(c => regimeCheckRowHtml(c, details, regime.indexLabel || ''))
+    .join('');
   // Stash the full HTML payload on the icon so the click handler can pull it.
-  // (Use a global keyed registry instead of dataset because dataset truncates / escapes HTML.)
   const helpKey = `regime-${Math.random().toString(36).slice(2, 9)}`;
   _helpRegistry.set(helpKey, regimeHelpHtml(regime, head, helpText));
   return `
@@ -185,7 +252,7 @@ function regimeBannerHtml(regime) {
         <span class="help-icon" tabindex="0" role="button" aria-label="What does this mean?" data-help-key="${helpKey}">?</span>
       </div>
       <div class="rb-headline">${icon} ${head}</div>
-      <div class="rb-sub">${checks || '—'}</div>
+      <div class="rb-checks">${checks || '<div class="rb-check unknown"><span class="rb-name">No check data available</span></div>'}</div>
     </div>
   `;
 }
@@ -248,13 +315,14 @@ export async function renderDashboard(root) {
       <h1>Dashboard</h1>
       <p class="subtitle">Current market regime, today's signals, and your open positions.</p>
 
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <div class="refresh-row" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
         <a href="https://github.com/GoofyClub/swing-stocks/actions/workflows/refresh-signals.yml" target="_blank" rel="noopener" class="btn-bare">
           ▶ TRIGGER REFRESH ↗
         </a>
-        <span style="color:var(--text-mute);font-size:0.85rem">
-          Opens GitHub Actions in a new tab — click <b>Run workflow → Run workflow</b>. Takes ~90 seconds.
-        </span>
+        <div id="last-refresh" class="last-refresh">
+          <span class="lr-label">DATA REFRESHED</span>
+          <span class="lr-value">—</span>
+        </div>
       </div>
 
       <div id="regime-slot">
@@ -287,12 +355,27 @@ export async function renderDashboard(root) {
   `;
 
   const market = state.market;
-  const [series, regime, sigs, openTrades] = await Promise.all([
+  const [series, regime, sigs, openTrades, lastRefresh] = await Promise.all([
     load7DaySummaries(market),
     loadRegime(market),
     loadTodaysSignals(market),
     loadOpenTrades(),
+    loadLastRefresh(market),
   ]);
+
+  // ---- Last refresh row
+  const lrEl = document.getElementById('last-refresh');
+  if (lrEl) {
+    if (lastRefresh?.refreshedAt) {
+      const dt = lastRefresh.refreshedAt;
+      const abs = `${dt.toLocaleDateString()} · ${dt.toLocaleTimeString()}`;
+      const rel = fmtRelative(dt);
+      lrEl.querySelector('.lr-value').innerHTML = `<b>${escapeHtml(rel)}</b> <span style="color:var(--text-mute);margin-left:6px">${escapeHtml(abs)}</span>`;
+      lrEl.title = `Last successful cron run.\nFull timestamp: ${dt.toISOString()}`;
+    } else {
+      lrEl.querySelector('.lr-value').innerHTML = `<b style="color:var(--amber)">never</b> <span style="color:var(--text-mute);margin-left:6px">— trigger the workflow above</span>`;
+    }
+  }
 
   // ---- Regime
   document.getElementById('regime-slot').innerHTML = regimeBannerHtml(regime);

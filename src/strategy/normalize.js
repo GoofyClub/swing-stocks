@@ -416,6 +416,12 @@ export function computeTier(strategyKey, raw) {
 }
 
 // Convenience: run all applicable strategies on a single ticker.
+//
+// IMPORTANT: each result object uses `strategyName` for the strategy's full
+// human label (e.g. "Swing Pullback 20-EMA Continuation"), NOT `name`. Callers
+// often spread this object alongside a `name` field that means "company name"
+// (e.g. "Apple Inc"). Keeping these in different namespaces prevents accidental
+// clobber via `{ name: companyName, ...h }`.
 export function scanAllStrategies(bars, ctx = {}) {
   const out = [];
   for (const [key, def] of Object.entries(STRATEGIES)) {
@@ -424,7 +430,7 @@ export function scanAllStrategies(bars, ctx = {}) {
       const result = def.evaluate(bars, ctx);
       if (result) {
         const tier = computeTier(key, result.raw);
-        out.push({ strategy: key, name: def.name, short: def.short, tier, ...result });
+        out.push({ strategy: key, strategyName: def.name, short: def.short, tier, ...result });
       }
     } catch (e) {
       // Strategy threw — skip with a console warning; do not break the scan.

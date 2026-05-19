@@ -217,8 +217,12 @@ async function executeScan(market) {
     try {
       const bars = await fetchBars(item.t, fetchCtx);
       const hits = scanAllStrategies(bars, { spyBars, marketCfg: cfg });
+      // CRITICAL: spread `h` FIRST, then assign ticker/sector/name. Otherwise
+      // `h.name` (the strategy's full label like "Swing Pullback 20-EMA
+      // Continuation") clobbers `item.name` (the company name) and the table
+      // shows the strategy name in the NAME column.
       for (const h of hits) {
-        sc.detected.push({ ticker: item.t, sector: item.s, name: item.name, ...h });
+        sc.detected.push({ ...h, ticker: item.t, sector: item.s, name: item.name });
       }
       pushLog(`${item.t}: ${hits.length} signal${hits.length === 1 ? '' : 's'}`, hits.length ? 'ok' : '');
     } catch (e) {

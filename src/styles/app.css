@@ -401,6 +401,44 @@ button { font-family: inherit; cursor: pointer; }
 }
 .regime-banner .rb-sub .ok   { color: var(--green); margin-right: 2px; }
 .regime-banner .rb-sub .fail { color: var(--red);   margin-right: 2px; }
+
+/* Per-check rows — vertical list, prominent icon, inline values */
+.regime-banner .rb-checks {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.regime-banner .rb-check {
+  display: grid;
+  grid-template-columns: 22px minmax(140px, 200px) 1fr;
+  gap: 10px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg);
+}
+.regime-banner .rb-check .rb-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  font-weight: 700; font-size: 0.85rem;
+  color: var(--bg);
+}
+.regime-banner .rb-check.ok      .rb-icon { background: var(--green); }
+.regime-banner .rb-check.fail    .rb-icon { background: var(--red); color: white; }
+.regime-banner .rb-check.unknown .rb-icon { background: var(--line-soft); color: var(--text-dim); }
+.regime-banner .rb-check .rb-name { color: var(--text); font-weight: 500; }
+.regime-banner .rb-check.ok      .rb-name { color: var(--green); }
+.regime-banner .rb-check.fail    .rb-name { color: var(--red); }
+.regime-banner .rb-check .rb-note { color: var(--text-dim); }
+.regime-banner .rb-check .rb-note b { color: var(--text); font-weight: 500; }
+@media (max-width: 640px) {
+  .regime-banner .rb-check { grid-template-columns: 22px 1fr; }
+  .regime-banner .rb-check .rb-note { grid-column: 2; }
+}
 .regime-good { border-color: var(--green); box-shadow: inset 4px 0 0 var(--green); }
 .regime-good .rb-headline { color: var(--green); }
 .regime-warn { border-color: var(--amber); box-shadow: inset 4px 0 0 var(--amber); }
@@ -553,6 +591,26 @@ button { font-family: inherit; cursor: pointer; }
   letter-spacing: 0.08em;
   color: var(--text-dim);
 }
+
+/* Dashboard: data-refresh indicator next to TRIGGER REFRESH button */
+.last-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+.last-refresh .lr-label {
+  color: var(--text-mute);
+  font-size: 0.69rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.last-refresh .lr-value { color: var(--text); }
 
 /* Inline help icon — tiny circular badge next to labels. */
 .help-icon {
