@@ -1,5 +1,9 @@
 // Signal History — read-only view of the shared /marketData/{date}/signals/* collection.
 // Each row has a ★ button to add it to /users/{uid}/enteredTrades.
+//
+// Timeframe is customizable (7D / 30D / 90D preset chips + custom date range).
+// A per-strategy win/loss summary sits above the table, scoped to the current
+// filter set so users can see how each strategy is performing in the window.
 
 import { state } from '../core/state.js';
 import { initFirebase } from '../data/firebase.js';
@@ -9,6 +13,9 @@ import { openModal } from '../ui/modal.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtDate(d) {
+  return d.toISOString().slice(0, 10);
 }
 
 function parseHashParams() {
@@ -23,19 +30,16 @@ function parseHashParams() {
   return out;
 }
 
-async function loadHistory({ days = 90 } = {}) {
+// Pulls a generous window of signals (cap 500) — Firestore Index is on signalTs DESC.
+// We then filter client-side by the user-chosen date range so users can flip
+// timeframes without re-reading from the backend.
+async function loadHistory() {
   const { db, ok } = initFirebase();
   if (!ok) return { rows: [], err: 'Firebase not configured (see SETUP.md)' };
   try {
     const q1 = query(collectionGroup(db, 'signals'), orderBy('signalTs', 'desc'), limit(500));
     const snap = await getDocs(q1);
-    const cutoff = Date.now() - days * 86400_000;
-    const rows = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(r => {
-        if (!r.signalTs) return true;
-        return new Date(r.signalTs).getTime() >= cutoff;
-      });
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     return { rows };
   } catch (e) {
     console.error('[history] loadHistory failed', e);
@@ -43,11 +47,26 @@ async function loadHistory({ days = 90 } = {}) {
   }
 }
 
+function tierBadge(t) {
+  if (!t) return '';
+  const cls = t === 'A+' ? 'tier-aplus' : t === 'Tier 1' ? 'tier-t1' : 'tier-t2';
+  return `<span class="badge ${cls}">${escapeHtml(t)}</span>`;
+}
+
 function applyFilters(rows, f) {
   return rows.filter(r => {
-    if (f.side && r.side !== f.side) return false;
+    // Date range
+    if (f.from || f.to) {
+      const d = (r.signalTs || '').slice(0, 10);
+      if (!d) return false;
+      if (f.from && d < f.from) return false;
+      if (f.to   && d > f.to)   return false;
+    }
+    if (f.market   && r.market   !== f.market)   return false;
+    if (f.side     && r.side     !== f.side)     return false;
+    if (f.tier     && r.tier     !== f.tier)     return false;
     if (f.strategy && r.strategy !== f.strategy) return false;
-    if (f.sector && r.sector !== f.sector) return false;
+    if (f.sector   && r.sector   !== f.sector)   return false;
     if (f.winLoss) {
       if (f.winLoss === 'open' && r.status !== 'open') return false;
       if (f.winLoss === 'win'  && r.winLoss !== 'win')  return false;
@@ -62,15 +81,66 @@ function applyFilters(rows, f) {
   });
 }
 
+// Group filtered rows by strategy and compute counts + win rate.
+function summariseByStrategy(rows) {
+  const m = new Map();
+  for (const r of rows) {
+    const k = r.strategy || '—';
+    if (!m.has(k)) m.set(k, { strategy: k, total: 0, wins: 0, losses: 0, open: 0, aplus: 0, totalPct: 0 });
+    const s = m.get(k);
+    s.total++;
+    if (r.tier === 'A+') s.aplus++;
+    if (r.status === 'closed') {
+      if (r.winLoss === 'win')  s.wins++;
+      else if (r.winLoss === 'loss') s.losses++;
+    } else {
+      s.open++;
+    }
+    if (r.pctChange != null) s.totalPct += r.pctChange;
+  }
+  const out = [...m.values()].map(s => {
+    const closed = s.wins + s.losses;
+    return {
+      ...s,
+      winRate: closed ? s.wins / closed : null,
+      avgPct:  s.total ? s.totalPct / s.total : 0,
+    };
+  });
+  // Sort by total descending, then win rate descending.
+  out.sort((a, b) => b.total - a.total || ((b.winRate ?? -1) - (a.winRate ?? -1)));
+  return out;
+}
+
 export async function renderHistory(root) {
   const params = parseHashParams();
   root.innerHTML = `
     <div class="view">
       <h1>Signal History</h1>
-      <p class="subtitle">All signals from the last 3 months. Click <span style="color:var(--amber)">★</span> on any row to track it on My Trades.</p>
+      <p class="subtitle">All signals from the last 3 months. Pick a timeframe, filter, and click <span style="color:var(--amber)">★</span> on any row to track it.</p>
 
       <div class="card">
+        <!-- Timeframe row -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <span style="color:var(--text-mute);font-size:0.85rem;text-transform:uppercase;letter-spacing:0.08em;margin-right:4px">Timeframe</span>
+          <button class="btn-bare tf-chip" data-days="7">7D</button>
+          <button class="btn-bare tf-chip" data-days="30">30D</button>
+          <button class="btn-bare tf-chip active" data-days="90">90D</button>
+          <button class="btn-bare tf-chip" data-days="custom">Custom…</button>
+          <span id="tf-range" style="display:none;gap:6px;align-items:center">
+            <input id="f-from" type="date" class="btn-bare">
+            <span style="color:var(--text-mute)">→</span>
+            <input id="f-to"   type="date" class="btn-bare">
+          </span>
+          <span id="tf-label" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
+        </div>
+        <!-- Filter row -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="f-tier" class="btn-bare">
+            <option value="">All tiers</option>
+            <option value="A+">A+ only</option>
+            <option value="Tier 1">Tier 1</option>
+            <option value="Tier 2">Tier 2</option>
+          </select>
           <select id="f-side" class="btn-bare"><option value="">All sides</option><option value="buy">Buys</option><option value="sell">Sells</option></select>
           <select id="f-winloss" class="btn-bare"><option value="">All W/L</option><option value="open">Open</option><option value="win">Wins</option><option value="loss">Losses</option></select>
           <select id="f-strategy" class="btn-bare"><option value="">All strategies</option></select>
@@ -81,7 +151,13 @@ export async function renderHistory(root) {
         </div>
       </div>
 
+      <div class="card" id="summary-card">
+        <h2>Strategy summary <span class="count" id="summary-count"></span></h2>
+        <div id="summary-table"><div class="empty">No data.</div></div>
+      </div>
+
       <div class="card">
+        <h2>Signals</h2>
         <div id="history-table"><div class="empty">Loading…</div></div>
       </div>
     </div>
@@ -91,41 +167,151 @@ export async function renderHistory(root) {
     loadHistory(),
     loadEnteredTradeIds(),
   ]);
-  // Mutable set so we can toggle in-place after enter/remove.
   const entered = new Set(enteredIds);
 
-  const root$ = (id) => document.getElementById(id);
+  const $ = (id) => document.getElementById(id);
 
   if (err) {
-    root$('history-table').innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err)}</div>`;
+    $('history-table').innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err)}</div>`;
+    $('summary-table').innerHTML = `<div class="empty">—</div>`;
     return;
   }
 
-  const strats = [...new Set(rows.map(r => r.strategy).filter(Boolean))].sort();
+  // Populate strategy/sector dropdowns from actual data (full set, not filtered).
+  const strats  = [...new Set(rows.map(r => r.strategy).filter(Boolean))].sort();
   const sectors = [...new Set(rows.map(r => r.sector).filter(Boolean))].sort();
-  root$('f-strategy').insertAdjacentHTML('beforeend', strats.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
-  root$('f-sector').insertAdjacentHTML('beforeend', sectors.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
+  $('f-strategy').insertAdjacentHTML('beforeend', strats.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
+  $('f-sector').insertAdjacentHTML('beforeend', sectors.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
 
-  if (params.side) root$('f-side').value = params.side;
+  // Pre-seed filters from URL query (Dashboard tiles can deep-link with ?side=buy or ?tier=A+).
+  if (params.side) $('f-side').value = params.side;
+  if (params.tier) $('f-tier').value = params.tier;
+  if (params.strategy) $('f-strategy').value = params.strategy;
 
-  function refresh() {
-    const f = {
-      side:     root$('f-side').value,
-      strategy: root$('f-strategy').value,
-      sector:   root$('f-sector').value,
-      winLoss:  root$('f-winloss').value,
-      q:        root$('f-q').value.trim(),
+  // ---- Timeframe state ----
+  let tfDays = 90;
+  let tfCustom = null; // { from, to }
+
+  function activeRange() {
+    if (tfCustom) return { from: tfCustom.from, to: tfCustom.to };
+    const today = new Date();
+    const from = new Date(today.getTime() - tfDays * 86400_000);
+    return { from: fmtDate(from), to: fmtDate(today) };
+  }
+
+  function refreshTfLabel() {
+    const { from, to } = activeRange();
+    $('tf-label').textContent = `${from} → ${to}`;
+  }
+
+  // Wire timeframe chips
+  $$('tf-chip').forEach(btn => btn.addEventListener('click', () => {
+    $$('tf-chip').forEach(b => b.classList.toggle('active', b === btn));
+    const v = btn.dataset.days;
+    if (v === 'custom') {
+      const today = new Date();
+      const start = new Date(today.getTime() - tfDays * 86400_000);
+      $('f-from').value = fmtDate(start);
+      $('f-to').value   = fmtDate(today);
+      tfCustom = { from: $('f-from').value, to: $('f-to').value };
+      $('tf-range').style.display = 'inline-flex';
+    } else {
+      tfDays = Number(v);
+      tfCustom = null;
+      $('tf-range').style.display = 'none';
+    }
+    refreshTfLabel();
+    refresh();
+  }));
+
+  $('f-from').addEventListener('change', () => {
+    tfCustom = { from: $('f-from').value, to: tfCustom?.to || fmtDate(new Date()) };
+    refreshTfLabel();
+    refresh();
+  });
+  $('f-to').addEventListener('change', () => {
+    tfCustom = { from: tfCustom?.from || fmtDate(new Date(Date.now() - 90*86400_000)), to: $('f-to').value };
+    refreshTfLabel();
+    refresh();
+  });
+
+  refreshTfLabel();
+
+  function currentFilters() {
+    const r = activeRange();
+    return {
+      from: r.from, to: r.to,
+      side:     $('f-side').value,
+      tier:     $('f-tier').value,
+      strategy: $('f-strategy').value,
+      sector:   $('f-sector').value,
+      winLoss:  $('f-winloss').value,
+      q:        $('f-q').value.trim(),
     };
-    const filtered = applyFilters(rows, f);
-    root$('row-count').textContent = `${filtered.length} of ${rows.length} rows`;
+  }
+
+  function renderSummary(filtered) {
+    const groups = summariseByStrategy(filtered);
+    $('summary-count').textContent = groups.length ? `(${groups.length} strateg${groups.length === 1 ? 'y' : 'ies'})` : '';
+    if (!groups.length) {
+      $('summary-table').innerHTML = `<div class="empty">No signals in this window.</div>`;
+      return;
+    }
+    $('summary-table').innerHTML = `
+      <table class="data">
+        <thead><tr>
+          <th>STRATEGY</th>
+          <th class="num">TOTAL</th>
+          <th class="num">A+</th>
+          <th class="num">WIN</th>
+          <th class="num">LOSS</th>
+          <th class="num">OPEN</th>
+          <th class="num">WIN RATE</th>
+          <th class="num">AVG %Δ</th>
+        </tr></thead>
+        <tbody>
+          ${groups.map(g => {
+            const wr = g.winRate == null ? '—' : Math.round(g.winRate * 100) + '%';
+            const wrColor = g.winRate == null ? 'var(--text-dim)'
+              : g.winRate >= 0.55 ? 'var(--green)'
+              : g.winRate <= 0.4  ? 'var(--red)'
+              : 'var(--amber)';
+            const avgColor = g.avgPct >= 0 ? 'var(--green)' : 'var(--red)';
+            return `<tr style="cursor:pointer" data-strategy="${escapeHtml(g.strategy)}" title="Click to filter the table below to ${escapeHtml(g.strategy)} only">
+              <td><b>${escapeHtml(g.strategy)}</b></td>
+              <td class="num">${g.total}</td>
+              <td class="num">${g.aplus}</td>
+              <td class="num" style="color:var(--green)">${g.wins}</td>
+              <td class="num" style="color:var(--red)">${g.losses}</td>
+              <td class="num" style="color:var(--amber)">${g.open}</td>
+              <td class="num" style="color:${wrColor}">${wr}</td>
+              <td class="num" style="color:${avgColor}">${g.avgPct >= 0 ? '+' : ''}${g.avgPct.toFixed(2)}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+    // Click a summary row → set the strategy filter to that row's strategy.
+    $('summary-table').querySelectorAll('tr[data-strategy]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const s = tr.dataset.strategy;
+        $('f-strategy').value = $('f-strategy').value === s ? '' : s;
+        refresh();
+      });
+    });
+  }
+
+  function renderTable(filtered) {
+    $('row-count').textContent = `${filtered.length} of ${rows.length} rows`;
     if (!filtered.length) {
-      root$('history-table').innerHTML = `<div class="empty">No signals match these filters.</div>`;
+      $('history-table').innerHTML = `<div class="empty">No signals match these filters.</div>`;
       return;
     }
     const html = `
       <table class="data">
         <thead><tr>
           <th></th>
+          <th>TIER</th>
           <th>DATE</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>STRATEGY</th>
           <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th>
           <th class="num">CURRENT</th><th class="num">%Δ</th><th>W/L</th>
@@ -143,6 +329,7 @@ export async function renderHistory(root) {
               <td>
                 <button class="star-btn" data-action="${isEntered ? 'remove' : 'enter'}" data-signal-id="${escapeHtml(id)}" title="${isEntered ? 'Remove from My Trades' : 'Track on My Trades'}" aria-label="${isEntered ? 'Remove' : 'Enter'} trade for ${escapeHtml(r.ticker)}">${isEntered ? '★' : '☆'}</button>
               </td>
+              <td>${tierBadge(r.tier)}</td>
               <td>${escapeHtml((r.signalTs || '').slice(0, 10))}</td>
               <td>${escapeHtml(r.name || '—')}</td>
               <td>${escapeHtml(r.ticker || '')}</td>
@@ -159,10 +346,9 @@ export async function renderHistory(root) {
         </tbody>
       </table>
     `;
-    root$('history-table').innerHTML = html;
+    $('history-table').innerHTML = html;
 
-    // Wire star buttons.
-    root$('history-table').querySelectorAll('.star-btn').forEach(btn => {
+    $('history-table').querySelectorAll('.star-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const sid = btn.dataset.signalId;
@@ -174,11 +360,18 @@ export async function renderHistory(root) {
     });
   }
 
+  function refresh() {
+    const f = currentFilters();
+    const filtered = applyFilters(rows, f);
+    renderSummary(filtered);
+    renderTable(filtered);
+  }
+
   function openEnterModal(signal, btn) {
     const body = `
       <div class="row" style="grid-template-columns:120px 1fr;align-items:center;gap:10px">
         <div style="color:var(--text);font-family:var(--font-mono)">${escapeHtml(signal.ticker)}</div>
-        <div>${escapeHtml(signal.name || '')} · ${escapeHtml(signal.strategy || '')}</div>
+        <div>${escapeHtml(signal.name || '')} · ${escapeHtml(signal.strategy || '')} · ${tierBadge(signal.tier)}</div>
         <div style="color:var(--text-mute);font-size:0.85rem">SIGNAL ENTRY</div>
         <div style="font-family:var(--font-mono)">${(signal.entryPrice ?? 0).toFixed(2)} · TP ${(signal.tpPrice ?? 0).toFixed(2)} · SL ${(signal.slPrice ?? 0).toFixed(2)}</div>
       </div>
@@ -227,25 +420,27 @@ export async function renderHistory(root) {
     });
   }
 
-  ['f-side', 'f-strategy', 'f-sector', 'f-winloss'].forEach(id => root$(id).addEventListener('change', refresh));
-  root$('f-q').addEventListener('input', refresh);
+  ['f-side', 'f-strategy', 'f-sector', 'f-winloss', 'f-tier'].forEach(id => $(id).addEventListener('change', refresh));
+  $('f-q').addEventListener('input', refresh);
 
-  root$('btn-csv').addEventListener('click', () => {
-    const f = { side: root$('f-side').value, strategy: root$('f-strategy').value, sector: root$('f-sector').value, winLoss: root$('f-winloss').value, q: root$('f-q').value.trim() };
-    const filtered = applyFilters(rows, f);
-    const header = ['date','name','ticker','sector','strategy','entry','tp','sl','current','pctChange','status','winLoss'];
+  $('btn-csv').addEventListener('click', () => {
+    const filtered = applyFilters(rows, currentFilters());
+    const header = ['date','tier','name','ticker','sector','strategy','side','entry','tp','sl','current','pctChange','status','winLoss'];
     const csvRows = filtered.map(r => [
-      (r.signalTs || '').slice(0, 10), r.name || '', r.ticker || '', r.sector || '', r.strategy || '',
+      (r.signalTs || '').slice(0, 10), r.tier || '', r.name || '', r.ticker || '', r.sector || '', r.strategy || '', r.side || '',
       r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '', r.currentPrice ?? '',
       r.pctChange != null ? r.pctChange : '', r.status || '', r.winLoss || '',
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
     const blob = new Blob([header.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `signal-history-${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `signal-history-${fmtDate(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   });
 
   refresh();
 }
+
+// Tiny helper: querySelectorAll within document, returning Array.
+function $$(cls) { return Array.from(document.getElementsByClassName(cls)); }

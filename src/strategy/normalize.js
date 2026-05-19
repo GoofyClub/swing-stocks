@@ -301,6 +301,75 @@ export function settleSignal(envelope, postSignalBars) {
   return { status: 'open', winLoss: null, settledAt: null, hitPrice: null };
 }
 
+// =============================================================================
+// Quality tier — A+ / Tier 1 / Tier 2
+//
+// Every strategy emits its own auxiliary "strength" signals (volume confluence,
+// regime alignment, freshness, ...). This function reads those raw flags and
+// collapses them into a single bucket the UI can filter on. Used by both the
+// Live Signals scanner and the cron worker (which persists it to Firestore so
+// Signal History can filter retroactively).
+//
+//   A+      — multiple top-shelf confluence factors all present
+//   Tier 1  — strategy fires cleanly; standard-quality signal
+//   Tier 2  — strategy fires but with caveats (e.g. armed without confirmation,
+//             missing volume dry-up, weak trend backdrop)
+// =============================================================================
+export function computeTier(strategyKey, raw) {
+  if (!raw) return 'Tier 1';
+  switch (strategyKey) {
+    case 'pullback': {
+      const v   = raw.metrics?.volume_multiple ?? 0;
+      const r   = raw.metrics?.ret_1m;
+      const spy = raw.metrics?.spy_ret_1m;
+      const rsExcess = (r != null && spy != null) ? (r - spy) : 0;
+      if (raw.confirmation_bar && v >= 1.5 && rsExcess >= 0.04) return 'A+';
+      if (raw.confirmation_bar) return 'Tier 1';
+      return 'Tier 2';
+    }
+    case 'rsi2':
+      if (raw.extreme && raw.three_day_decline) return 'A+';
+      if (raw.extreme || raw.three_day_decline) return 'Tier 1';
+      return 'Tier 1';
+    case 'vcp':
+      if (raw.volume_dry && (raw.pct_below_pivot ?? 99) < 3) return 'A+';
+      if (raw.volume_dry) return 'Tier 1';
+      return 'Tier 2';
+    case 'pocket_pivot':
+      if ((raw.vol_ratio ?? 0) > 2.0) return 'A+';
+      return 'Tier 1';
+    case 'htf':
+      // HTF is rare by construction — tight flag + above-trend = A+, else Tier 1
+      if ((raw.flag_depth_pct ?? 100) < 15) return 'A+';
+      return 'Tier 1';
+    case 'nr7':
+      if (raw.above_50sma) return 'Tier 1';
+      return 'Tier 2';
+    case 'fifty_two_wh':
+      if (raw.strong) return 'A+';
+      return 'Tier 1';
+    case 'peg':
+      if ((raw.gap_pct ?? 0) >= 7 && (raw.gap_vol_ratio ?? 0) >= 3) return 'A+';
+      return 'Tier 1';
+    case 'pead':
+      if (raw.strong && raw.fresh) return 'A+';
+      if (raw.strong || raw.fresh) return 'Tier 1';
+      return 'Tier 2';
+    case 'insider':
+      if (raw.strong) return 'A+';
+      return 'Tier 1';
+    case 'analyst':
+      if (raw.strong) return 'A+';
+      return 'Tier 1';
+    case 'quality_dip':
+      if (raw.volume_confirmed && (raw.trade_plan?.r_multiple ?? 0) > 2) return 'A+';
+      if (raw.volume_confirmed) return 'Tier 1';
+      return 'Tier 2';
+    default:
+      return 'Tier 1';
+  }
+}
+
 // Convenience: run all applicable strategies on a single ticker.
 export function scanAllStrategies(bars, ctx = {}) {
   const out = [];
@@ -308,7 +377,10 @@ export function scanAllStrategies(bars, ctx = {}) {
     if (def.needsFmp && !ctx.fmpData) continue;
     try {
       const result = def.evaluate(bars, ctx);
-      if (result) out.push({ strategy: key, name: def.name, short: def.short, ...result });
+      if (result) {
+        const tier = computeTier(key, result.raw);
+        out.push({ strategy: key, name: def.name, short: def.short, tier, ...result });
+      }
     } catch (e) {
       // Strategy threw — skip with a console warning; do not break the scan.
       console.warn(`[scanAllStrategies] ${key} threw:`, e?.message || e);

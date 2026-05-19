@@ -23,7 +23,7 @@
 import admin from 'firebase-admin';
 import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
-import { STRATEGIES, settleSignal } from '../src/strategy/normalize.js';
+import { STRATEGIES, settleSignal, computeTier } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
 
@@ -153,6 +153,7 @@ async function scanMarket(db, market, ctxIn) {
       if (!result) continue;
 
       const env = result.envelope;
+      const tier = computeTier(stratKey, result.raw);
       const id = `${ticker}_${stratKey}_${dateBucket}`;
       const docBody = {
         ticker,
@@ -161,6 +162,7 @@ async function scanMarket(db, market, ctxIn) {
         market,
         strategy:     def.short,
         strategyKey:  stratKey,
+        tier,
         side:         env.side,
         entryPrice:   env.entry,
         tpPrice:      env.tp,

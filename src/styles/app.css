@@ -409,6 +409,25 @@ button { font-family: inherit; cursor: pointer; }
 .regime-bad  .rb-headline { color: var(--red); }
 .regime-unknown .rb-headline { color: var(--text-dim); }
 
+/* Inline help icon — tiny circular badge next to labels. */
+.help-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px;
+  margin-left: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 50%;
+  font-family: var(--font-sans); font-size: 0.77rem; font-weight: 700;
+  color: var(--text-dim);
+  background: var(--bg-elev2);
+  cursor: pointer;
+  vertical-align: middle;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.help-icon:hover, .help-icon:focus-visible {
+  color: var(--cyan); border-color: var(--cyan); background: var(--bg-elev3);
+  outline: none;
+}
+
 /* =============================================================================
    Two-column responsive split (e.g. Today's signals + Sector ranks side-by-side)
    ============================================================================= */
@@ -510,6 +529,23 @@ table.data tr:hover td { background: var(--bg-elev2); }
 .badge.win  { color: var(--green); border-color: var(--green); }
 .badge.loss { color: var(--red);   border-color: var(--red); }
 .badge.open { color: var(--amber); border-color: var(--amber); }
+/* Quality tier badges */
+.badge.tier-aplus {
+  color: var(--bg); background: var(--cyan); border-color: var(--cyan);
+  font-weight: 600;
+}
+.badge.tier-t1 { color: var(--green); border-color: var(--green); }
+.badge.tier-t2 { color: var(--amber); border-color: var(--amber); }
+
+/* Timeframe chip buttons */
+.tf-chip {
+  padding: 4px 12px;
+}
+.tf-chip.active {
+  background: var(--cyan);
+  color: var(--bg);
+  border-color: var(--cyan);
+}
 
 .empty {
   padding: 32px 16px;

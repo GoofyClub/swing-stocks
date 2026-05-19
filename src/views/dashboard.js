@@ -7,6 +7,7 @@ import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
 } from 'firebase/firestore';
 import { sparkline } from '../ui/sparkline.js';
+import { openModal } from '../ui/modal.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -88,11 +89,24 @@ async function loadOpenTrades() {
 
 // ---- Regime banner ---------------------------------------------------------------
 
+// Plain-English explanation of what each regime state means for the user.
+const REGIME_HELP = {
+  TRADEABLE:    'The broad market is in an uptrend (above its long-term moving averages) and volatility is calm. Swing-trade conditions are favorable — new long entries are reasonable.',
+  CAUTION:      'Some market-health checks are mixed. The trend is unclear or volatility is elevated. Consider trading smaller positions, sticking to the strongest setups, or sitting out.',
+  'GO TO CASH': 'Market trend has broken down or volatility has spiked into panic territory. Historically, a poor environment for new long entries. The system recommends holding cash and waiting for conditions to improve.',
+  UNKNOWN:      'The scheduled refresh has not yet computed the market regime for this market. Trigger Actions → Refresh shared signals in the GitHub repo, or wait for the next cron pass.',
+};
+
+function helpIconHtml(text) {
+  // Inline SVG question-mark badge with native `title` tooltip + ARIA.
+  return `<span class="help-icon" tabindex="0" role="button" aria-label="What does this mean?" data-help="${escapeHtml(text)}">?</span>`;
+}
+
 function regimeBannerHtml(regime) {
   if (!regime) {
     return `
       <div class="regime-banner regime-unknown">
-        <div class="rb-label">MARKET REGIME</div>
+        <div class="rb-label">MARKET REGIME ${helpIconHtml(REGIME_HELP.UNKNOWN)}</div>
         <div class="rb-headline">— · waiting for first cron run</div>
         <div class="rb-sub">The scheduled refresh hasn't published a regime snapshot yet.</div>
       </div>
@@ -103,13 +117,17 @@ function regimeBannerHtml(regime) {
   const cls   = cash ? 'regime-bad' : (tradeable ? 'regime-good' : 'regime-warn');
   const icon  = cash ? '⚠' : (tradeable ? '✓' : '○');
   const head  = cash ? 'GO TO CASH' : (tradeable ? 'TRADEABLE' : 'CAUTION');
+  const helpText = REGIME_HELP[head] || '';
   const checks = (regime.checks || [])
     .filter(c => c.pass !== null)
     .map(c => `<span class="${c.pass ? 'ok' : 'fail'}">${c.pass ? '✓' : '✗'} ${escapeHtml(c.name)}</span>`)
     .join(' · ');
   return `
     <div class="regime-banner ${cls}">
-      <div class="rb-label">MARKET REGIME · ${escapeHtml(regime.indexLabel || '')} · as of ${escapeHtml(regime.date || '')}</div>
+      <div class="rb-label">
+        MARKET REGIME · ${escapeHtml(regime.indexLabel || '')} · as of ${escapeHtml(regime.date || '')}
+        ${helpIconHtml(`What is market regime? — A daily health-check of the broad market. Uses the index trend (above/below 200-day and 50-day moving averages) and volatility (VIX / India VIX). The result tells you whether the environment supports new long entries.\n\nCurrent state — ${head}: ${helpText}`)}
+      </div>
       <div class="rb-headline">${icon} ${head}</div>
       <div class="rb-sub">${checks || '—'}</div>
     </div>
@@ -211,6 +229,21 @@ export async function renderDashboard(root) {
 
   // ---- Regime
   document.getElementById('regime-slot').innerHTML = regimeBannerHtml(regime);
+  // Wire help-icon click/keyboard to a lightweight modal popover.
+  document.querySelectorAll('.help-icon').forEach(icon => {
+    const show = () => {
+      openModal({
+        title: 'About Market Regime',
+        bodyHtml: `<div style="white-space:pre-wrap;color:var(--text-dim);font-size:1rem;line-height:1.55">${escapeHtml(icon.dataset.help || '')}</div>`,
+        primaryLabel: 'Got it',
+        onPrimary: () => true,
+      });
+    };
+    icon.addEventListener('click', show);
+    icon.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(); }
+    });
+  });
 
   // ---- KPI tiles
   const buys  = series.map(s => s.summary?.buyCount  ?? null);
