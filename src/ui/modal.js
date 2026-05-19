@@ -27,18 +27,18 @@ function ensureHost() {
         max-width: 420px;
         box-shadow: 0 12px 32px rgba(0,0,0,0.45);
       }
-      #modal-host h3 { margin: 0 0 12px; font-weight: 500; font-size: 16px; }
-      #modal-host .body { font-size: 13px; color: var(--text-dim); margin-bottom: 18px; }
+      #modal-host h3 { margin: 0 0 12px; font-weight: 500; font-size: 1.23rem; }
+      #modal-host .body { font-size: 1rem; color: var(--text-dim); margin-bottom: 18px; }
       #modal-host .row { display: grid; gap: 6px; margin-bottom: 12px; }
-      #modal-host label { font-size: 11px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.08em; }
+      #modal-host label { font-size: 0.85rem; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.08em; }
       #modal-host input, #modal-host textarea {
         background: var(--bg); color: var(--text);
         border: 1px solid var(--line-soft); border-radius: 4px;
         padding: 8px 10px;
-        font-family: var(--font-mono); font-size: 12px;
+        font-family: var(--font-mono); font-size: 0.92rem;
       }
       #modal-host textarea { font-family: var(--font-sans); resize: vertical; min-height: 60px; }
-      #modal-host .err { color: var(--red); font-size: 12px; margin-top: 4px; }
+      #modal-host .err { color: var(--red); font-size: 0.92rem; margin-top: 4px; }
       #modal-host .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
       #modal-host .btn-primary {
         background: var(--cyan); border: 1px solid var(--cyan); color: var(--bg);

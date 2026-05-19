@@ -77,7 +77,7 @@ export async function renderHistory(root) {
           <select id="f-sector"   class="btn-bare"><option value="">All sectors</option></select>
           <input  id="f-q"   class="search" type="search" placeholder="ticker / name" style="max-width:240px">
           <button id="btn-csv" class="btn-bare" type="button">CSV ↓</button>
-          <span id="row-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:11px"></span>
+          <span id="row-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
         </div>
       </div>
 
@@ -179,7 +179,7 @@ export async function renderHistory(root) {
       <div class="row" style="grid-template-columns:120px 1fr;align-items:center;gap:10px">
         <div style="color:var(--text);font-family:var(--font-mono)">${escapeHtml(signal.ticker)}</div>
         <div>${escapeHtml(signal.name || '')} · ${escapeHtml(signal.strategy || '')}</div>
-        <div style="color:var(--text-mute);font-size:11px">SIGNAL ENTRY</div>
+        <div style="color:var(--text-mute);font-size:0.85rem">SIGNAL ENTRY</div>
         <div style="font-family:var(--font-mono)">${(signal.entryPrice ?? 0).toFixed(2)} · TP ${(signal.tpPrice ?? 0).toFixed(2)} · SL ${(signal.slPrice ?? 0).toFixed(2)}</div>
       </div>
       <div class="row">

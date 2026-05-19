@@ -22,7 +22,7 @@ export async function renderWatchlist(root) {
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <button id="btn-add" class="btn-bare" type="button">+ ADD TICKER</button>
           <button id="btn-import" class="btn-bare" type="button">IMPORT STARTER LIST</button>
-          <span id="wl-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:11px"></span>
+          <span id="wl-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
         </div>
       </div>
 

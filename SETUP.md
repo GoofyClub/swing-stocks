@@ -163,16 +163,46 @@ You can trigger an immediate run from **Actions → Refresh shared signals → R
 
 ---
 
+## 7b · Push notifications (optional)
+
+When a tracked trade hits its TP or SL, the cron worker sends a browser push
+via Firebase Cloud Messaging. To enable:
+
+1. Firebase Console → ⚙ **Project settings → Cloud Messaging** tab.
+2. Under **Web configuration → Web Push certificates**, click **Generate key pair**.
+   A long base64 string appears.
+3. Repo → **Settings → Secrets and variables → Actions → New repository secret**:
+   - Name: `VITE_FIREBASE_VAPID_KEY`
+   - Value: the public VAPID key from step 2
+4. Also add it to your local `.env.local` for dev.
+5. Push to `main` (or re-run **Deploy to GitHub Pages**). After the redeploy:
+   - Open Settings on the deployed app
+   - Click **ENABLE NOTIFICATIONS**
+   - Grant the browser prompt
+6. When the next cron run settles one of your open trades, you'll get a push.
+
+The Admin SDK in the cron worker uses the same service account you set up in
+§5 — no extra credentials needed.
+
+If you skip this step, push notifications stay off and Settings shows the
+button as **Unavailable**. Everything else still works.
+
+---
+
 ## 8 · Verify
 
 After the first deploy + first cron run, you should see:
 
 - The app loads at `https://goofyclub.github.io/swing-stocks/`
 - "Sign in with Google" works (popup or redirect, browser-dependent)
-- Dashboard tiles show non-zero buy/sell counts
-- Signal History lists rows
-- My Trades shows the empty state with onboarding copy
+- Dashboard tiles show non-zero buy/sell counts + regime banner + sector ranks
+- Live Signals → RUN SCAN walks the watchlist and shows hits in real time
+- Signal History lists rows · ★ stars trades into /users/{uid}/enteredTrades
+- My Trades shows enriched live data from the source signals
+- Watchlist → IMPORT STARTER LIST populates your private cloud list
+- Settings → ENABLE NOTIFICATIONS subscribes this browser to push (if VAPID is set)
 - Firestore Console → Data → `/marketData/YYYY-MM-DD/signals/...` has docs
+- Firestore Console → Data → `/users/{uid}/fcmTokens/...` has at least one entry after enabling pushes
 
 If anything is empty:
 1. Check **Actions → Refresh shared signals** for the most recent run log.

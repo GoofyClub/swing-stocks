@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => ({
             'firebase/app',
             'firebase/auth',
             'firebase/firestore',
+            'firebase/messaging',
           ],
           // chart.js will be split into its own chunk once a view actually imports it.
         },

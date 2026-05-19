@@ -15,6 +15,7 @@ import { renderHistory } from './views/history.js';
 import { renderMyTrades } from './views/mytrades.js';
 import { renderWatchlist } from './views/watchlist.js';
 import { renderSettings } from './views/settings.js';
+import { onForegroundMessage, isFCMSupported } from './data/messaging.js';
 
 // Theme bootstrap — read from localStorage before first paint to avoid flash.
 const storedTheme = localStorage.getItem('swing.theme') || 'dark';
@@ -71,6 +72,32 @@ function mountAppShell() {
     else if (e.key === '3')   navigate('history');
     else if (e.key === '4')   navigate('mytrades');
   });
+
+  // Foreground push: show an in-app toast so the user sees the alert even when
+  // the OS suppresses the native notification (which happens when this tab is
+  // already focused).
+  (async () => {
+    if (!(await isFCMSupported())) return;
+    try {
+      await onForegroundMessage((payload) => {
+        const n = payload.notification || {};
+        showToast(n.title || 'Swing Terminal', n.body || '');
+      });
+    } catch (e) {
+      console.warn('[main] foreground FCM subscribe failed', e);
+    }
+  })();
+}
+
+function showToast(title, body) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:5000;max-width:340px;padding:14px 18px;background:var(--bg-elev);border:1px solid var(--cyan);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.35);font-family:var(--font-sans);color:var(--text)';
+  el.innerHTML = `<div style="font-weight:600;margin-bottom:4px">${escapeText(title)}</div><div style="color:var(--text-dim);font-size:0.92rem">${escapeText(body)}</div>`;
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 350); }, 5000);
+}
+function escapeText(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function mountLogin() {

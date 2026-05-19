@@ -146,3 +146,5 @@ export async function ensureUserDoc(user) {
 export {
   collection, doc, getDoc, setDoc, serverTimestamp,
 };
+// Plus a couple of extras used by the messaging layer.
+export { deleteDoc, getDocs } from 'firebase/firestore';

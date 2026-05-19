@@ -55,7 +55,8 @@ export function renderTopbar(el) {
   function refreshFsLabel() {
     const cur = document.documentElement.getAttribute('data-fs') || 'M';
     fsBtn.textContent = `A·${cur}`;
-    // Visually scale the glyph so it telegraphs "size".
+    // The button label intentionally stays a fixed pixel size so it remains a
+    // stable indicator regardless of the global font-scale choice.
     fsBtn.style.fontSize = cur === 'S' ? '10px' : cur === 'L' ? '14px' : '12px';
   }
   fsBtn.addEventListener('click', () => {

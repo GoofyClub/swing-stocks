@@ -18,7 +18,7 @@ export async function renderMyTrades(root) {
       <div class="card" id="totals">
         <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
           <div><span class="badge">window</span> last 30 days</div>
-          <div id="agg" style="color:var(--text-dim);font-family:var(--font-mono);font-size:11px">—</div>
+          <div id="agg" style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem">—</div>
         </div>
       </div>
       <div class="card"><div id="trades-table"><div class="empty">Loading…</div></div></div>
@@ -94,7 +94,7 @@ export async function renderMyTrades(root) {
         }).join('')}
       </tbody>
     </table>
-    <p style="color:var(--text-mute);font-size:11px;margin-top:10px">
+    <p style="color:var(--text-mute);font-size:0.85rem;margin-top:10px">
       * = entry price was overridden by you at trade-entry time.
     </p>
   `;

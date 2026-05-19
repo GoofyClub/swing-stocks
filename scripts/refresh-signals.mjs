@@ -29,6 +29,9 @@ import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE
 
 const RETENTION_DAYS = 90;
 const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s.trim());
+// Public site URL. Used as the click-through target in push notifications so
+// tapping the alert opens the deployed app at My Trades.
+const APP_URL = process.env.APP_URL || 'https://goofyclub.github.io/swing-stocks/';
 
 function todayKey(now = new Date()) {
   return now.toISOString().slice(0, 10);
@@ -286,6 +289,54 @@ async function resettleRecentSignals(db, market, ctxIn) {
 }
 
 // =============================================================================
+// Notification dispatch (Firebase Cloud Messaging via Admin SDK).
+//
+// Called for each closed trade. Reads every FCM token registered for the user
+// at /users/{uid}/fcmTokens/{token} and sends a single push per token.
+// Stale tokens (returned-as-unregistered by FCM) are pruned automatically.
+// =============================================================================
+async function notifyTradeClosed(db, uid, trade, verdict) {
+  if (!uid || !trade || !verdict) return;
+  let tokensSnap;
+  try {
+    tokensSnap = await db.collection('users').doc(uid).collection('fcmTokens').get();
+  } catch (e) {
+    console.warn(`[notify] read tokens failed for ${uid}: ${e.message}`);
+    return;
+  }
+  if (tokensSnap.empty) return;
+
+  const isWin = verdict.winLoss === 'win';
+  const symbol = trade.name || trade.ticker;
+  const title = `${isWin ? 'TARGET HIT' : 'STOP HIT'} · ${trade.ticker}`;
+  const body  = `${symbol} ${isWin ? 'reached your TP' : 'broke your SL'} at ${verdict.hitPrice?.toFixed(2)} (${(verdict.realizedPct ?? ((verdict.hitPrice - trade.entryPrice) / trade.entryPrice) * 100).toFixed(2)}%).`;
+
+  for (const tokDoc of tokensSnap.docs) {
+    const token = tokDoc.id;
+    try {
+      await admin.messaging().send({
+        token,
+        notification: { title, body },
+        data: { tradeId: trade.id || '', link: `${APP_URL}#/mytrades` },
+        webpush: {
+          fcmOptions: { link: `${APP_URL}#/mytrades` },
+          notification: { icon: `${APP_URL}favicon.ico` },
+        },
+      });
+    } catch (e) {
+      // Prune dead tokens so we don't waste reads + writes on them next run.
+      if (e.code === 'messaging/registration-token-not-registered' ||
+          e.errorInfo?.code === 'messaging/registration-token-not-registered') {
+        try { await tokDoc.ref.delete(); } catch {}
+        console.log(`[notify] pruned stale token for ${uid}`);
+      } else {
+        console.warn(`[notify] send failed for ${uid}/${token.slice(0, 12)}…: ${e.message}`);
+      }
+    }
+  }
+}
+
+// =============================================================================
 // Per-user trade settlement.
 //
 // Walks all open trades across all users via a collection-group query, settles
@@ -369,7 +420,17 @@ async function settleUserTrades(db, market, ctxIn) {
       }
       try {
         await t.ref.update(updates);
-        if (verdict.status === 'closed') settled++; else refreshed++;
+        if (verdict.status === 'closed') {
+          settled++;
+          // Extract uid from the trade's path: users/{uid}/enteredTrades/{id}
+          const uid = t.ref.parent.parent?.id;
+          await notifyTradeClosed(db, uid, t, {
+            ...verdict,
+            realizedPct: updates.realizedPct,
+          });
+        } else {
+          refreshed++;
+        }
       } catch (e) {
         console.warn(`[settle-trades] update failed for ${t.ref.path}: ${e.message}`);
         errors++;

@@ -2,6 +2,11 @@
    Swing Terminal — design tokens + base styles.
    Dark theme is default; light theme activates via [data-theme="light"] on <html>.
    Font-size scale uses [data-fs="S|M|L"] on <html>.
+
+   IMPORTANT: every `font-size` in this file is expressed in `rem`. The HTML root
+   font-size is driven by `--fs-base` (set on :root and overridden by [data-fs]),
+   so flipping S/M/L scales every text element in the app at once. Avoid using
+   `px` for font-size; use `rem` (1rem = current --fs-base).
    ============================================================================= */
 
 :root {
@@ -50,16 +55,20 @@
   --shadow:     0 4px 12px rgba(0,0,0,0.08);
 }
 
-[data-fs="S"] { --fs-base: 12px; }
+/* Font scale knobs. Changing --fs-base on <html> rescales every rem value below. */
+[data-fs="S"] { --fs-base: 11px; }
 [data-fs="M"] { --fs-base: 13px; }
-[data-fs="L"] { --fs-base: 15px; }
+[data-fs="L"] { --fs-base: 16px; }
 
 * { box-sizing: border-box; }
-html, body {
+html {
+  font-size: var(--fs-base);  /* This is the rem reference. Do not override. */
+}
+body {
   margin: 0; padding: 0;
   background: var(--bg); color: var(--text);
   font-family: var(--font-sans);
-  font-size: var(--fs-base); line-height: 1.5;
+  font-size: 1rem; line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
 }
@@ -91,19 +100,19 @@ button { font-family: inherit; cursor: pointer; }
 .login-card .brand {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 1.08rem;
   letter-spacing: 0.22em;
   color: var(--cyan);
   margin-bottom: 4px;
 }
 .login-card h1 {
   font-weight: 300;
-  font-size: 22px;
+  font-size: 1.69rem;
   margin: 0 0 8px;
 }
 .login-card .sub {
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 1rem;
   margin-bottom: 32px;
   line-height: 1.55;
 }
@@ -113,7 +122,7 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--bg-elev2);
   border: 1px solid var(--line-soft);
   color: var(--text);
-  font-weight: 500; font-size: 14px;
+  font-weight: 500; font-size: 1.08rem;
   border-radius: 8px;
   transition: border-color 0.12s, background 0.12s;
 }
@@ -127,7 +136,7 @@ button { font-family: inherit; cursor: pointer; }
   list-style: none;
   padding: 24px 0 0;
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--text-dim);
   display: grid; gap: 8px;
 }
@@ -143,7 +152,7 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--fail-bg);
   border: 1px solid var(--red);
   color: var(--red);
-  font-size: 12px;
+  font-size: 0.92rem;
   border-radius: 4px;
 }
 
@@ -183,7 +192,7 @@ button { font-family: inherit; cursor: pointer; }
 .topbar .brand {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 0.92rem;
   letter-spacing: 0.18em;
   color: var(--cyan);
 }
@@ -196,7 +205,7 @@ button { font-family: inherit; cursor: pointer; }
 .topbar .search {
   flex: 1; max-width: 360px;
   background: var(--bg); border: 1px solid var(--line-soft); color: var(--text);
-  font-family: var(--font-mono); font-size: 12px;
+  font-family: var(--font-mono); font-size: 0.92rem;
   padding: 7px 10px; border-radius: 4px;
 }
 .market-toggle {
@@ -211,7 +220,7 @@ button { font-family: inherit; cursor: pointer; }
   border-right: 1px solid var(--line-soft);
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.85rem;
   font-weight: 500;
   letter-spacing: 0.1em;
   padding: 5px 12px;
@@ -228,13 +237,13 @@ button { font-family: inherit; cursor: pointer; }
 .topbar .meta {
   margin-left: auto;
   display: flex; gap: 18px; align-items: center;
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-dim);
 }
 .topbar .meta .item { display: flex; gap: 6px; align-items: center; }
 .topbar .meta b { color: var(--text); font-weight: 500; }
 .btn-bare {
   background: transparent; border: 1px solid var(--line-soft); color: var(--text-dim);
-  font-family: var(--font-mono); font-size: 11px; padding: 5px 10px;
+  font-family: var(--font-mono); font-size: 0.85rem; padding: 5px 10px;
   border-radius: 4px; transition: border-color 0.12s, color 0.12s;
 }
 .btn-bare:hover { border-color: var(--cyan); color: var(--cyan); }
@@ -244,7 +253,7 @@ button { font-family: inherit; cursor: pointer; }
   border: 1px solid var(--line-soft);
   background: var(--bg-elev2);
   display: grid; place-items: center;
-  font-weight: 600; font-size: 12px; color: var(--text);
+  font-weight: 600; font-size: 0.92rem; color: var(--text);
   overflow: hidden;
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -259,7 +268,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .sidebar .section-label {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 0.69rem;
   letter-spacing: 0.2em;
   color: var(--text-mute);
   text-transform: uppercase;
@@ -272,7 +281,7 @@ button { font-family: inherit; cursor: pointer; }
   align-items: center;
   gap: 10px;
   border-left: 2px solid transparent;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--text-dim);
   transition: background 0.12s, color 0.12s;
 }
@@ -284,7 +293,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .nav-item .icon {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.85rem;
   color: var(--text-mute);
   width: 16px;
   text-align: center;
@@ -295,7 +304,7 @@ button { font-family: inherit; cursor: pointer; }
   padding: 14px 18px;
   border-top: 1px solid var(--line);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 0.77rem;
   color: var(--text-mute);
 }
 
@@ -307,12 +316,12 @@ button { font-family: inherit; cursor: pointer; }
 }
 .view h1 {
   font-weight: 300;
-  font-size: 22px;
+  font-size: 1.69rem;
   margin: 0 0 4px;
 }
 .view .subtitle {
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 1rem;
   margin-bottom: 24px;
 }
 
@@ -337,21 +346,21 @@ button { font-family: inherit; cursor: pointer; }
 .tile:hover { border-color: var(--line-soft); transform: translateY(-1px); }
 .tile .label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 0.77rem;
   letter-spacing: 0.15em;
   color: var(--text-mute);
   text-transform: uppercase;
 }
 .tile .big {
   font-family: var(--font-mono);
-  font-size: 32px;
+  font-size: 2.46rem;
   font-weight: 500;
   margin-top: 6px;
   color: var(--text);
 }
 .tile .delta {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.85rem;
   margin-top: 4px;
 }
 .tile .delta.up   { color: var(--green); }
@@ -374,20 +383,20 @@ button { font-family: inherit; cursor: pointer; }
 }
 .regime-banner .rb-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 0.77rem;
   letter-spacing: 0.18em;
   color: var(--text-mute);
   text-transform: uppercase;
 }
 .regime-banner .rb-headline {
   font-family: var(--font-mono);
-  font-size: 22px;
+  font-size: 1.69rem;
   font-weight: 600;
   letter-spacing: 0.05em;
 }
 .regime-banner .rb-sub {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.85rem;
   color: var(--text-dim);
 }
 .regime-banner .rb-sub .ok   { color: var(--green); margin-right: 2px; }
@@ -437,11 +446,11 @@ table.sector-ranks .bar-col { width: 28%; padding-left: 0; }
   margin-bottom: 16px;
 }
 .card h2 {
-  font-weight: 400; font-size: 14px; margin: 0 0 12px;
+  font-weight: 400; font-size: 1.08rem; margin: 0 0 12px;
   display: flex; align-items: center; gap: 8px;
 }
 .card h2 .count {
-  font-family: var(--font-mono); font-size: 11px;
+  font-family: var(--font-mono); font-size: 0.85rem;
   color: var(--text-dim);
 }
 
@@ -474,7 +483,7 @@ table.sector-ranks .bar-col { width: 28%; padding-left: 0; }
    ============================================================================= */
 table.data {
   width: 100%; border-collapse: collapse;
-  font-family: var(--font-mono); font-size: 12px;
+  font-family: var(--font-mono); font-size: 0.92rem;
 }
 table.data th, table.data td {
   text-align: left; padding: 8px 10px;
@@ -484,7 +493,7 @@ table.data th {
   color: var(--text-mute);
   font-weight: 500;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: 0.77rem;
   letter-spacing: 0.1em;
   white-space: nowrap;
 }
@@ -493,7 +502,7 @@ table.data tr:hover td { background: var(--bg-elev2); }
 .badge {
   display: inline-block;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: 0.77rem;
   border: 1px solid var(--line-soft);
   border-radius: 999px;
   color: var(--text-dim);
@@ -506,7 +515,7 @@ table.data tr:hover td { background: var(--bg-elev2); }
   padding: 32px 16px;
   text-align: center;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 1rem;
   border: 1px dashed var(--line);
   border-radius: var(--radius);
 }
@@ -516,7 +525,7 @@ table.data tr:hover td { background: var(--bg-elev2); }
   background: transparent;
   border: none;
   color: var(--text-mute);
-  font-size: 16px;
+  font-size: 1.23rem;
   line-height: 1;
   cursor: pointer;
   padding: 2px 4px;
@@ -528,7 +537,7 @@ table.data tr:hover td { background: var(--bg-elev2); }
 .star-btn[data-action="remove"] { color: var(--amber); }
 .star-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
 table.data .remove-btn {
-  padding: 2px 8px; font-size: 13px;
+  padding: 2px 8px; font-size: 1rem;
 }
 
 .skeleton {
@@ -538,3 +547,53 @@ table.data .remove-btn {
   border-radius: 4px;
 }
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+/* =============================================================================
+   Live Signals scanner
+   ============================================================================= */
+.scan-controls {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+}
+.scan-progress {
+  flex: 1; min-width: 200px; height: 6px;
+  background: var(--bg-elev2); border-radius: 3px; overflow: hidden;
+  border: 1px solid var(--line);
+}
+.scan-progress .bar {
+  height: 100%; width: 0%;
+  background: var(--cyan);
+  transition: width 0.2s ease-out;
+}
+.btn-primary {
+  background: var(--cyan); border: 1px solid var(--cyan); color: var(--bg);
+  font-weight: 600; padding: 7px 16px; border-radius: 4px;
+  font-family: var(--font-mono); font-size: 0.85rem; letter-spacing: 0.05em;
+  cursor: pointer;
+}
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:disabled { opacity: 0.5; cursor: wait; }
+.scan-log {
+  font-family: var(--font-mono); font-size: 0.85rem;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 10px 12px;
+  max-height: 140px; overflow-y: auto;
+  white-space: pre-wrap; color: var(--text-dim);
+}
+.scan-log .ok   { color: var(--green); }
+.scan-log .fail { color: var(--red); }
+.scan-log .warn { color: var(--amber); }
+
+/* =============================================================================
+   Notification banner
+   ============================================================================= */
+.notif-prompt {
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--cyan);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  display: flex; align-items: center; gap: 12px;
+  font-size: 0.92rem;
+}
+.notif-prompt .ico { color: var(--cyan); font-size: 1.23rem; }
+.notif-prompt button { margin-left: auto; }
