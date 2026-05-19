@@ -6,7 +6,7 @@ name: Refresh shared signals
 # Adjust as needed; this stays comfortably inside Firebase free quotas.
 on:
   schedule:
-#    - cron: "*/30 13-20 * * 1-5"
+    - cron: "*/30 13-20 * * 1-5"
     - cron: "0 21 * * 1-5"
     - cron: "0 11 * * 1-5"
   workflow_dispatch:
