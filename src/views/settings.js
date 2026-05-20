@@ -77,16 +77,22 @@ export function renderSettings(root) {
           <div class="api-key-row">
             <label for="key-av">Alpha Vantage</label>
             <input id="key-av" type="password" autocomplete="off" placeholder="set to enable Stocks in Play + faster scans">
+            <button id="btn-save-av" class="btn-primary api-key-save" type="button">SAVE</button>
+            <span id="state-av" class="api-key-state"></span>
             <span class="muted">Free: <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a> (25 calls/day)</span>
           </div>
           <div class="api-key-row">
             <label for="key-fh">Finnhub</label>
             <input id="key-fh" type="password" autocomplete="off" placeholder="optional — second priority data source">
+            <button id="btn-save-fh" class="btn-primary api-key-save" type="button">SAVE</button>
+            <span id="state-fh" class="api-key-state"></span>
             <span class="muted">Free: <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a> (60 calls/min)</span>
           </div>
           <div class="api-key-row">
             <label for="key-fmp">FMP</label>
             <input id="key-fmp" type="password" autocomplete="off" placeholder="paid — enables PEAD / Insider / Analyst strategies">
+            <button id="btn-save-fmp" class="btn-primary api-key-save" type="button">SAVE</button>
+            <span id="state-fmp" class="api-key-state"></span>
             <span class="muted">Paid: <a href="https://financialmodelingprep.com" target="_blank" rel="noopener">financialmodelingprep.com</a></span>
           </div>
           <p id="api-key-status" style="color:var(--text-dim);font-size:0.85rem;font-family:var(--font-mono);margin-top:8px"></p>
@@ -123,6 +129,61 @@ export function renderSettings(root) {
     document.documentElement.setAttribute('data-fs', fs.value);
     try { localStorage.setItem('swing.fs', fs.value); } catch {}
   });
+
+  // ----- API key inputs (Alpha Vantage / Finnhub / FMP) -----
+  // Each row has explicit SAVE button + status indicator + blur fallback.
+  const keyAv    = document.getElementById('key-av');
+  const keyFh    = document.getElementById('key-fh');
+  const keyFmp   = document.getElementById('key-fmp');
+  const stateAv  = document.getElementById('state-av');
+  const stateFh  = document.getElementById('state-fh');
+  const stateFmp = document.getElementById('state-fmp');
+  const keyStatus = document.getElementById('api-key-status');
+
+  keyAv.value  = state.fetchCtx.apiKeys.alphavantage || '';
+  keyFh.value  = state.fetchCtx.apiKeys.finnhub      || '';
+  keyFmp.value = state.fetchCtx.apiKeys.fmp          || '';
+
+  function paintState(el, key) {
+    if (key) {
+      el.textContent = '✓ Saved';
+      el.className = 'api-key-state saved';
+    } else {
+      el.textContent = 'not set';
+      el.className = 'api-key-state empty';
+    }
+  }
+  paintState(stateAv,  keyAv.value);
+  paintState(stateFh,  keyFh.value);
+  paintState(stateFmp, keyFmp.value);
+
+  function flashStatus(msg) {
+    keyStatus.textContent = msg;
+    setTimeout(() => { if (keyStatus.textContent === msg) keyStatus.textContent = ''; }, 2500);
+  }
+
+  function wireSave(provider, btnId, input, stateEl, label) {
+    document.getElementById(btnId).addEventListener('click', () => {
+      const val = input.value.trim();
+      setApiKey(provider, val);
+      paintState(stateEl, val);
+      flashStatus(val ? `${label} key saved locally.` : `${label} key cleared.`);
+    });
+    // Backup paths so users don't lose data even without clicking SAVE
+    input.addEventListener('blur', () => {
+      const val = input.value.trim();
+      if (val !== (state.fetchCtx.apiKeys[provider] || '')) {
+        setApiKey(provider, val);
+        paintState(stateEl, val);
+      }
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById(btnId).click(); }
+    });
+  }
+  wireSave('alphavantage', 'btn-save-av',  keyAv,  stateAv,  'Alpha Vantage');
+  wireSave('finnhub',      'btn-save-fh',  keyFh,  stateFh,  'Finnhub');
+  wireSave('fmp',          'btn-save-fmp', keyFmp, stateFmp, 'FMP');
 
   // ----- Notification card wiring -----
   const notifBtn    = document.getElementById('btn-notif');

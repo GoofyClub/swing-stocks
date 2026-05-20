@@ -235,6 +235,24 @@ export async function renderHistory(root) {
     return;
   }
 
+  // Show how fresh the newest signal is, so users know if STATUS column reflects
+  // up-to-date intraday price or yesterday's close (signals are generated EOD).
+  const fresh = rows[0];
+  if (fresh?.signalTs) {
+    const ts = new Date(fresh.signalTs);
+    const diff = Date.now() - ts.getTime();
+    const ageMin = Math.round(diff / 60000);
+    const ageStr = ageMin < 60 ? `${ageMin} min ago`
+                 : ageMin < 1440 ? `${Math.round(ageMin / 60)} hour${Math.round(ageMin/60)===1?'':'s'} ago`
+                 : `${Math.round(ageMin / 1440)} day${Math.round(ageMin/1440)===1?'':'s'} ago`;
+    const stale = ageMin >= 60 * 16; // >16h = likely from yesterday's close
+    const note = document.createElement('div');
+    note.style.cssText = `color:${stale ? 'var(--amber)' : 'var(--text-mute)'};font-size:0.85rem;font-family:var(--font-mono);margin-top:6px;margin-bottom:14px`;
+    note.innerHTML = `Newest signal generated <b style="color:var(--text)">${escapeHtml(ageStr)}</b> (<span title="${escapeHtml(ts.toISOString())}">${escapeHtml(ts.toLocaleString())}</span>). ${stale ? '<b style="color:var(--amber)">STALE — </b>' : ''}STATUS column uses cron\'s last close, not real-time intraday price. Compare to live prices on your broker before trading.`;
+    const subtitleEl = root.querySelector('.view > .subtitle');
+    if (subtitleEl) subtitleEl.after(note);
+  }
+
   // Populate strategy/sector dropdowns from actual data (full set, not filtered).
   const strats  = [...new Set(rows.map(r => r.strategy).filter(Boolean))].sort();
   const sectors = [...new Set(rows.map(r => r.sector).filter(Boolean))].sort();

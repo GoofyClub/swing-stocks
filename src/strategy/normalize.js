@@ -302,7 +302,10 @@ export const STRATEGIES = {
     },
   },
   peg: {
-    name: 'Power Earnings Gap',
+    // Gap-and-Go is the trader-vernacular name; Power Earnings Gap (PEG) is the
+    // academic acronym. Same strategy. We surface both so the User Guide and
+    // table labels reconcile cleanly.
+    name: 'Gap-and-Go (Power Earnings Gap)',
     short: 'PEG',
     evaluate(bars, { idx } = {}) {
       const i = idx ?? bars.length - 1;
