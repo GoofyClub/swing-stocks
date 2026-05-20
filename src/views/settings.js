@@ -1,6 +1,6 @@
 // Settings — profile, preferences, and (collapsed by default) Data Source config.
 
-import { state, setMarket } from '../core/state.js';
+import { state, setMarket, setApiKey } from '../core/state.js';
 import { signOut } from '../data/firebase.js';
 import { DATA_SOURCE_ORDER } from '../data/markets.js';
 import {
@@ -72,9 +72,26 @@ export function renderSettings(root) {
         <summary>Data Source</summary>
         <div class="body">
           <p style="color:var(--text-dim);font-size:0.92rem;margin-top:0">
-            API keys are stored locally for interactive scans. The shared signal history is
-            populated by the GitHub Actions cron — its keys live in repo Secrets.
+            API keys live <b>locally in this browser only</b>. Used by Live Signals (browser scan) and Stocks in Play. The cron worker has its own keys in GitHub Secrets — these inputs don't affect it.
           </p>
+          <div class="api-key-row">
+            <label for="key-av">Alpha Vantage</label>
+            <input id="key-av" type="password" autocomplete="off" placeholder="set to enable Stocks in Play + faster scans">
+            <span class="muted">Free: <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a> (25 calls/day)</span>
+          </div>
+          <div class="api-key-row">
+            <label for="key-fh">Finnhub</label>
+            <input id="key-fh" type="password" autocomplete="off" placeholder="optional — second priority data source">
+            <span class="muted">Free: <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a> (60 calls/min)</span>
+          </div>
+          <div class="api-key-row">
+            <label for="key-fmp">FMP</label>
+            <input id="key-fmp" type="password" autocomplete="off" placeholder="paid — enables PEAD / Insider / Analyst strategies">
+            <span class="muted">Paid: <a href="https://financialmodelingprep.com" target="_blank" rel="noopener">financialmodelingprep.com</a></span>
+          </div>
+          <p id="api-key-status" style="color:var(--text-dim);font-size:0.85rem;font-family:var(--font-mono);margin-top:8px"></p>
+
+          <h3 style="color:var(--text-mute);font-size:0.77rem;letter-spacing:0.12em;text-transform:uppercase;margin:20px 0 8px;font-weight:500">Sources priority (read-only)</h3>
           <table class="data">
             <thead><tr><th>SOURCE</th><th>STATUS</th></tr></thead>
             <tbody>

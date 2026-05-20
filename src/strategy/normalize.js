@@ -46,36 +46,53 @@ import {
 // FORMAT: targetPct = midpoint of documented gain range, used as `tp = entry × (1 + targetPct/100)`.
 //         minR/maxR  = guardrails on the resulting reward:risk ratio.
 // =============================================================================
+// `minSlPct` / `maxSlPct` bound the SL distance as a % of entry. These prevent:
+//   - SL too tight (intraday noise stops out immediately) — e.g. CSCO PEG with 0.15% SL
+//   - SL too wide (mathematically can't hit target_pct with reasonable R) — e.g. LLY PEG
+//     with 13.8% SL on a strategy that targets +12%, R would be < 1
+// Signals failing either bound are rejected by applyTarget().
 const STRATEGY_TARGETS = {
-  pullback:     { targetPct: 5,    minR: 1.5, maxR: 3.5, source: '20-EMA pullback continuation, 42-48% WR, 2:1 R:R typical' },
-  quality_dip:  { targetPct: 10,   minR: 1.5, maxR: 4.0, source: 'Quality Dip (mean-reversion on quality), 60-70% WR, +5-15%' },
-  vcp:          { targetPct: 18,   minR: 2.0, maxR: 8.0, source: 'Minervini VCP, 55-68% WR, +10-30% target' },
-  rsi2:         { targetPct: 2,    minR: 0.7, maxR: 1.5, source: 'Connors RSI(2), 75-85% WR, +1-3% mean-reversion bounce' },
-  pocket_pivot: { targetPct: 8,    minR: 1.5, maxR: 3.5, source: 'Kacher/Morales Pocket Pivot, 55-65% WR, +5-15%' },
-  htf:          { targetPct: 100,  minR: 3.0, maxR: 12.0, source: "O'Neil High Tight Flag, 65-75% WR, +50-300% — home-runs" },
-  nr7:          { targetPct: 4,    minR: 1.2, maxR: 3.0, source: 'Crabel NR7, 55-65% WR, +3-8% vol-expansion' },
-  fifty_two_wh: { targetPct: 10,   minR: 1.5, maxR: 4.0, source: 'Jegadeesh/Titman 52WH, 60-65% WR, +5-15% momentum drift' },
-  peg:          { targetPct: 12,   minR: 2.0, maxR: 5.0, source: 'Minervini/Zanger PEG, 65-72% WR, +5-20%' },
-  pead:         { targetPct: 12,   minR: 2.0, maxR: 5.0, source: 'Ball/Brown PEAD, 75-80% WR, +5-20% over 60d' },
-  insider:      { targetPct: 15,   minR: 2.0, maxR: 6.0, source: 'Lakonishok/Lee Insider Cluster, 65-75% WR, +8-25% over 30-90d' },
-  analyst:      { targetPct: 10,   minR: 1.5, maxR: 4.0, source: 'Womack Analyst Upgrade, 60-70% WR, +5-15% over 20-60d' },
+  pullback:     { targetPct: 5,    minR: 1.5, maxR: 3.5, minSlPct: 0.7, maxSlPct: 5,  source: '20-EMA pullback continuation, 42-48% WR, 2:1 R:R typical' },
+  quality_dip:  { targetPct: 10,   minR: 1.5, maxR: 4.0, minSlPct: 0.8, maxSlPct: 8,  source: 'Quality Dip (mean-reversion on quality), 60-70% WR, +5-15%' },
+  vcp:          { targetPct: 18,   minR: 2.0, maxR: 8.0, minSlPct: 1.0, maxSlPct: 7,  source: 'Minervini VCP, 55-68% WR, +10-30% target' },
+  rsi2:         { targetPct: 2,    minR: 0.7, maxR: 1.5, minSlPct: 0.5, maxSlPct: 3,  source: 'Connors RSI(2), 75-85% WR, +1-3% mean-reversion bounce' },
+  pocket_pivot: { targetPct: 8,    minR: 1.5, maxR: 3.5, minSlPct: 0.7, maxSlPct: 5,  source: 'Kacher/Morales Pocket Pivot, 55-65% WR, +5-15%' },
+  htf:          { targetPct: 100,  minR: 3.0, maxR: 12.0, minSlPct: 2.0, maxSlPct: 30, source: "O'Neil High Tight Flag, 65-75% WR, +50-300% — home-runs" },
+  nr7:          { targetPct: 4,    minR: 1.2, maxR: 3.0, minSlPct: 0.5, maxSlPct: 3,  source: 'Crabel NR7, 55-65% WR, +3-8% vol-expansion' },
+  fifty_two_wh: { targetPct: 10,   minR: 1.5, maxR: 4.0, minSlPct: 0.8, maxSlPct: 6,  source: 'Jegadeesh/Titman 52WH, 60-65% WR, +5-15% momentum drift' },
+  peg:          { targetPct: 12,   minR: 2.0, maxR: 5.0, minSlPct: 1.0, maxSlPct: 6,  source: 'Minervini/Zanger PEG, 65-72% WR, +5-20%' },
+  pead:         { targetPct: 12,   minR: 2.0, maxR: 5.0, minSlPct: 1.0, maxSlPct: 8,  source: 'Ball/Brown PEAD, 75-80% WR, +5-20% over 60d' },
+  insider:      { targetPct: 15,   minR: 2.0, maxR: 6.0, minSlPct: 1.5, maxSlPct: 10, source: 'Lakonishok/Lee Insider Cluster, 65-75% WR, +8-25% over 30-90d' },
+  analyst:      { targetPct: 10,   minR: 1.5, maxR: 4.0, minSlPct: 1.0, maxSlPct: 8,  source: 'Womack Analyst Upgrade, 60-70% WR, +5-15% over 20-60d' },
 };
 
 // Apply target % to entry but clamp the resulting R-multiple within [minR, maxR].
-// This protects against:
-//   - Strategy with very tight stop + ambitious target % → R-multiple absurdly high
-//     (price has to move way more than typical hold-period volatility = always open).
-//   - Strategy with very wide stop + modest target → R < 1 = bad risk-reward.
-// Returns { entry, tp, sl, side, targetPct, expectedR }.
+//
+// REJECTS the signal (returns null) when:
+//   - SL is too tight (entry-sl < minSlPct% of entry): real-world noise will stop out
+//     before the strategy plays out. Was the CSCO 0.15% SL bug.
+//   - SL is too wide (entry-sl > maxSlPct% of entry): the typical hold-period gain
+//     of this strategy can't produce a workable R-multiple. Was the LLY 13.8% SL bug.
+//
+// Returns { entry, tp, sl, side, targetPct, expectedR, slPct } or null.
 function applyTarget(strategyKey, entry, sl) {
   const t = STRATEGY_TARGETS[strategyKey];
   if (!t) {
-    // Unknown strategy — fall back to 2R for safety.
+    // Unknown strategy — fall back to 2R for safety, no SL bound check.
     const risk = entry - sl;
-    return { entry, tp: entry + 2 * risk, sl, side: 'buy', targetPct: null, expectedR: 2 };
+    if (risk <= 0) return null;
+    return { entry, tp: entry + 2 * risk, sl, side: 'buy', targetPct: null, expectedR: 2, slPct: (risk / entry) * 100 };
   }
   const risk = entry - sl;
   if (risk <= 0) return null;
+  const slPct = (risk / entry) * 100;
+
+  // Quality guards on SL distance. Either out-of-range and the signal is unfit
+  // for live trading — reject silently (engine still produces the raw detection
+  // for diagnostics; we just stop emitting an envelope).
+  if (slPct < t.minSlPct) return null;
+  if (slPct > t.maxSlPct) return null;
+
   // Primary: target = entry × (1 + targetPct/100)
   let tp = entry * (1 + t.targetPct / 100);
   // Clamp to R-multiple guardrails.
@@ -83,7 +100,7 @@ function applyTarget(strategyKey, entry, sl) {
   if (rImplied < t.minR) tp = entry + t.minR * risk;
   if (rImplied > t.maxR) tp = entry + t.maxR * risk;
   const expectedR = (tp - entry) / risk;
-  return { entry, tp, sl, side: 'buy', targetPct: t.targetPct, expectedR };
+  return { entry, tp, sl, side: 'buy', targetPct: t.targetPct, expectedR, slPct };
 }
 
 // ---- Per-strategy normalizers ---------------------------------------------------
@@ -163,9 +180,23 @@ function normalizeNR7(raw) {
 }
 
 // 52WH Breakout — engine emits stop. Entry at today's close.
+//
+// EXTRA GUARDS (added after the WMT bug where a single bad bar from a CORS
+// proxy caused a fake breakout signal):
+//   1. Require today's high to be at least 0.5% above the prior 52w high. A
+//      bare-margin breakout (e.g. $135.15 vs $134.69 = 0.34%) is usually a
+//      data artifact, not a real institutional buy.
+//   2. Require today's CLOSE to also be above the prior 52w high. A high
+//      that didn't hold to the close is a fake-out, not a breakout.
 function normalize52WH(raw, bars, idx) {
   if (!raw.detected) return null;
-  return applyTarget('fifty_two_wh', bars[idx].close, raw.stop);
+  const todayHigh  = bars[idx].high;
+  const todayClose = bars[idx].close;
+  if (Number.isFinite(raw.high_52w) && raw.high_52w > 0) {
+    if (todayHigh  < raw.high_52w * 1.005) return null;   // need real-margin breakout
+    if (todayClose < raw.high_52w)          return null;  // close must hold above
+  }
+  return applyTarget('fifty_two_wh', todayClose, raw.stop);
 }
 
 // PEG — engine emits stop (gap_open × 0.98). Entry at today's close.

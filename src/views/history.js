@@ -5,11 +5,12 @@
 // A per-strategy win/loss summary sits above the table, scoped to the current
 // filter set so users can see how each strategy is performing in the window.
 
-import { state } from '../core/state.js';
+import { state, subscribe } from '../core/state.js';
 import { initFirebase } from '../data/firebase.js';
 import { collection, query, orderBy, limit, getDocs, collectionGroup } from 'firebase/firestore';
 import { enterTrade, removeTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
+import { computeEntryStatus, entryStatusBadge, indexMultiSignal, multiSignalBadge } from '../ui/signal-status.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -62,11 +63,18 @@ function applyFilters(rows, f) {
       if (f.from && d < f.from) return false;
       if (f.to   && d > f.to)   return false;
     }
-    if (f.market   && r.market   !== f.market)   return false;
+    // Market filter — always enforced from state.market. Docs missing a market
+    // field are treated as belonging to whichever market is active, to support
+    // legacy signals written before the market field existed.
+    if (f.market && r.market && r.market !== f.market) return false;
     if (f.side     && r.side     !== f.side)     return false;
     if (f.tier     && r.tier     !== f.tier)     return false;
     if (f.strategy && r.strategy !== f.strategy) return false;
     if (f.sector   && r.sector   !== f.sector)   return false;
+    if (f.entryStatus) {
+      const es = computeEntryStatus(r);
+      if (es !== f.entryStatus) return false;
+    }
     if (f.winLoss) {
       if (f.winLoss === 'open' && r.status !== 'open') return false;
       if (f.winLoss === 'win'  && r.winLoss !== 'win')  return false;
@@ -115,8 +123,8 @@ export async function renderHistory(root) {
   const params = parseHashParams();
   root.innerHTML = `
     <div class="view">
-      <h1>Signal History</h1>
-      <p class="subtitle">All signals from the last 3 months. Pick a timeframe, filter, and click <span style="color:var(--amber)">★</span> on any row to track it.</p>
+      <h1>Signal History · <span style="color:var(--cyan);font-weight:300">${escapeHtml(state.market)}</span></h1>
+      <p class="subtitle">Signals from the last 3 months, scoped to your selected market. Pick a timeframe, filter, and click <span style="color:var(--amber)">★</span> on any row to track it. Switch market in the top bar to view the other side.</p>
 
       <div class="card">
         <!-- Timeframe row -->
@@ -313,6 +321,7 @@ export async function renderHistory(root) {
     const r = activeRange();
     return {
       from: r.from, to: r.to,
+      market:   state.market,          // ALWAYS scope to current market
       side:     getSeg('seg-side'),
       tier:     getSeg('seg-tier'),
       strategy: $('f-strategy').value,
@@ -379,6 +388,10 @@ export async function renderHistory(root) {
       $('history-table').innerHTML = `<div class="empty">No signals match these filters.</div>`;
       return;
     }
+    // Index multi-signal tickers within the filtered set so the MULTI×N badge
+    // reflects what the user is currently looking at (e.g. when scoped to a
+    // single strategy, no row gets the badge).
+    const { tickerCount, multiTickers } = indexMultiSignal(filtered);
     const html = `
       <table class="data">
         <thead><tr>
@@ -386,7 +399,8 @@ export async function renderHistory(root) {
           <th>TIER</th>
           <th>DATE</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>STRATEGY</th>
           <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th>
-          <th class="num">CURRENT</th><th class="num">%Δ</th><th>W/L</th>
+          <th class="num">CURRENT</th><th class="num">%Δ</th>
+          <th>STATUS</th><th>W/L</th>
         </tr></thead>
         <tbody>
           ${filtered.map(r => {
@@ -397,21 +411,24 @@ export async function renderHistory(root) {
                      : '<span class="badge">—</span>';
             const id = tradeIdFor(r);
             const isEntered = entered.has(id);
+            const entryStatus = r.status === 'open' ? computeEntryStatus(r) : null;
+            const multi = multiSignalBadge(r.ticker, multiTickers, tickerCount);
             return `<tr data-signal-id="${escapeHtml(id)}">
               <td>
                 <button class="star-btn" data-action="${isEntered ? 'remove' : 'enter'}" data-signal-id="${escapeHtml(id)}" title="${isEntered ? 'Remove from My Trades' : 'Track on My Trades'}" aria-label="${isEntered ? 'Remove' : 'Enter'} trade for ${escapeHtml(r.ticker)}">${isEntered ? '★' : '☆'}</button>
               </td>
               <td>${tierBadge(r.tier)}</td>
               <td>${escapeHtml((r.signalTs || '').slice(0, 10))}</td>
-              <td>${escapeHtml(r.name || '—')}</td>
+              <td>${escapeHtml(r.name || '—')}${multi}</td>
               <td>${escapeHtml(r.ticker || '')}</td>
               <td>${escapeHtml(r.sector || '—')}</td>
               <td>${escapeHtml(r.strategy || '—')}</td>
-              <td class="num">${(r.entryPrice ?? 0).toFixed(2)}</td>
-              <td class="num">${(r.tpPrice ?? 0).toFixed(2)}</td>
-              <td class="num">${(r.slPrice ?? 0).toFixed(2)}</td>
+              <td class="num" title="${r.slPct != null ? 'Risk: ' + r.slPct.toFixed(2) + '% · R:R: ' + (r.expectedR != null ? r.expectedR.toFixed(2) + 'R' : '—') : ''}">${(r.entryPrice ?? 0).toFixed(2)}</td>
+              <td class="num" style="color:var(--green)">${(r.tpPrice ?? 0).toFixed(2)}</td>
+              <td class="num" style="color:var(--red)">${(r.slPrice ?? 0).toFixed(2)}</td>
               <td class="num">${r.currentPrice != null ? r.currentPrice.toFixed(2) : '—'}</td>
               <td class="num" style="color:${pct == null ? 'var(--text-dim)' : pct >= 0 ? 'var(--green)' : 'var(--red)'}">${pct == null ? '—' : (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'}</td>
+              <td>${entryStatus ? entryStatusBadge(entryStatus) : '<span class="badge">—</span>'}</td>
               <td>${wl}</td>
             </tr>`;
           }).join('')}
@@ -498,13 +515,24 @@ export async function renderHistory(root) {
   ['f-strategy', 'f-sector'].forEach(id => $(id).addEventListener('change', refresh));
   $('f-q').addEventListener('input', refresh);
 
+  // Re-render when the user toggles US ↔ INDIA in the topbar. The router also
+  // re-dispatches the view on market change, but if this view is the active
+  // one we want to filter the EXISTING rows array rather than refetching.
+  if (window.__historyMarketUnsub) window.__historyMarketUnsub();
+  window.__historyMarketUnsub = subscribe((reason) => {
+    if (reason === 'market') refresh();
+  });
+
   $('btn-csv').addEventListener('click', () => {
     const filtered = applyFilters(rows, currentFilters());
-    const header = ['date','tier','name','ticker','sector','strategy','side','entry','tp','sl','current','pctChange','status','winLoss'];
+    const header = ['date','market','tier','name','ticker','sector','strategy','side','entry','tp','sl','slPct','expectedR','current','pctChange','status','winLoss','entryStatus'];
     const csvRows = filtered.map(r => [
-      (r.signalTs || '').slice(0, 10), r.tier || '', r.name || '', r.ticker || '', r.sector || '', r.strategy || '', r.side || '',
-      r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '', r.currentPrice ?? '',
-      r.pctChange != null ? r.pctChange : '', r.status || '', r.winLoss || '',
+      (r.signalTs || '').slice(0, 10), r.market || '', r.tier || '', r.name || '', r.ticker || '', r.sector || '', r.strategy || '', r.side || '',
+      r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '',
+      r.slPct != null ? r.slPct.toFixed(3) : '', r.expectedR != null ? r.expectedR.toFixed(2) : '',
+      r.currentPrice ?? '', r.pctChange != null ? r.pctChange : '',
+      r.status || '', r.winLoss || '',
+      computeEntryStatus(r) || '',
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
     const blob = new Blob([header.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');

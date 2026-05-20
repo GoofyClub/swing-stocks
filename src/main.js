@@ -16,6 +16,7 @@ import { renderMyTrades } from './views/mytrades.js';
 import { renderWatchlist } from './views/watchlist.js';
 import { renderSettings } from './views/settings.js';
 import { renderGuide } from './views/guide.js';
+import { renderStocksInPlay } from './views/stocksInPlay.js';
 import { onForegroundMessage, isFCMSupported } from './data/messaging.js';
 
 // Theme + font-size attributes are pre-set by an inline script in index.html
@@ -45,8 +46,9 @@ function mountAppShell() {
   route('history',   renderHistory);
   route('mytrades',  renderMyTrades);
   route('watchlist', renderWatchlist);
-  route('settings',  renderSettings);
-  route('guide',     renderGuide);
+  route('settings',     renderSettings);
+  route('guide',        renderGuide);
+  route('stocksinplay', renderStocksInPlay);
   defaultRoute('dashboard');
   const dispatch = start(main);
 

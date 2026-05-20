@@ -207,7 +207,6 @@ console.log('\n--- parseStooqCsv() ---');
 console.log('\n--- Normalizer TP calibration ---');
 {
   const { STRATEGY_TARGETS, STRATEGIES } = await import('../src/strategy/normalize.js');
-  // Verify each strategy's target-pct band looks sane (no RSI with 20% target etc.)
   const expectedRanges = {
     pullback:     [3,   8],
     quality_dip:  [7,   15],
@@ -226,11 +225,51 @@ console.log('\n--- Normalizer TP calibration ---');
     const t = STRATEGY_TARGETS[key];
     shape(t, x => x && x.targetPct >= lo && x.targetPct <= hi, `${key} targetPct ${t?.targetPct} ∈ [${lo}, ${hi}]`);
     shape(t, x => x && x.minR > 0 && x.maxR > x.minR, `${key} R guardrails sane`);
+    shape(t, x => x && x.minSlPct > 0 && x.maxSlPct > x.minSlPct, `${key} SL guardrails sane (min ${t?.minSlPct}% < max ${t?.maxSlPct}%)`);
   }
-  // Sanity: every STRATEGIES entry has a matching STRATEGY_TARGETS entry.
   for (const key of Object.keys(STRATEGIES)) {
     shape(STRATEGY_TARGETS[key], x => !!x, `${key} has STRATEGY_TARGETS entry`);
   }
+}
+
+console.log('\n--- Quality guards (applyTarget reject paths) ---');
+{
+  // We can't import applyTarget directly (it's private). Verify rejection by
+  // calling the public scan path with fixtures crafted to trigger each guard.
+  // Specifically: a synthetic bars series with `evaluate52WH` + `normalize52WH`
+  // tight margin should yield null when the breakout is < 0.5% above prior 52w.
+  const { STRATEGIES } = await import('../src/strategy/normalize.js');
+
+  // Build a series with REALISTIC intraday range (~1% of price) so ATR stays
+  // small enough that the SL guard isn't tripped, then exercise the 52WH
+  // margin + close-above-prior-high guards specifically.
+  // evaluate52WH requires idx >= 252, so build 260 prior bars and then the test
+  // candle on top. Range ~1% of price so ATR stays small enough that the
+  // resulting SL doesn't trip the maxSlPct guard.
+  const fakeBars = [];
+  const startMs = new Date('2025-01-02T00:00:00Z').getTime();
+  for (let i = 0; i < 260; i++) {
+    fakeBars.push({
+      date: new Date(startMs + i * 86400000).toISOString().slice(0, 10),
+      open: 132, high: 132.8, low: 131.5, close: 132, volume: 5_000_000,
+    });
+  }
+  // Place the prior 52w high somewhere in the lookback window
+  fakeBars[150] = { ...fakeBars[150], high: 134.69, close: 133.5 };
+
+  // Today: pokes barely above prior high (0.23% margin) AND close doesn't hold.
+  // Both 52WH guards should reject.
+  const sameDay = {
+    date: new Date(startMs + 260 * 86400000).toISOString().slice(0, 10),
+    open: 132, high: 135.00, low: 131, close: 132.50, volume: 8_000_000,
+  };
+  const result = STRATEGIES.fifty_two_wh.evaluate([...fakeBars, sameDay]);
+  shape(result, x => x === null, '52WH normalizer REJECTS bare-margin breakout (high 135.00 vs 134.69 = +0.23%, close below prior high)');
+
+  // Confirmed breakout: high 135.50 (+0.6%) AND close 135.20 (above prior high)
+  const confirmDay = { ...sameDay, high: 135.50, close: 135.20 };
+  const result2 = STRATEGIES.fifty_two_wh.evaluate([...fakeBars, confirmDay]);
+  shape(result2, x => x && x.envelope && x.envelope.expectedR >= 1.5, '52WH normalizer ACCEPTS confirmed breakout (high 135.50 = +0.6%, close 135.20 above prior high)');
 }
 
 console.log('\n=============================================');

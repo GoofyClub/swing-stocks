@@ -592,6 +592,36 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--text-dim);
 }
 
+/* API key input rows in Settings */
+.api-key-row {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+  margin: 10px 0;
+}
+.api-key-row label {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+.api-key-row input {
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  padding: 7px 10px;
+  border-radius: 4px;
+  width: 100%;
+}
+.api-key-row .muted {
+  grid-column: 2;
+  color: var(--text-mute);
+  font-size: 0.85rem;
+}
+
 /* Dashboard: data-refresh indicator next to TRIGGER REFRESH button */
 .last-refresh {
   display: inline-flex;
@@ -611,6 +641,39 @@ button { font-family: inherit; cursor: pointer; }
   text-transform: uppercase;
 }
 .last-refresh .lr-value { color: var(--text); }
+
+/* Stocks in Play criteria list */
+.orb-criteria { display: grid; gap: 8px; }
+.orb-crit-row {
+  display: flex; gap: 10px; align-items: center;
+  font-size: 0.92rem; color: var(--text);
+  padding: 6px 10px;
+  background: var(--bg);
+  border-radius: 4px;
+}
+.orb-crit-row .muted { color: var(--text-mute); }
+.orb-crit-row .ok-tag {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--green); color: var(--bg);
+  font-weight: 700; font-size: 0.85rem;
+}
+.orb-crit-row .info-tag {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--cyan); color: var(--bg);
+  font-weight: 700; font-size: 0.85rem;
+}
+.orb-crit-row .warn-tag {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--amber); color: var(--bg);
+  font-weight: 700; font-size: 0.85rem;
+}
+.orb-crit-row.warn { background: var(--warn-bg); border-left: 3px solid var(--amber); }
 
 /* Inline help icon — tiny circular badge next to labels. */
 .help-icon {

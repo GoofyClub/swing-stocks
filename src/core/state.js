@@ -26,7 +26,23 @@ export const state = {
   },
   // Data fetch context — shared by both interactive scans and any client-side refresh.
   fetchCtx: {
-    apiKeys: { alphavantage: '', finnhub: '', fmp: '' },
+    // API keys load from localStorage on boot (see _loadApiKeys below). Same
+    // values also accepted via VITE_*_KEY env vars at build time — useful for
+    // production deployments where you don't want each user to manage keys.
+    apiKeys: (function _loadApiKeys() {
+      const tryLoad = (key, envName) => {
+        try {
+          const ls = localStorage.getItem('swing.apiKey.' + key);
+          if (ls) return ls;
+        } catch {}
+        return import.meta?.env?.[envName] || '';
+      };
+      return {
+        alphavantage: tryLoad('alphavantage', 'VITE_ALPHAVANTAGE_KEY'),
+        finnhub:      tryLoad('finnhub',      'VITE_FINNHUB_KEY'),
+        fmp:          tryLoad('fmp',          'VITE_FMP_KEY'),
+      };
+    })(),
     market: _bootMarket,
     enabledSources: new Set(DATA_SOURCE_ORDER),
     manualBars: new Map(),
@@ -63,4 +79,13 @@ export function setMarket(market) {
 export function setUser(user) {
   state.user = user;
   notify('user');
+}
+
+// API-key management. Persisted to localStorage so each browser keeps its own
+// keys; never written to Firestore (Settings → Data Source explains this).
+export function setApiKey(provider, key) {
+  if (!['alphavantage', 'finnhub', 'fmp'].includes(provider)) return;
+  state.fetchCtx.apiKeys[provider] = key || '';
+  try { localStorage.setItem('swing.apiKey.' + provider, key || ''); } catch {}
+  notify('apiKeys');
 }

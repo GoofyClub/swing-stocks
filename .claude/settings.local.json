@@ -5,7 +5,8 @@
       "Bash(npm install *)",
       "Bash(npm run *)",
       "Bash(node --check scripts/refresh-signals.mjs)",
-      "Bash(node -e \"const fs = require\\('fs'\\); const j = JSON.parse\\(fs.readFileSync\\('firestore.indexes.json', 'utf8'\\)\\); console.log\\('Indexes file valid JSON.\\\\\\\\nComposite indexes:', j.indexes.length\\); console.log\\('Single-field overrides:', j.fieldOverrides.length\\); for \\(const i of j.indexes\\) { console.log\\('  -', i.collectionGroup, '@', i.queryScope, i.fields.map\\(f => f.fieldPath + ' ' + f.order\\).join\\(' + '\\)\\); }\")"
+      "Bash(node -e \"const fs = require\\('fs'\\); const j = JSON.parse\\(fs.readFileSync\\('firestore.indexes.json', 'utf8'\\)\\); console.log\\('Indexes file valid JSON.\\\\\\\\nComposite indexes:', j.indexes.length\\); console.log\\('Single-field overrides:', j.fieldOverrides.length\\); for \\(const i of j.indexes\\) { console.log\\('  -', i.collectionGroup, '@', i.queryScope, i.fields.map\\(f => f.fieldPath + ' ' + f.order\\).join\\(' + '\\)\\); }\")",
+      "Bash(node -e ' *)"
     ]
   }
 }

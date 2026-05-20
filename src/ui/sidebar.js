@@ -4,11 +4,12 @@ import { navigate, currentRoute } from '../core/router.js';
 
 const NAV = [
   { group: 'Trading', items: [
-    { id: 'dashboard', icon: '▣', label: 'Dashboard' },
-    { id: 'signals',   icon: '⚡', label: 'Live Signals' },
-    { id: 'mytrades',  icon: '★', label: 'My Trades' },
-    { id: 'history',   icon: '⏱', label: 'Signal History' },
-    { id: 'watchlist', icon: '≡', label: 'Watchlist' },
+    { id: 'dashboard',     icon: '▣', label: 'Dashboard' },
+    { id: 'signals',       icon: '⚡', label: 'Live Signals' },
+    { id: 'stocksinplay',  icon: '◆', label: 'Stocks in Play' },
+    { id: 'mytrades',      icon: '★', label: 'My Trades' },
+    { id: 'history',       icon: '⏱', label: 'Signal History' },
+    { id: 'watchlist',     icon: '≡', label: 'Watchlist' },
   ]},
   { group: 'System', items: [
     { id: 'guide',     icon: 'i', label: 'User Guide' },

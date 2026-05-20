@@ -167,6 +167,11 @@ async function scanMarket(db, market, ctxIn) {
         entryPrice:   env.entry,
         tpPrice:      env.tp,
         slPrice:      env.sl,
+        // Trade quality metadata — used by the UI to flag low-R signals
+        // and to compute entry-status (active / missed / invalidated).
+        expectedR:    env.expectedR ?? null,
+        slPct:        env.slPct ?? null,
+        targetPct:    env.targetPct ?? null,
         signalTs:     new Date().toISOString(),
         currentPrice: bars[bars.length - 1].close,
         currentPriceTs: new Date().toISOString(),
