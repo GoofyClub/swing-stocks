@@ -2,6 +2,14 @@
   "indexes": [
     {
       "collectionGroup": "signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "market",   "order": "ASCENDING" },
+        { "fieldPath": "signalTs", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "signals",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "market",   "order": "ASCENDING" },
@@ -39,29 +47,19 @@
       "collectionGroup": "signals",
       "fieldPath": "signalTs",
       "indexes": [
+        { "order": "ASCENDING",  "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
         { "order": "ASCENDING",  "queryScope": "COLLECTION_GROUP" },
         { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
-      ]
-    },
-    {
-      "collectionGroup": "signals",
-      "fieldPath": "status",
-      "indexes": [
-        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
-      ]
-    },
-    {
-      "collectionGroup": "signals",
-      "fieldPath": "market",
-      "indexes": [
-        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
     },
     {
       "collectionGroup": "enteredTrades",
       "fieldPath": "status",
       "indexes": [
-        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+        { "order": "ASCENDING",  "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING",  "queryScope": "COLLECTION_GROUP" }
       ]
     }
   ]
