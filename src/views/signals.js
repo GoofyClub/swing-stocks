@@ -1,14 +1,19 @@
-// Live Signals — on-demand interactive scan.
+// Live Signals — primary view of trading signals.
 //
-// Design:
-//   - Scan state lives at module scope per market (_scans[market]). Survives
-//     view re-mounts so navigating away and back doesn't lose results.
-//   - The scan loop ONLY mutates state. It never touches the DOM directly.
-//     Instead it calls `_renderHook?.()` after every state change.
-//   - Each view mount installs a fresh `_renderHook` closure with live DOM
-//     references. So even when the user navigates away mid-scan, the running
-//     loop's notifications always reach the currently-mounted view, and the
-//     new view catches up incrementally.
+// TWO DATA SOURCES, switchable per market:
+//
+//   1. CRON (default) — signals written by the GitHub Actions cron worker to
+//      /marketData/{date}/signals/{id}. Auto-loads on mount. Fresh from the
+//      most-recent successful cron pass. Best for "what does the system say
+//      right now?"
+//
+//   2. BROWSER SCAN — ad-hoc scan run in this browser. User clicks RUN BROWSER
+//      SCAN. Walks the watchlist, fetches bars directly, evaluates every
+//      strategy. Best for "what would the system say if it ran NOW?"
+//
+// The two sources are kept in separate module-level state and switched via a
+// source toggle at the top of the view. Filters apply identically to both.
+// Scan results persist to localStorage so reloads don't wipe them.
 
 import { state } from '../core/state.js';
 import { fetchBars, DataFetchError } from '../data/fetchers.js';
@@ -19,27 +24,44 @@ import {
 } from '../data/markets.js';
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
+import { initFirebase } from '../data/firebase.js';
+import {
+  collection, doc, getDoc, getDocs, query, where, orderBy, limit,
+} from 'firebase/firestore';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// ----- Module-level persistence (per market) -----
-// Survives view re-mounts. After a HARD page reload, the in-memory state is
-// gone — but we serialize a slimmed copy to localStorage on every change so
-// scans rehydrate on next boot.
+// =============================================================================
+// Module-level state
+// =============================================================================
+
+// Scan state (per market). Survives view re-mounts + page reloads (localStorage).
 function blankScan() {
   return {
-    detected: [],
-    log: [],        // [{ ts, msg, cls }]
-    lastRunTs: null,
-    inProgress: false,
-    stopRequested: false,
-    tickersTotal: 0,
-    tickersDone:  0,
-    errors:       0,
+    detected: [], log: [],
+    lastRunTs: null, inProgress: false, stopRequested: false,
+    tickersTotal: 0, tickersDone: 0, errors: 0,
     enteredIds: new Set(),
   };
+}
+
+// Cron-cache state (per market). Always re-fetched from Firestore on view mount;
+// not persisted (Firestore is the source of truth and reads are cheap).
+function blankCron() {
+  return { signals: [], date: null, refreshedAt: null, loading: false, err: null };
+}
+
+// Per-market view mode: 'cron' or 'scan'. Persists to localStorage.
+function loadModePref(market) {
+  try {
+    const v = localStorage.getItem('swing.signalSource.' + market);
+    return v === 'scan' ? 'scan' : 'cron';
+  } catch { return 'cron'; }
+}
+function saveModePref(market, mode) {
+  try { localStorage.setItem('swing.signalSource.' + market, mode); } catch {}
 }
 
 const SCAN_LS_PREFIX = 'swing.scan.';
@@ -47,7 +69,6 @@ const SCAN_LS_VERSION = 1;
 const SCAN_LS_MAX_HITS = 500;
 const SCAN_LS_MAX_LOG  = 200;
 
-// Try to load a previously-saved scan. Returns blankScan() on miss or corruption.
 function loadScanFromLs(market) {
   try {
     const raw = localStorage.getItem(SCAN_LS_PREFIX + market);
@@ -58,12 +79,12 @@ function loadScanFromLs(market) {
       detected:   Array.isArray(parsed.detected) ? parsed.detected : [],
       log:        Array.isArray(parsed.log) ? parsed.log : [],
       lastRunTs:  Number.isFinite(parsed.lastRunTs) ? parsed.lastRunTs : null,
-      inProgress: false,        // Never restore "in progress" — would deadlock the run button.
+      inProgress: false,
       stopRequested: false,
       tickersTotal: parsed.tickersTotal || 0,
       tickersDone:  parsed.tickersDone || 0,
       errors:       parsed.errors || 0,
-      enteredIds:   new Set(),  // Refreshed from Firestore on each mount.
+      enteredIds:   new Set(),
     };
   } catch (e) {
     console.warn('[signals] failed to load scan from localStorage', e?.message);
@@ -71,18 +92,15 @@ function loadScanFromLs(market) {
   }
 }
 
-// Save a slimmed snapshot (drops raw strategy output blobs — re-derivable from cron).
 let _saveDebounce = null;
 function saveScanToLs(market, sc) {
   if (_saveDebounce) clearTimeout(_saveDebounce);
   _saveDebounce = setTimeout(() => {
     try {
-      // Trim and slim to fit comfortably within the ~5 MB localStorage budget.
       const detected = sc.detected.slice(0, SCAN_LS_MAX_HITS).map(d => ({
         ticker: d.ticker, sector: d.sector, name: d.name,
         strategy: d.strategy, short: d.short, tier: d.tier,
         envelope: d.envelope,
-        // Keep reason text but drop deep raw blobs.
         raw: { reason: d.raw?.reason },
       }));
       const log = sc.log.slice(-SCAN_LS_MAX_LOG);
@@ -96,21 +114,16 @@ function saveScanToLs(market, sc) {
       };
       localStorage.setItem(SCAN_LS_PREFIX + market, JSON.stringify(payload));
     } catch (e) {
-      // Most likely cause: QuotaExceeded. Drop the saved scan so we don't keep failing.
       console.warn('[signals] localStorage save failed — dropping cache', e?.message);
       try { localStorage.removeItem(SCAN_LS_PREFIX + market); } catch {}
     }
   }, 250);
 }
 
-const _scans = {
-  US:    loadScanFromLs('US'),
-  INDIA: loadScanFromLs('INDIA'),
-};
+const _scans    = { US: loadScanFromLs('US'),  INDIA: loadScanFromLs('INDIA') };
+const _crons    = { US: blankCron(),           INDIA: blankCron() };
+const _viewMode = { US: loadModePref('US'),    INDIA: loadModePref('INDIA') };
 
-// The currently-mounted view installs a hook; the scan loop pings it on every
-// state change. Survives any number of view re-mounts; always points to the
-// latest one. We also persist to localStorage on every tick (debounced).
 let _renderHook = null;
 let _activeMarket = null;
 function notifyTick() {
@@ -118,10 +131,123 @@ function notifyTick() {
   if (_activeMarket && _scans[_activeMarket]) saveScanToLs(_activeMarket, _scans[_activeMarket]);
 }
 
+// =============================================================================
+// Cron-data loader — reads the most recent /marketData/{date}/signals/* docs
+// for the given market. Walks back up to 5 days to handle weekends.
+// =============================================================================
+async function loadLatestCron(market) {
+  const cv = _crons[market];
+  cv.loading = true; cv.err = null;
+  notifyTick();
+  try {
+    const { db, ok } = initFirebase();
+    if (!ok) throw new Error('Firebase not configured.');
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10);
+      try {
+        const ref = collection(db, 'marketData', d, 'signals');
+        const snap = await getDocs(query(ref, where('market', '==', market), orderBy('signalTs', 'desc'), limit(500)));
+        if (!snap.empty) {
+          cv.signals = snap.docs.map(x => ({ id: x.id, ...x.data() }));
+          cv.date = d;
+          // Pull refreshedAt from parent doc for the timestamp display.
+          try {
+            const meta = await getDoc(doc(db, 'marketData', d));
+            const ts = meta.data()?.refreshedAt?.toDate?.();
+            cv.refreshedAt = ts ? ts.getTime() : null;
+          } catch { cv.refreshedAt = null; }
+          cv.loading = false;
+          notifyTick();
+          return;
+        }
+      } catch (e) {
+        // First-pass might fail if composite index hasn't built yet — try the
+        // unfiltered fallback so the user still sees data while indexes build.
+        try {
+          const ref = collection(db, 'marketData', d, 'signals');
+          const snap = await getDocs(query(ref, orderBy('signalTs', 'desc'), limit(500)));
+          if (!snap.empty) {
+            const rows = snap.docs.map(x => ({ id: x.id, ...x.data() })).filter(r => !r.market || r.market === market);
+            if (rows.length) {
+              cv.signals = rows;
+              cv.date = d;
+              cv.refreshedAt = null;
+              cv.loading = false;
+              notifyTick();
+              return;
+            }
+          }
+        } catch (e2) {
+          throw e2;
+        }
+      }
+    }
+    cv.signals = []; cv.date = null; cv.refreshedAt = null; cv.loading = false;
+    notifyTick();
+  } catch (e) {
+    cv.signals = []; cv.err = e.message; cv.loading = false;
+    notifyTick();
+  }
+}
+
+// =============================================================================
+// Unified row shape — both cron docs and scan results pass through here so the
+// table renderer doesn't care where the data came from.
+// =============================================================================
+function unify(row, source) {
+  if (source === 'cron') {
+    return {
+      source: 'cron',
+      ticker: row.ticker,
+      name:   row.name || nameForTicker(row.ticker) || row.ticker,
+      sector: row.sector,
+      tier:   row.tier || 'Tier 1',
+      side:   row.side || 'buy',
+      short:  row.strategy,
+      strategyKey: row.strategyKey,
+      entry:  row.entryPrice,
+      tp:     row.tpPrice,
+      sl:     row.slPrice,
+      currentPrice: row.currentPrice ?? null,
+      pctChange:    row.pctChange ?? null,
+      status:       row.status || 'open',
+      winLoss:      row.winLoss || null,
+      signalTs:     row.signalTs,
+      reason:       row.rawReason || '',
+      tradeId:      row.id,
+      market:       row.market || _activeMarket,
+    };
+  }
+  // scan
+  const env = row.envelope || {};
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    source: 'scan',
+    ticker: row.ticker,
+    name:   row.name || nameForTicker(row.ticker) || row.ticker,
+    sector: row.sector,
+    tier:   row.tier || 'Tier 1',
+    side:   env.side || 'buy',
+    short:  row.short,
+    strategyKey: row.strategy,
+    entry:  env.entry,
+    tp:     env.tp,
+    sl:     env.sl,
+    currentPrice: null,
+    pctChange:    null,
+    status:       null,
+    winLoss:      null,
+    signalTs:     null,
+    reason:       row.raw?.reason || '',
+    tradeId:      `${row.ticker}_${row.strategy}_${today}`,
+    market:       _activeMarket,
+  };
+}
+
+// =============================================================================
+// Browser scan loop (unchanged from previous iteration — only DOM-decoupled).
+// =============================================================================
 async function loadScanTickers(market) {
-  // Helper: pick the most informative name we have for a ticker.
-  // The watchlist doc's `name` may be missing or just the ticker (legacy data),
-  // so always fall through to the curated nameForTicker() lookup.
   const resolveName = (ticker, wlName) => {
     if (wlName && wlName !== ticker) return wlName;
     return nameForTicker(ticker) || ticker;
@@ -147,20 +273,14 @@ async function runConcurrent(items, concurrency, worker, shouldStop) {
   await Promise.all(fns);
 }
 
-const TIER_ORDER = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
-function tierBadge(t) {
-  const cls = t === 'A+' ? 'tier-aplus' : t === 'Tier 1' ? 'tier-t1' : 'tier-t2';
-  return `<span class="badge ${cls}">${escapeHtml(t)}</span>`;
-}
-
-// =============================================================================
-// Scan loop — module-level so it survives view re-mounts. Only mutates sc state
-// + calls notifyTick(). NEVER touches the DOM directly.
-// =============================================================================
 async function executeScan(market) {
   const sc = _scans[market];
   if (sc.inProgress) return;
   _activeMarket = market;
+
+  // Auto-switch to scan mode so the user sees the streaming results.
+  _viewMode[market] = 'scan';
+  saveModePref(market, 'scan');
 
   sc.detected = [];
   sc.log = [];
@@ -180,7 +300,7 @@ async function executeScan(market) {
   pushLog(`Loading watchlist for ${market}…`);
   notifyTick();
 
-  const cfg = state.marketCfg; // Captured once; if user toggles market mid-scan we still use the start market's cfg.
+  const cfg = state.marketCfg;
   const fetchCtx = state.fetchCtx;
 
   let tickers = [];
@@ -201,7 +321,6 @@ async function executeScan(market) {
     notifyTick();
     return;
   }
-
   pushLog(`Scanning ${tickers.length} ticker${tickers.length === 1 ? '' : 's'}…`);
 
   let spyBars = null;
@@ -217,11 +336,9 @@ async function executeScan(market) {
     try {
       const bars = await fetchBars(item.t, fetchCtx);
       const hits = scanAllStrategies(bars, { spyBars, marketCfg: cfg });
-      // CRITICAL: spread `h` FIRST, then assign ticker/sector/name. Otherwise
-      // `h.name` (the strategy's full label like "Swing Pullback 20-EMA
-      // Continuation") clobbers `item.name` (the company name) and the table
-      // shows the strategy name in the NAME column.
       for (const h of hits) {
+        // Spread h FIRST then override — keeps stock name from being clobbered
+        // by strategy name. See unify() comment.
         sc.detected.push({ ...h, ticker: item.t, sector: item.s, name: item.name });
       }
       pushLog(`${item.t}: ${hits.length} signal${hits.length === 1 ? '' : 's'}`, hits.length ? 'ok' : '');
@@ -246,27 +363,58 @@ async function executeScan(market) {
 // =============================================================================
 // View
 // =============================================================================
+const TIER_ORDER = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
+function tierBadge(t) {
+  const cls = t === 'A+' ? 'tier-aplus' : t === 'Tier 1' ? 'tier-t1' : 'tier-t2';
+  return `<span class="badge ${cls}">${escapeHtml(t)}</span>`;
+}
+function statusBadge(status, winLoss) {
+  if (winLoss === 'win')  return '<span class="badge win">WIN</span>';
+  if (winLoss === 'loss') return '<span class="badge loss">LOSS</span>';
+  if (status === 'open')  return '<span class="badge open">open</span>';
+  return '<span class="badge">—</span>';
+}
+
+function fmtRelative(date) {
+  if (!date) return 'never';
+  const ms = typeof date === 'number' ? date : date.getTime?.() ?? 0;
+  const diff = Date.now() - ms;
+  const mins = Math.round(diff / 60000);
+  if (mins < 1)   return 'just now';
+  if (mins < 60)  return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24)   return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.round(hrs / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
 export async function renderSignals(root) {
   const market = state.market;
-  const sc = _scans[market] ?? (_scans[market] = blankScan());
+  const sc = _scans[market]    ?? (_scans[market] = blankScan());
+  const cv = _crons[market]    ?? (_crons[market] = blankCron());
   _activeMarket = market;
 
   root.innerHTML = `
     <div class="view">
       <h1>Live Signals</h1>
-      <p class="subtitle">Run every strategy against your <b>${escapeHtml(market)}</b> watchlist on demand. Results are computed in your browser and persist while you navigate to other tabs.</p>
+      <p class="subtitle">Latest signals for <b>${escapeHtml(market)}</b>. By default this view shows signals computed by the scheduled cron job. Use <b>RUN BROWSER SCAN</b> to run a fresh scan in this browser right now.</p>
 
       <div class="card">
-        <div class="scan-controls">
-          <button id="btn-run"  class="btn-primary" type="button">▶ RUN SCAN</button>
-          <button id="btn-stop" class="btn-bare"    type="button" disabled>STOP</button>
-          <button id="btn-clear" class="btn-bare"   type="button" disabled>CLEAR</button>
+        <div class="signal-source-bar">
+          <div class="seg-group" id="seg-source" role="tablist" aria-label="Signal source">
+            <span class="seg-label">Source</span>
+            <button data-value="cron" class="${_viewMode[market] === 'cron' ? 'active' : ''}" type="button" role="tab">LATEST CRON</button>
+            <button data-value="scan" class="${_viewMode[market] === 'scan' ? 'active' : ''}" type="button" role="tab">BROWSER SCAN</button>
+          </div>
+          <button id="btn-refresh-cron" class="btn-bare" type="button" title="Re-fetch latest cron signals from Firestore">↻ REFRESH</button>
+          <button id="btn-run-scan"     class="btn-primary" type="button">▶ RUN BROWSER SCAN</button>
+          <button id="btn-stop-scan"    class="btn-bare" type="button" disabled>STOP</button>
           <div class="scan-progress" aria-hidden="true"><div class="bar" id="scan-bar" style="width:0%"></div></div>
-          <span id="scan-stat" style="font-family:var(--font-mono);font-size:0.85rem;color:var(--text-dim);white-space:nowrap"></span>
+          <span id="source-stat" style="margin-left:auto;font-family:var(--font-mono);font-size:0.85rem;color:var(--text-dim);white-space:nowrap"></span>
         </div>
       </div>
 
-      <div class="card" id="filter-card" style="display:none">
+      <div class="card" id="filter-card">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <div class="seg-group" id="seg-tier" role="group" aria-label="Tier filter">
             <span class="seg-label">Tier</span>
@@ -291,12 +439,12 @@ export async function renderSignals(root) {
       </div>
 
       <div class="card">
-        <h2>Signals detected <span class="count" id="hits-count"></span></h2>
-        <div id="scan-results"></div>
+        <h2>Signals <span class="count" id="hits-count"></span></h2>
+        <div id="signal-results"></div>
       </div>
 
       <details class="collapsible" id="log-collapse">
-        <summary>Activity log <span id="log-count" style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem;margin-left:8px"></span></summary>
+        <summary>Browser-scan activity log <span id="log-count" style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem;margin-left:8px"></span></summary>
         <div class="body">
           <div class="scan-log" id="scan-log"></div>
         </div>
@@ -306,49 +454,9 @@ export async function renderSignals(root) {
 
   const $ = (id) => document.getElementById(id);
   const logEl = $('scan-log');
-  // Track what we've already drawn so renderTick() only does incremental work.
-  let drawnLogIdx     = 0;
-  let drawnDetectedLen = -1;
-  let lastTotalCount   = -1;
+  let drawnLogIdx = 0;
 
-  // ---- Reusable helpers
-  function appendLogLine({ ts, msg, cls }) {
-    const span = document.createElement('span');
-    if (cls) span.className = cls;
-    span.textContent = `[${ts}] ${msg}\n`;
-    logEl.appendChild(span);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-  function updateProgress() {
-    const pct = sc.tickersTotal ? Math.round((sc.tickersDone / sc.tickersTotal) * 100) : 0;
-    $('scan-bar').style.width = pct + '%';
-    if (sc.inProgress) {
-      $('scan-stat').textContent = `${sc.tickersDone}/${sc.tickersTotal} · ${sc.errors} error${sc.errors === 1 ? '' : 's'} · ${sc.detected.length} hit${sc.detected.length === 1 ? '' : 's'}`;
-    } else if (sc.lastRunTs) {
-      const dt = new Date(sc.lastRunTs).toLocaleTimeString();
-      $('scan-stat').textContent = `last run ${dt} · ${sc.detected.length} hit${sc.detected.length === 1 ? '' : 's'} · ${sc.errors} error${sc.errors === 1 ? '' : 's'}`;
-    } else {
-      $('scan-stat').textContent = 'idle';
-    }
-    $('btn-run').disabled  = sc.inProgress;
-    $('btn-stop').disabled = !sc.inProgress;
-    $('btn-clear').disabled = sc.inProgress || !(sc.detected.length || sc.log.length);
-  }
-  function updateLogCount() {
-    $('log-count').textContent = `(${sc.log.length} line${sc.log.length === 1 ? '' : 's'})`;
-  }
-  function refreshSectorOptions() {
-    const sel = $('f-sector');
-    const cur = sel.value;
-    const seen = new Set(Array.from(sel.options).map(o => o.value));
-    for (const s of sc.detected.map(x => x.sector).filter(Boolean)) {
-      if (!seen.has(s)) {
-        sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`);
-        seen.add(s);
-      }
-    }
-    sel.value = cur;
-  }
+  // ---- Helpers
   function getSeg(id) {
     return $(id)?.querySelector('button.active')?.dataset.value || '';
   }
@@ -363,9 +471,73 @@ export async function renderSignals(root) {
     $(id).querySelectorAll('button').forEach(btn => {
       btn.addEventListener('click', () => {
         setSeg(id, btn.dataset.value || '');
-        onChange();
+        onChange(btn.dataset.value || '');
       });
     });
+  }
+
+  function appendLogLine({ ts, msg, cls }) {
+    const span = document.createElement('span');
+    if (cls) span.className = cls;
+    span.textContent = `[${ts}] ${msg}\n`;
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function updateLogCount() {
+    $('log-count').textContent = `(${sc.log.length} line${sc.log.length === 1 ? '' : 's'})`;
+  }
+
+  // ---- Source / status line
+  function updateSourceStat() {
+    const mode = _viewMode[market];
+    const stat = $('source-stat');
+    if (mode === 'cron') {
+      if (cv.loading) {
+        stat.textContent = 'loading from Firestore…';
+      } else if (cv.err) {
+        stat.innerHTML = `<span style="color:var(--red)">error: ${escapeHtml(cv.err)}</span>`;
+      } else if (cv.signals.length) {
+        const dt = cv.refreshedAt ? new Date(cv.refreshedAt) : null;
+        const rel = dt ? fmtRelative(dt) : 'unknown time';
+        stat.innerHTML = `${cv.signals.length} signals · cron · ${escapeHtml(cv.date)} · refreshed ${escapeHtml(rel)}`;
+      } else {
+        stat.textContent = 'no cron signals yet — trigger the workflow';
+      }
+    } else {
+      if (sc.inProgress) {
+        stat.textContent = `${sc.tickersDone}/${sc.tickersTotal} · ${sc.errors} error${sc.errors === 1 ? '' : 's'} · ${sc.detected.length} hit${sc.detected.length === 1 ? '' : 's'}`;
+      } else if (sc.lastRunTs) {
+        stat.textContent = `${sc.detected.length} signals · browser scan · ${fmtRelative(sc.lastRunTs)}`;
+      } else {
+        stat.textContent = 'no browser scan yet';
+      }
+    }
+    // Progress bar (scan mode only)
+    const pct = sc.tickersTotal ? Math.round((sc.tickersDone / sc.tickersTotal) * 100) : 0;
+    $('scan-bar').style.width = (mode === 'scan' && sc.inProgress) ? (pct + '%') : '0%';
+    // Button states
+    $('btn-run-scan').disabled  = sc.inProgress;
+    $('btn-stop-scan').disabled = !sc.inProgress;
+    $('btn-refresh-cron').disabled = cv.loading;
+  }
+
+  // ---- Active rows + filters
+  function activeRows() {
+    if (_viewMode[market] === 'scan') return sc.detected.map(r => unify(r, 'scan'));
+    return cv.signals.map(r => unify(r, 'cron'));
+  }
+
+  function refreshSectorOptions(rows) {
+    const sel = $('f-sector');
+    const cur = sel.value;
+    const seen = new Set(Array.from(sel.options).map(o => o.value));
+    for (const s of rows.map(x => x.sector).filter(Boolean)) {
+      if (!seen.has(s)) {
+        sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`);
+        seen.add(s);
+      }
+    }
+    sel.value = cur;
   }
 
   function applyFilters(rows) {
@@ -377,11 +549,10 @@ export async function renderSignals(root) {
     const q      = $('f-q').value.trim().toLowerCase();
     return rows.filter(r => {
       if (tier   && r.tier !== tier) return false;
-      if (side   && r.envelope.side !== side) return false;
+      if (side   && r.side !== side) return false;
       if (sector && r.sector !== sector) return false;
-      const p = r.envelope.entry;
-      if (Number.isFinite(minP) && p < minP) return false;
-      if (Number.isFinite(maxP) && p > maxP) return false;
+      if (Number.isFinite(minP) && r.entry < minP) return false;
+      if (Number.isFinite(maxP) && r.entry > maxP) return false;
       if (q) {
         const hay = `${r.ticker} ${r.name || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -389,32 +560,45 @@ export async function renderSignals(root) {
       return true;
     });
   }
+
   function renderResults() {
-    refreshSectorOptions();
-    if (!sc.detected.length) {
+    const rows = activeRows();
+    refreshSectorOptions(rows);
+    if (!rows.length) {
+      const mode = _viewMode[market];
       $('hits-count').textContent = '';
       $('hit-count').textContent = '';
-      $('filter-card').style.display = 'none';
-      $('scan-results').innerHTML = `<div class="empty">${sc.inProgress ? 'Scanning…' : sc.lastRunTs ? 'No signals matched any strategy in this run.' : 'No scan run yet.'}</div>`;
+      const msg = mode === 'cron'
+        ? (cv.loading ? 'Loading latest cron signals…'
+          : cv.err  ? `Couldn't load: ${escapeHtml(cv.err)}`
+          : 'No cron signals yet. Trigger Actions → Refresh shared signals on GitHub, or click ▶ RUN BROWSER SCAN above.')
+        : (sc.inProgress ? 'Scanning…' : sc.lastRunTs ? 'No signals matched any strategy.' : 'Click ▶ RUN BROWSER SCAN to begin.');
+      $('signal-results').innerHTML = `<div class="empty">${msg}</div>`;
       return;
     }
-    $('filter-card').style.display = '';
-    const filtered = applyFilters(sc.detected);
-    filtered.sort((a, b) => (TIER_ORDER[a.tier] - TIER_ORDER[b.tier]) || a.short.localeCompare(b.short) || a.ticker.localeCompare(b.ticker));
+    const filtered = applyFilters(rows);
+    filtered.sort((a, b) => (TIER_ORDER[a.tier] - TIER_ORDER[b.tier]) || (a.short || '').localeCompare(b.short || '') || a.ticker.localeCompare(b.ticker));
 
-    $('hits-count').textContent = `(${filtered.length}/${sc.detected.length})`;
-    $('hit-count').textContent = `${filtered.length} of ${sc.detected.length}`;
-    $('scan-results').innerHTML = `
+    $('hits-count').textContent = `(${filtered.length}/${rows.length})`;
+    $('hit-count').textContent = `${filtered.length} of ${rows.length}`;
+    const isCron = _viewMode[market] === 'cron';
+    $('signal-results').innerHTML = `
       <table class="data">
         <thead><tr>
           <th></th><th>TIER</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>STRATEGY</th><th>SIDE</th>
-          <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th><th>REASON</th>
+          <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th>
+          ${isCron ? '<th class="num">CURRENT</th><th class="num">%Δ</th><th>W/L</th>' : '<th>REASON</th>'}
         </tr></thead>
         <tbody>
           ${filtered.map((s, idx) => {
-            const env = s.envelope;
-            const tradeId = tradeIdFor({ id: `${s.ticker}_${s.strategy}_${new Date().toISOString().slice(0, 10)}` });
-            const already = sc.enteredIds.has(tradeId);
+            const already = sc.enteredIds.has(s.tradeId);
+            const lastCols = isCron
+              ? `
+                <td class="num">${s.currentPrice != null ? s.currentPrice.toFixed(2) : '—'}</td>
+                <td class="num" style="color:${s.pctChange == null ? 'var(--text-dim)' : s.pctChange >= 0 ? 'var(--green)' : 'var(--red)'}">${s.pctChange == null ? '—' : (s.pctChange >= 0 ? '+' : '') + s.pctChange.toFixed(2) + '%'}</td>
+                <td>${statusBadge(s.status, s.winLoss)}</td>
+              `
+              : `<td title="${escapeHtml(s.reason || '')}">${escapeHtml((s.reason || '').slice(0, 80))}</td>`;
             return `<tr>
               <td>
                 <button class="star-btn" data-action="${already ? 'remove' : 'enter'}" data-idx="${idx}" title="${already ? 'Already tracked' : 'Track on My Trades'}">${already ? '★' : '☆'}</button>
@@ -424,17 +608,19 @@ export async function renderSignals(root) {
               <td>${escapeHtml(s.ticker)}</td>
               <td>${escapeHtml(s.sector || '—')}</td>
               <td>${escapeHtml(s.short)}</td>
-              <td>${escapeHtml(env.side)}</td>
-              <td class="num">${(env.entry ?? 0).toFixed(2)}</td>
-              <td class="num" style="color:var(--green)">${(env.tp ?? 0).toFixed(2)}</td>
-              <td class="num" style="color:var(--red)">${(env.sl ?? 0).toFixed(2)}</td>
-              <td title="${escapeHtml(s.raw?.reason || '')}">${escapeHtml((s.raw?.reason || '').slice(0, 80))}</td>
+              <td>${escapeHtml(s.side)}</td>
+              <td class="num">${(s.entry ?? 0).toFixed(2)}</td>
+              <td class="num" style="color:var(--green)">${(s.tp ?? 0).toFixed(2)}</td>
+              <td class="num" style="color:var(--red)">${(s.sl ?? 0).toFixed(2)}</td>
+              ${lastCols}
             </tr>`;
           }).join('')}
         </tbody>
       </table>
     `;
-    $('scan-results').querySelectorAll('.star-btn').forEach(btn => {
+
+    // Wire star buttons (works on both sources — same trade-doc structure).
+    $('signal-results').querySelectorAll('.star-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.idx);
         const sig = filtered[idx];
@@ -443,28 +629,27 @@ export async function renderSignals(root) {
       });
     });
   }
+
   function openEnterModal(sig, btn) {
-    const env = sig.envelope;
-    const today = new Date().toISOString().slice(0, 10);
     const pseudoSignal = {
-      id: `${sig.ticker}_${sig.strategy}_${today}`,
-      ticker: sig.ticker, name: sig.name || sig.ticker,
-      sector: sig.sector, market: state.market,
-      strategy: sig.short, strategyKey: sig.strategy, side: env.side,
+      id: sig.tradeId,
+      ticker: sig.ticker, name: sig.name,
+      sector: sig.sector, market,
+      strategy: sig.short, strategyKey: sig.strategyKey, side: sig.side,
       tier: sig.tier,
-      entryPrice: env.entry, tpPrice: env.tp, slPrice: env.sl,
-      signalTs: new Date().toISOString(),
+      entryPrice: sig.entry, tpPrice: sig.tp, slPrice: sig.sl,
+      signalTs: sig.signalTs || new Date().toISOString(),
     };
     const body = `
       <div class="row" style="grid-template-columns:120px 1fr;align-items:center;gap:10px">
         <div style="color:var(--text);font-family:var(--font-mono)">${escapeHtml(sig.ticker)}</div>
         <div>${escapeHtml(sig.name || '')} · ${escapeHtml(sig.short)} · ${tierBadge(sig.tier)}</div>
         <div style="color:var(--text-mute);font-size:0.85rem">SIGNAL</div>
-        <div style="font-family:var(--font-mono)">entry ${env.entry.toFixed(2)} · TP ${env.tp.toFixed(2)} · SL ${env.sl.toFixed(2)}</div>
+        <div style="font-family:var(--font-mono)">entry ${sig.entry.toFixed(2)} · TP ${sig.tp.toFixed(2)} · SL ${sig.sl.toFixed(2)}</div>
       </div>
       <div class="row">
         <label for="ov-entry">Override entry price (optional)</label>
-        <input id="ov-entry" type="number" step="0.01" placeholder="${env.entry.toFixed(2)}">
+        <input id="ov-entry" type="number" step="0.01" placeholder="${sig.entry.toFixed(2)}">
       </div>
       <div class="row">
         <label for="notes">Notes (optional)</label>
@@ -483,7 +668,7 @@ export async function renderSignals(root) {
         }
         const notes = dialog.querySelector('#notes').value || '';
         await enterTrade({ signal: pseudoSignal, notes, overrideEntryPrice: override });
-        sc.enteredIds.add(tradeIdFor(pseudoSignal));
+        sc.enteredIds.add(sig.tradeId);
         btn.dataset.action = 'remove';
         btn.textContent = '★';
         btn.title = 'Already tracked';
@@ -491,60 +676,39 @@ export async function renderSignals(root) {
     });
   }
 
-  // ----- Incremental redraw based on current sc state -----
+  // ---- Render hook (re-installed on every mount)
   function renderTick() {
-    // Append new log lines without rerendering the whole list.
-    for (let i = drawnLogIdx; i < sc.log.length; i++) {
-      appendLogLine(sc.log[i]);
-    }
+    // Append new log lines incrementally
+    for (let i = drawnLogIdx; i < sc.log.length; i++) appendLogLine(sc.log[i]);
     drawnLogIdx = sc.log.length;
     updateLogCount();
-    updateProgress();
-    // Re-render results when count changes, or when scan flips between
-    // in-progress / idle (so the empty-state messaging updates correctly).
-    if (sc.detected.length !== drawnDetectedLen || sc.tickersDone !== lastTotalCount) {
-      drawnDetectedLen = sc.detected.length;
-      lastTotalCount = sc.tickersDone;
-      renderResults();
-    }
+    updateSourceStat();
+    renderResults();
   }
+  _renderHook = renderTick;
 
-  // ----- Initial hydration on mount: catch up to whatever's in sc -----
+  // ---- Initial paint
   if (sc.log.length === 0) {
-    logEl.textContent = 'Click RUN SCAN to begin. The scanner walks your watchlist, fetches ~5 years of daily bars from the data sources, then evaluates every strategy at the latest bar.';
+    logEl.textContent = 'Click ▶ RUN BROWSER SCAN to begin. The scanner walks your watchlist, fetches ~5 years of daily bars from the data sources, then evaluates every strategy at the latest bar.';
   } else {
     logEl.innerHTML = '';
     for (const line of sc.log) appendLogLine(line);
     drawnLogIdx = sc.log.length;
   }
   updateLogCount();
-  // Make sure we have the freshest entered-trade set when coming back to the view.
+  // Always refresh entered-trade IDs on mount (for the ★ button).
   if (!sc.inProgress) {
     sc.enteredIds = await loadEnteredTradeIds().catch(() => sc.enteredIds || new Set());
   }
-  renderResults();
-  drawnDetectedLen = sc.detected.length;
-  lastTotalCount = sc.tickersDone;
-  updateProgress();
 
-  // Install hook AFTER initial paint so the running scan starts pinging us.
-  _renderHook = renderTick;
-
-  // ----- Wire controls -----
-  $('btn-run').addEventListener('click', () => {
-    // Fire-and-forget; the scan loop calls notifyTick() as it makes progress.
-    executeScan(market);
-  });
-  $('btn-stop').addEventListener('click', () => {
+  // ---- Wire controls
+  $('btn-run-scan').addEventListener('click', () => executeScan(market));
+  $('btn-stop-scan').addEventListener('click', () => {
     sc.stopRequested = true;
     sc.log.push({ ts: new Date().toLocaleTimeString(), msg: 'Stop requested — finishing in-flight fetches.', cls: 'warn' });
     notifyTick();
   });
-  $('btn-clear').addEventListener('click', () => {
-    _scans[market] = blankScan();
-    try { localStorage.removeItem(SCAN_LS_PREFIX + market); } catch {}
-    renderSignals(root);
-  });
+  $('btn-refresh-cron').addEventListener('click', () => loadLatestCron(market));
   $('btn-reset').addEventListener('click', () => {
     setSeg('seg-tier', '');
     setSeg('seg-side', '');
@@ -554,8 +718,23 @@ export async function renderSignals(root) {
     $('f-q').value = '';
     renderResults();
   });
+  wireSeg('seg-source', (v) => {
+    _viewMode[market] = v;
+    saveModePref(market, v);
+    renderTick();
+  });
   wireSeg('seg-tier', renderResults);
   wireSeg('seg-side', renderResults);
   $('f-sector').addEventListener('change', renderResults);
   ['f-min', 'f-max', 'f-q'].forEach(id => $(id).addEventListener('input', renderResults));
+
+  // ---- Auto-load cron data on mount (always, in the background — cheap reads)
+  // If we don't have cron data yet OR it's older than 2 min, refetch.
+  const stale = !cv.refreshedAt || (Date.now() - (cv.refreshedAt || 0) > 120_000);
+  if (stale && !cv.loading) {
+    loadLatestCron(market); // fire-and-forget; calls notifyTick when done
+  }
+
+  // Initial paint based on current mode + current data
+  renderTick();
 }

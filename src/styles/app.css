@@ -841,9 +841,11 @@ table.data .remove-btn {
 /* =============================================================================
    Live Signals scanner
    ============================================================================= */
-.scan-controls {
+.scan-controls,
+.signal-source-bar {
   display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
 }
+.signal-source-bar .seg-group { margin-right: 4px; }
 .scan-progress {
   flex: 1; min-width: 200px; height: 6px;
   background: var(--bg-elev2); border-radius: 3px; overflow: hidden;
