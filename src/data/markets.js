@@ -200,9 +200,35 @@ const _nameByTicker = new Map();
 for (const item of [...STARTER_WATCHLIST, ...STARTER_WATCHLIST_INDIA]) {
   _nameByTicker.set(item.t, companyName(item));
 }
+
+// Returns the company name for a ticker, or null if unknown. Caller decides
+// fallback (typically "—" so columns alignment but doesn't lie). Consults:
+//   1. Curated starter watchlists (~100 names, full whys)
+//   2. Popular US large-cap map (~200 more names, top-mover candidates)
+//   3. null  ← deliberate, so callers don't accidentally display tickers
+//             pretending to be company names
 export function nameForTicker(ticker) {
-  return _nameByTicker.get(ticker) || ticker;
+  if (!ticker) return null;
+  const direct = _nameByTicker.get(ticker);
+  if (direct) return direct;
+  // Lazy-load popular-names to keep markets.js focused on market metadata.
+  // (Static import would create a circular reference risk with watchlist.js.)
+  try {
+    // Tree-shake-friendly synchronous import via require-style isn't available
+    // in ESM. We do an eager top-of-module import below.
+  } catch {}
+  return _popularName(ticker);
 }
+
+// Eager-loaded popular-name resolver, swapped in at module init via a small
+// shim so the function above can reference it without circular dep.
+let _popularName = () => null;
+
+// Wire in the popular-names resolver at module init. Doing it here (after
+// the export above) keeps the top of the file focused on market metadata
+// without forcing a circular import.
+import { popularName as _popularNameImpl } from './popular-names.js';
+_popularName = _popularNameImpl;
 
 // Default data source priority order, top-down. Override per-deployment in fetchers config.
 export const DATA_SOURCE_ORDER = [

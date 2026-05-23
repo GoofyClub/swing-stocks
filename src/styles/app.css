@@ -169,16 +169,7 @@ button { font-family: inherit; cursor: pointer; }
   height: 100vh;
   overflow: hidden;
 }
-@media (max-width: 720px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: 52px auto 1fr;
-    grid-template-areas: "topbar" "sidebar" "main";
-    height: auto;
-    min-height: 100vh;
-  }
-  .sidebar { border-right: none; border-bottom: 1px solid var(--line); }
-}
+/* Mobile layout handled in the mobile responsiveness section below */
 
 .topbar {
   grid-area: topbar;
@@ -964,3 +955,243 @@ table.data .remove-btn {
 }
 .notif-prompt .ico { color: var(--cyan); font-size: 1.23rem; }
 .notif-prompt button { margin-left: auto; }
+
+/* =============================================================================
+   Mobile responsiveness
+   ============================================================================= */
+
+/* Hamburger toggle — hidden on desktop, visible on mobile */
+.hamburger {
+  display: none;
+  background: transparent; border: none; color: var(--text);
+  font-size: 1.38rem; padding: 4px 6px; cursor: pointer;
+  line-height: 1;
+}
+/* Sidebar backdrop — hidden on desktop */
+.sidebar-backdrop { display: none; }
+
+/* Mobile topbar: hide non-essential items, shrink search */
+@media (max-width: 720px) {
+  .hamburger { display: inline-flex; align-items: center; }
+
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px 1fr;
+    grid-template-areas: "topbar" "main";
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+  }
+
+  /* Sidebar becomes a slide-over drawer on mobile */
+  .sidebar {
+    position: fixed;
+    top: 48px; left: 0; bottom: 0;
+    width: 240px;
+    z-index: 900;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    border-right: 1px solid var(--line);
+    border-bottom: none;
+    background: var(--bg-elev);
+    overflow-y: auto;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .sidebar-backdrop {
+    position: fixed; inset: 0; top: 48px;
+    background: rgba(0,0,0,0.4);
+    z-index: 899;
+    display: none;
+  }
+  .sidebar-backdrop.open { display: block; }
+
+  .topbar {
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .topbar .brand { font-size: 0.77rem; letter-spacing: 0.12em; }
+  .topbar .search { flex: 1; max-width: 180px; min-width: 60px; font-size: 0.85rem; padding: 5px 8px; }
+  .topbar .meta { gap: 6px; }
+  .topbar .meta .item { display: none; }
+  .topbar .meta #btn-fs { display: none; }
+  .topbar .meta #btn-theme { display: none; }
+  .topbar .meta #btn-signout { display: none; }
+
+  .main { padding: 14px 10px; }
+  .view h1 { font-size: 1.38rem; }
+  .view .subtitle { font-size: 0.92rem; margin-bottom: 16px; }
+}
+
+/* Card padding on mobile */
+@media (max-width: 720px) {
+  .card { padding: 12px 10px; margin-bottom: 10px; }
+  .card h2 { font-size: 1rem; }
+}
+
+/* Tables: horizontal scroll on mobile — applied to the card itself */
+@media (max-width: 720px) {
+  .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.data { min-width: 640px; font-size: 0.85rem; }
+  table.data th, table.data td { padding: 6px 6px; }
+  table.data th { font-size: 0.69rem; }
+}
+
+/* Segmented button groups: allow wrapping on mobile */
+@media (max-width: 720px) {
+  .seg-group {
+    flex-wrap: wrap;
+    border: none;
+    gap: 4px;
+  }
+  .seg-group .seg-label {
+    border-right: none;
+    border-radius: 4px;
+  }
+  .seg-group button {
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.69rem;
+  }
+  .seg-group button.active { border-color: transparent; }
+}
+
+/* Filter bar layout on mobile */
+@media (max-width: 720px) {
+  .signal-source-bar,
+  .scan-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .signal-source-bar > * { width: 100%; }
+  .signal-source-bar .seg-group { margin-right: 0; }
+  .scan-progress { min-width: unset; }
+  #source-stat { margin-left: 0 !important; text-align: left; }
+  #hit-count { margin-left: 0 !important; }
+  #row-count { margin-left: 0 !important; }
+
+  /* Override inline widths on filter inputs */
+  .card input[type="number"],
+  .card input[type="search"],
+  .card select.btn-bare {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+}
+
+/* Dashboard tiles */
+@media (max-width: 480px) {
+  .tile-grid { grid-template-columns: 1fr; gap: 10px; }
+  .tile { padding: 14px 14px; }
+  .tile .big { font-size: 1.85rem; }
+}
+
+/* Two-column layout: already handled at 1000px, but reinforce */
+@media (max-width: 720px) {
+  .two-col { grid-template-columns: 1fr; gap: 10px; }
+}
+
+/* API key rows on mobile */
+@media (max-width: 720px) {
+  .api-key-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .api-key-row label { font-size: 0.77rem; }
+  .api-key-row .muted { grid-column: 1; }
+}
+
+/* Regime banner on mobile */
+@media (max-width: 480px) {
+  .regime-banner { padding: 12px 14px; }
+  .regime-banner .rb-headline { font-size: 1.23rem; }
+  .regime-banner .rb-check {
+    grid-template-columns: 22px 1fr;
+    font-size: 0.77rem;
+  }
+  .regime-banner .rb-check .rb-note { grid-column: 2; }
+}
+
+/* Login card on small phones */
+@media (max-width: 400px) {
+  .login-card { padding: 24px 18px; }
+  .login-card h1 { font-size: 1.38rem; }
+}
+
+/* Guide sections on mobile */
+@media (max-width: 720px) {
+  .guide-section { padding: 14px 12px; }
+  .guide-section h2 { font-size: 0.77rem; }
+  .guide-view .toc-grid { grid-template-columns: 1fr; }
+}
+
+/* Stocks in Play view on mobile */
+@media (max-width: 720px) {
+  .orb-crit-row { flex-wrap: wrap; font-size: 0.85rem; }
+  .last-refresh { font-size: 0.77rem; padding: 4px 8px; }
+  #cache-note { text-align: left !important; }
+}
+
+/* Modal on mobile: full width */
+@media (max-width: 480px) {
+  #modal-host .dialog {
+    max-width: calc(100vw - 24px);
+    padding: 16px 14px;
+    border-radius: 8px;
+  }
+}
+
+/* Timeframe chips row on mobile */
+@media (max-width: 720px) {
+  .tf-chip { padding: 4px 8px; font-size: 0.77rem; }
+  #tf-range { flex-wrap: wrap; }
+  #tf-label { margin-left: 0 !important; width: 100%; }
+}
+
+/* Market toggle on mobile */
+@media (max-width: 720px) {
+  .market-toggle button { padding: 4px 8px; font-size: 0.77rem; }
+}
+
+/* Notification banner on mobile */
+@media (max-width: 720px) {
+  .notif-prompt { flex-wrap: wrap; padding: 8px 10px; font-size: 0.85rem; }
+  .notif-prompt button { margin-left: 0; width: 100%; }
+}
+
+/* My Trades aggregates on mobile */
+@media (max-width: 720px) {
+  #totals > div { flex-direction: column; gap: 8px !important; }
+}
+
+/* Collapsible sections on mobile */
+@media (max-width: 720px) {
+  .collapsible > summary { padding: 10px 12px; font-size: 0.92rem; }
+  .collapsible .body { padding: 0 12px 12px; }
+  .scan-log { font-size: 0.77rem; padding: 8px 8px; max-height: 100px; }
+}
+
+/* Strategy comparison table on mobile */
+@media (max-width: 720px) {
+  .guide-section table.kv th { width: 100px; font-size: 0.69rem; padding: 4px 8px 4px 0; }
+  .guide-section table.kv td { padding: 4px 0; font-size: 0.85rem; }
+  .strategy-card { padding: 12px 14px; }
+}
+
+/* Empty state on mobile */
+@media (max-width: 720px) {
+  .empty { padding: 20px 12px; font-size: 0.92rem; }
+}
+
+/* Badge sizing on mobile */
+@media (max-width: 720px) {
+  .badge { font-size: 0.69rem; padding: 1px 6px; }
+}
+
+/* Button sizing on mobile */
+@media (max-width: 720px) {
+  .btn-primary { padding: 6px 12px; font-size: 0.77rem; }
+  .btn-bare { padding: 4px 8px; font-size: 0.77rem; }
+}

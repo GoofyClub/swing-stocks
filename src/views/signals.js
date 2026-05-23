@@ -397,7 +397,7 @@ export async function renderSignals(root) {
   root.innerHTML = `
     <div class="view">
       <h1>Live Signals</h1>
-      <p class="subtitle">Latest signals for <b>${escapeHtml(market)}</b>. By default this view shows signals computed by the scheduled cron job. Use <b>RUN BROWSER SCAN</b> to run a fresh scan in this browser right now.</p>
+      <p class="subtitle">Latest signals for <b>${escapeHtml(market)}</b>. By default this view shows signals computed by the scheduled cron job. Use <b>RUN BROWSER SCAN</b> to run a fresh scan in this browser right now. <span style="color:var(--text-mute)">Both modes apply the same trade-quality guards — signals with too-tight or too-wide stops are auto-rejected regardless of source.</span></p>
 
       <div class="card">
         <div class="signal-source-bar">

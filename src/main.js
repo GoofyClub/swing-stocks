@@ -33,12 +33,30 @@ function mountAppShell() {
   appRoot.innerHTML = `
     <div class="app-shell">
       <header class="topbar" id="topbar" role="banner"></header>
+      <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
       <nav class="sidebar" id="sidebar" role="navigation"></nav>
       <main class="main" id="main-view" role="main" tabindex="-1"></main>
     </div>
   `;
   renderTopbar(document.getElementById('topbar'));
   renderSidebar(document.getElementById('sidebar'));
+
+  // Mobile sidebar toggle
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    backdrop.classList.remove('open');
+  }
+  document.getElementById('btn-hamburger')?.addEventListener('click', () => {
+    const isOpen = sidebar.classList.contains('open');
+    sidebar.classList.toggle('open', !isOpen);
+    backdrop.classList.toggle('open', !isOpen);
+  });
+  backdrop.addEventListener('click', closeSidebar);
+  sidebar.addEventListener('click', (e) => {
+    if (e.target.closest('.nav-item')) closeSidebar();
+  });
 
   const main = document.getElementById('main-view');
   route('dashboard', renderDashboard);

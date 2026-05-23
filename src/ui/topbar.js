@@ -8,6 +8,7 @@ export function renderTopbar(el) {
   const initials = u?.displayName ? u.displayName.split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase() : (u?.email?.[0]?.toUpperCase() || '?');
   const m = state.market;
   el.innerHTML = `
+    <button class="hamburger" id="btn-hamburger" type="button" aria-label="Toggle menu" title="Menu">☰</button>
     <div class="brand">SWING · TERMINAL</div>
     <span class="pulse" aria-hidden="true" title="connected"></span>
     <div class="market-toggle" role="tablist" aria-label="Select market">

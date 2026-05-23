@@ -212,14 +212,21 @@ export async function renderStocksInPlay(root) {
         </tr></thead>
         <tbody>
           ${result.candidates.map((c, idx) => {
-            const name = nameForTicker(c.ticker) || c.ticker;
+            // Don't fall back to the ticker — that just duplicates the TICKER
+            // column. Show an em-dash so it's obvious we don't have a real
+            // company name (Alpha Vantage's gainers feed doesn't include names,
+            // and our local lookup only covers ~300 popular US tickers).
+            const realName = nameForTicker(c.ticker);
+            const nameCell = (realName && realName !== c.ticker)
+              ? escapeHtml(realName)
+              : '<span style="color:var(--text-mute)">—</span>';
             const sign = c.changePct >= 0 ? '+' : '';
             const chColor = c.changePct >= 0 ? 'var(--green)' : 'var(--red)';
             const scoreColor = c.playScore >= 10 ? 'var(--cyan)' : 'var(--text)';
             return `<tr>
               <td class="num"><b>${idx + 1}</b></td>
               <td><b>${escapeHtml(c.ticker)}</b></td>
-              <td>${escapeHtml(name)}</td>
+              <td>${nameCell}</td>
               <td>${categoryBadge(c.category)}</td>
               <td class="num">$${(c.price ?? 0).toFixed(2)}</td>
               <td class="num" style="color:${chColor}">${sign}${(c.changePct ?? 0).toFixed(2)}%</td>
