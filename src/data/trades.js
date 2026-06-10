@@ -61,6 +61,8 @@ export async function enterTrade({ signal, notes, overrideEntryPrice }) {
     entryPrice:           env.entry,
     tpPrice:              env.tp,
     slPrice:              env.sl,
+    // Buy-stop strategies: settlement waits for price to trigger the entry.
+    pendingEntry:         signal.pendingEntry ?? false,
     overrideEntryPrice:   overrideEntryPrice != null ? overrideEntryPrice : null,
     // Free-text user note.
     notes:        (notes || '').slice(0, 500),

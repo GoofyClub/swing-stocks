@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.6.0 — 2026-06-09 (settlement realism, A+ reasons, FVG strategy)
+
+### Why
+Reported win-rates sat far below each strategy's documented figures. Root cause:
+settlement modelled a fixed TP/SL bracket held *indefinitely*, while the
+documented win-rates come from each strategy's *native exit* within a *bounded
+hold* (e.g. RSI(2) exits on the first close back above the 5-SMA, not a +R
+target). Two correctness gaps compounded it.
+
+### Changed
+- **Entry-trigger aware settlement.** Buy-stop strategies (Pullback, NR7, VCP,
+  HTF) no longer count a W/L until price actually triggers the entry. A name that
+  rolls straight to the stop without filling stays OPEN, not LOSS — removing
+  phantom losses that depressed win-rate.
+- **Native exits + per-strategy time stop** in `settleSignal()`. RSI(2) settles on
+  its documented close>5-SMA exit; every strategy now has a max-hold time stop
+  (exit at the bar's close). Each closed signal records an `exitReason`
+  (`tp`/`sl`/`native`/`time_stop`), surfaced on the W/L badge and CSV. Settlement
+  remains deterministic — a decided verdict never changes as bars accrue.
+
+### Added
+- **Monthly FVG Retest (Bullish) strategy** (`fvg`). Wires the existing
+  `evaluateFVGRetest()` into the tradeable registry: a stock in a monthly uptrend
+  that corrected into a monthly bullish Fair Value Gap and is reversing off it.
+  A+ on a full-zone reclaim.
+- **A+ "why" reasons.** `tierReasons()` exposes the confluence factors that earned
+  a tier; shown as a hover tooltip on tier badges (Live Signals + History),
+  persisted by the cron, and added to the History CSV.
+- `tests/settle.mjs` — settlement + tiering suite (54 assertions); `npm test`
+  now runs engine-parity + settlement.
+
 ## v0.2.0 — 2026-05-18 (initial cloud-backed release)
 
 ### Why

@@ -48,10 +48,13 @@ async function loadHistory() {
   }
 }
 
-function tierBadge(t) {
+function tierBadge(t, reasons) {
   if (!t) return '';
   const cls = t === 'A+' ? 'tier-aplus' : t === 'Tier 1' ? 'tier-t1' : 'tier-t2';
-  return `<span class="badge ${cls}">${escapeHtml(t)}</span>`;
+  const why = Array.isArray(reasons) && reasons.length
+    ? ` title="${escapeHtml(t)} — ${escapeHtml(reasons.join(' · '))}"` : '';
+  const cue = (t === 'A+' && why) ? ' style="text-decoration:underline dotted"' : '';
+  return `<span class="badge ${cls}"${why}${cue}>${escapeHtml(t)}</span>`;
 }
 
 function applyFilters(rows, f) {
@@ -423,9 +426,14 @@ export async function renderHistory(root) {
         <tbody>
           ${filtered.map(r => {
             const pct = r.pctChange != null ? r.pctChange : (r.currentPrice && r.entryPrice ? ((r.currentPrice - r.entryPrice) / r.entryPrice) * 100 : null);
+            const exitWhy = {
+              tp: 'Hit take-profit', sl: 'Hit stop-loss',
+              native: 'Indicator exit (close > 5-SMA)', time_stop: 'Time stop (max hold reached)',
+            }[r.exitReason] || '';
+            const wlTitle = exitWhy ? ` title="${escapeHtml(exitWhy)}"` : '';
             const wl = r.status === 'open' ? '<span class="badge open">open</span>'
-                     : r.winLoss === 'win'  ? '<span class="badge win">WIN</span>'
-                     : r.winLoss === 'loss' ? '<span class="badge loss">LOSS</span>'
+                     : r.winLoss === 'win'  ? `<span class="badge win"${wlTitle}>WIN</span>`
+                     : r.winLoss === 'loss' ? `<span class="badge loss"${wlTitle}>LOSS</span>`
                      : '<span class="badge">—</span>';
             const id = tradeIdFor(r);
             const isEntered = entered.has(id);
@@ -435,7 +443,7 @@ export async function renderHistory(root) {
               <td>
                 <button class="star-btn" data-action="${isEntered ? 'remove' : 'enter'}" data-signal-id="${escapeHtml(id)}" title="${isEntered ? 'Remove from My Trades' : 'Track on My Trades'}" aria-label="${isEntered ? 'Remove' : 'Enter'} trade for ${escapeHtml(r.ticker)}">${isEntered ? '★' : '☆'}</button>
               </td>
-              <td>${tierBadge(r.tier)}</td>
+              <td>${tierBadge(r.tier, r.tierReasons)}</td>
               <td>${escapeHtml((r.signalTs || '').slice(0, 10))}</td>
               <td>${escapeHtml(r.name || '—')}${multi}</td>
               <td>${escapeHtml(r.ticker || '')}</td>
@@ -478,7 +486,7 @@ export async function renderHistory(root) {
     const body = `
       <div class="row" style="grid-template-columns:120px 1fr;align-items:center;gap:10px">
         <div style="color:var(--text);font-family:var(--font-mono)">${escapeHtml(signal.ticker)}</div>
-        <div>${escapeHtml(signal.name || '')} · ${escapeHtml(signal.strategy || '')} · ${tierBadge(signal.tier)}</div>
+        <div>${escapeHtml(signal.name || '')} · ${escapeHtml(signal.strategy || '')} · ${tierBadge(signal.tier, signal.tierReasons)}</div>
         <div style="color:var(--text-mute);font-size:0.85rem">SIGNAL ENTRY</div>
         <div style="font-family:var(--font-mono)">${(signal.entryPrice ?? 0).toFixed(2)} · TP ${(signal.tpPrice ?? 0).toFixed(2)} · SL ${(signal.slPrice ?? 0).toFixed(2)}</div>
       </div>
@@ -543,13 +551,13 @@ export async function renderHistory(root) {
 
   $('btn-csv').addEventListener('click', () => {
     const filtered = applyFilters(rows, currentFilters());
-    const header = ['date','market','tier','name','ticker','sector','strategy','side','entry','tp','sl','slPct','expectedR','current','pctChange','status','winLoss','entryStatus'];
+    const header = ['date','market','tier','tierReasons','name','ticker','sector','strategy','side','entry','tp','sl','slPct','expectedR','current','pctChange','status','winLoss','exitReason','entryStatus'];
     const csvRows = filtered.map(r => [
-      (r.signalTs || '').slice(0, 10), r.market || '', r.tier || '', r.name || '', r.ticker || '', r.sector || '', r.strategy || '', r.side || '',
+      (r.signalTs || '').slice(0, 10), r.market || '', r.tier || '', (r.tierReasons || []).join(' | '), r.name || '', r.ticker || '', r.sector || '', r.strategy || '', r.side || '',
       r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '',
       r.slPct != null ? r.slPct.toFixed(3) : '', r.expectedR != null ? r.expectedR.toFixed(2) : '',
       r.currentPrice ?? '', r.pctChange != null ? r.pctChange : '',
-      r.status || '', r.winLoss || '',
+      r.status || '', r.winLoss || '', r.exitReason || '',
       computeEntryStatus(r) || '',
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
     const blob = new Blob([header.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });

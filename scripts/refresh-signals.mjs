@@ -23,7 +23,7 @@
 import admin from 'firebase-admin';
 import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
-import { STRATEGIES, settleSignal, computeTier } from '../src/strategy/normalize.js';
+import { STRATEGIES, settleSignal, tierReasons } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
 
@@ -153,7 +153,7 @@ async function scanMarket(db, market, ctxIn) {
       if (!result) continue;
 
       const env = result.envelope;
-      const tier = computeTier(stratKey, result.raw);
+      const { tier, reasons: tierWhy } = tierReasons(stratKey, result.raw);
       const id = `${ticker}_${stratKey}_${dateBucket}`;
       const docBody = {
         ticker,
@@ -163,10 +163,15 @@ async function scanMarket(db, market, ctxIn) {
         strategy:     def.short,
         strategyKey:  stratKey,
         tier,
+        // Confluence factors that earned this tier — surfaced on the A+ badge.
+        tierReasons:  tierWhy,
         side:         env.side,
         entryPrice:   env.entry,
         tpPrice:      env.tp,
         slPrice:      env.sl,
+        // Buy-stop strategies fill only when price trades through entryPrice;
+        // settlement waits for that trigger before counting W/L.
+        pendingEntry: env.pendingEntry ?? false,
         // Trade quality metadata — used by the UI to flag low-R signals
         // and to compute entry-status (active / missed / invalidated).
         expectedR:    env.expectedR ?? null,
@@ -271,13 +276,18 @@ async function resettleRecentSignals(db, market, ctxIn) {
       const idx = dateMap.get(sigDate);
       if (idx == null) continue;
       const postBars = bars.slice(idx + 1);
-      const verdict = settleSignal({ entry: sig.entryPrice, tp: sig.tpPrice, sl: sig.slPrice }, postBars);
+      const verdict = settleSignal(
+        { entry: sig.entryPrice, tp: sig.tpPrice, sl: sig.slPrice, pendingEntry: sig.pendingEntry, strategyKey: sig.strategyKey },
+        postBars,
+        { bars, entryIdx: idx },
+      );
       if (verdict.status === 'closed') {
         await sig.ref.update({
           status:      'closed',
           winLoss:     verdict.winLoss,
           settledAt:   verdict.settledAt,
           hitPrice:    verdict.hitPrice,
+          exitReason:  verdict.exitReason ?? null,
           currentPrice: bars[bars.length - 1].close,
           pctChange:   ((bars[bars.length - 1].close - sig.entryPrice) / sig.entryPrice) * 100,
         });
@@ -409,8 +419,9 @@ async function settleUserTrades(db, market, ctxIn) {
       // settleSignal() walks bars *after* the signal day and returns the first
       // touch of tp (win) or sl (loss). Identical math to the client's preview.
       const verdict = settleSignal(
-        { entry: t.entryPrice, tp: t.tpPrice, sl: t.slPrice },
+        { entry: t.entryPrice, tp: t.tpPrice, sl: t.slPrice, pendingEntry: t.pendingEntry, strategyKey: t.strategyKey },
         bars.slice(idx + 1),
+        { bars, entryIdx: idx },
       );
       const updates = {
         currentPrice:   lastClose ?? null,
@@ -421,6 +432,7 @@ async function settleUserTrades(db, market, ctxIn) {
         updates.winLoss     = verdict.winLoss;
         updates.settledAt   = verdict.settledAt;
         updates.hitPrice    = verdict.hitPrice;
+        updates.exitReason  = verdict.exitReason ?? null;
         updates.realizedPct = ((verdict.hitPrice - t.entryPrice) / t.entryPrice) * 100;
       } else if (lastClose != null && t.entryPrice) {
         updates.unrealizedPct = ((lastClose - t.entryPrice) / t.entryPrice) * 100;

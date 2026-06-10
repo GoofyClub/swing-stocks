@@ -1,6 +1,6 @@
 {
   "name": "swing-stocks",
-  "version": "0.2.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Swing Terminal — cloud-backed multi-strategy swing-trading console. GitHub Pages SPA + Firebase Auth/Firestore.",
@@ -10,6 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:engine": "node tests/engine-parity.mjs",
+    "test:settle": "node tests/settle.mjs",
+    "test": "node tests/engine-parity.mjs && node tests/settle.mjs",
     "refresh:signals": "node scripts/refresh-signals.mjs"
   },
   "dependencies": {

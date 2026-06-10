@@ -100,6 +100,7 @@ function saveScanToLs(market, sc) {
       const detected = sc.detected.slice(0, SCAN_LS_MAX_HITS).map(d => ({
         ticker: d.ticker, sector: d.sector, name: d.name,
         strategy: d.strategy, short: d.short, tier: d.tier,
+        tierReasons: d.tierReasons || [],
         envelope: d.envelope,
         raw: { reason: d.raw?.reason },
       }));
@@ -202,6 +203,8 @@ function unify(row, source) {
       name:   row.name || nameForTicker(row.ticker) || row.ticker,
       sector: row.sector,
       tier:   row.tier || 'Tier 1',
+      tierReasons: row.tierReasons || [],
+      pendingEntry: row.pendingEntry ?? false,
       side:   row.side || 'buy',
       short:  row.strategy,
       strategyKey: row.strategyKey,
@@ -227,6 +230,8 @@ function unify(row, source) {
     name:   row.name || nameForTicker(row.ticker) || row.ticker,
     sector: row.sector,
     tier:   row.tier || 'Tier 1',
+    tierReasons: row.tierReasons || [],
+    pendingEntry: env.pendingEntry ?? false,
     side:   env.side || 'buy',
     short:  row.short,
     strategyKey: row.strategy,
@@ -364,9 +369,13 @@ async function executeScan(market) {
 // View
 // =============================================================================
 const TIER_ORDER = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
-function tierBadge(t) {
+function tierBadge(t, reasons) {
   const cls = t === 'A+' ? 'tier-aplus' : t === 'Tier 1' ? 'tier-t1' : 'tier-t2';
-  return `<span class="badge ${cls}">${escapeHtml(t)}</span>`;
+  const why = Array.isArray(reasons) && reasons.length
+    ? ` title="${escapeHtml(t)} — ${escapeHtml(reasons.join(' · '))}"` : '';
+  // For A+ append a small dotted-underline cue so users know to hover for the why.
+  const cue = (t === 'A+' && why) ? ' style="text-decoration:underline dotted"' : '';
+  return `<span class="badge ${cls}"${why}${cue}>${escapeHtml(t)}</span>`;
 }
 function statusBadge(status, winLoss) {
   if (winLoss === 'win')  return '<span class="badge win">WIN</span>';
@@ -603,7 +612,7 @@ export async function renderSignals(root) {
               <td>
                 <button class="star-btn" data-action="${already ? 'remove' : 'enter'}" data-idx="${idx}" title="${already ? 'Already tracked' : 'Track on My Trades'}">${already ? '★' : '☆'}</button>
               </td>
-              <td>${tierBadge(s.tier)}</td>
+              <td>${tierBadge(s.tier, s.tierReasons)}</td>
               <td>${escapeHtml(s.name || s.ticker)}</td>
               <td>${escapeHtml(s.ticker)}</td>
               <td>${escapeHtml(s.sector || '—')}</td>
@@ -637,13 +646,14 @@ export async function renderSignals(root) {
       sector: sig.sector, market,
       strategy: sig.short, strategyKey: sig.strategyKey, side: sig.side,
       tier: sig.tier,
+      pendingEntry: sig.pendingEntry ?? false,
       entryPrice: sig.entry, tpPrice: sig.tp, slPrice: sig.sl,
       signalTs: sig.signalTs || new Date().toISOString(),
     };
     const body = `
       <div class="row" style="grid-template-columns:120px 1fr;align-items:center;gap:10px">
         <div style="color:var(--text);font-family:var(--font-mono)">${escapeHtml(sig.ticker)}</div>
-        <div>${escapeHtml(sig.name || '')} · ${escapeHtml(sig.short)} · ${tierBadge(sig.tier)}</div>
+        <div>${escapeHtml(sig.name || '')} · ${escapeHtml(sig.short)} · ${tierBadge(sig.tier, sig.tierReasons)}</div>
         <div style="color:var(--text-mute);font-size:0.85rem">SIGNAL</div>
         <div style="font-family:var(--font-mono)">entry ${sig.entry.toFixed(2)} · TP ${sig.tp.toFixed(2)} · SL ${sig.sl.toFixed(2)}</div>
       </div>

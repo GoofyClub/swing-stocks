@@ -31,7 +31,9 @@ import {
   evaluatePEAD,
   evaluateInsiderCluster,
   evaluateAnalystUpgrade,
+  evaluateFVGRetest,
   atr,
+  sma,
 } from './engine.js';
 
 // =============================================================================
@@ -64,7 +66,16 @@ const STRATEGY_TARGETS = {
   pead:         { targetPct: 12,   minR: 2.0, maxR: 5.0, minSlPct: 1.0, maxSlPct: 8,  source: 'Ball/Brown PEAD, 75-80% WR, +5-20% over 60d' },
   insider:      { targetPct: 15,   minR: 2.0, maxR: 6.0, minSlPct: 1.5, maxSlPct: 10, source: 'Lakonishok/Lee Insider Cluster, 65-75% WR, +8-25% over 30-90d' },
   analyst:      { targetPct: 10,   minR: 1.5, maxR: 4.0, minSlPct: 1.0, maxSlPct: 8,  source: 'Womack Analyst Upgrade, 60-70% WR, +5-15% over 20-60d' },
+  fvg:          { targetPct: 15,   minR: 1.5, maxR: 6.0, minSlPct: 1.5, maxSlPct: 12, source: 'Monthly bullish FVG retest in monthly uptrend, reversal off the gap — higher-timeframe swing' },
 };
+
+// Strategies whose `entry` is a BUY-STOP placed ABOVE the signal bar (price must
+// trade up through `entry` for the order to fill). For these, settlement must not
+// count a TP/SL touch until the entry actually triggers — otherwise a name that
+// rolls straight over to the stop is booked as a loss for a trade that never
+// existed. Market-at-close strategies (entry = signal-day close) fill immediately
+// and are NOT in this set.
+const STOP_ENTRY_STRATEGIES = new Set(['pullback', 'nr7', 'vcp', 'htf']);
 
 // Apply target % to entry but clamp the resulting R-multiple within [minR, maxR].
 //
@@ -74,14 +85,15 @@ const STRATEGY_TARGETS = {
 //   - SL is too wide (entry-sl > maxSlPct% of entry): the typical hold-period gain
 //     of this strategy can't produce a workable R-multiple. Was the LLY 13.8% SL bug.
 //
-// Returns { entry, tp, sl, side, targetPct, expectedR, slPct } or null.
+// Returns { entry, tp, sl, side, targetPct, expectedR, slPct, pendingEntry } or null.
 function applyTarget(strategyKey, entry, sl) {
+  const pendingEntry = STOP_ENTRY_STRATEGIES.has(strategyKey);
   const t = STRATEGY_TARGETS[strategyKey];
   if (!t) {
     // Unknown strategy — fall back to 2R for safety, no SL bound check.
     const risk = entry - sl;
     if (risk <= 0) return null;
-    return { entry, tp: entry + 2 * risk, sl, side: 'buy', targetPct: null, expectedR: 2, slPct: (risk / entry) * 100 };
+    return { entry, tp: entry + 2 * risk, sl, side: 'buy', targetPct: null, expectedR: 2, slPct: (risk / entry) * 100, pendingEntry };
   }
   const risk = entry - sl;
   if (risk <= 0) return null;
@@ -100,7 +112,7 @@ function applyTarget(strategyKey, entry, sl) {
   if (rImplied < t.minR) tp = entry + t.minR * risk;
   if (rImplied > t.maxR) tp = entry + t.maxR * risk;
   const expectedR = (tp - entry) / risk;
-  return { entry, tp, sl, side: 'buy', targetPct: t.targetPct, expectedR, slPct };
+  return { entry, tp, sl, side: 'buy', targetPct: t.targetPct, expectedR, slPct, pendingEntry };
 }
 
 // ---- Per-strategy normalizers ---------------------------------------------------
@@ -214,6 +226,22 @@ function normalizeFmpStrategy(strategyKey, raw, bars, idx) {
   if (!a14) return null;
   const sl = entry - 1.5 * a14;
   return applyTarget(strategyKey, entry, sl);
+}
+
+// Monthly bullish FVG retest. The engine confirms: monthly uptrend (close > 12mo
+// MA), an unfilled bullish FVG below price, the current month dipping into that
+// zone, AND a bullish reaction (monthly close back above the zone mid). We only
+// emit a tradeable envelope once that reversal is showing — entry at the current
+// close, stop just below the reversal low / gap (whichever is tighter, since the
+// gap is the structural support that must hold), target a higher-timeframe move.
+function normalizeFVG(raw, bars, idx) {
+  if (!raw || !raw.detected || !raw.bullish_reaction) return null;
+  const entry = bars[idx].close;
+  // Tighter of: just below the gap floor, or just below the reversal-month low.
+  const stopAnchor = Math.max(raw.zone_low ?? -Infinity, raw.current_low ?? -Infinity);
+  if (!Number.isFinite(stopAnchor)) return null;
+  const sl = stopAnchor * 0.99;
+  return applyTarget('fvg', entry, sl);
 }
 
 // ---- Strategy registry ----------------------------------------------------------
@@ -347,6 +375,19 @@ export const STRATEGIES = {
       return env ? { raw, envelope: env, idx: i } : null;
     },
   },
+  fvg: {
+    // Higher-timeframe swing: a stock in a monthly uptrend that corrected into a
+    // monthly bullish Fair Value Gap and is now reversing off it. evaluateFVGRetest
+    // always assesses the most-recent month, so it's a "latest bar" signal.
+    name: 'Monthly FVG Retest (Bullish)',
+    short: 'FVG',
+    evaluate(bars, { idx } = {}) {
+      const i = idx ?? bars.length - 1;
+      const raw = evaluateFVGRetest(bars);
+      const env = normalizeFVG(raw, bars, i);
+      return env ? { raw, envelope: env, idx: i } : null;
+    },
+  },
 };
 
 // Export the target table so tests + UI can introspect calibration.
@@ -354,30 +395,104 @@ export { STRATEGY_TARGETS };
 
 // =============================================================================
 // Signal settlement — given a signal envelope and the bars AFTER signal day,
-// determine if/when TP or SL was hit and produce { status, winLoss, settledAt, hitPrice }.
+// determine the trade outcome and produce
+//   { status, winLoss, settledAt, hitPrice, exitReason }.
 //
-// Tie-breaking rule for an intraday TP-and-SL touch on the same bar:
-//   Assume PESSIMISTIC fill — SL hit first (i.e. loss). This is the standard
-//   conservative back-test convention and matches the legacy backtest engine's
-//   intrabar handling.
+// These strategies are NOT buy-and-hold-until-TP-or-SL trades — each has a
+// documented hold window and (for mean-reversion) an indicator exit. Settling on
+// a fixed bracket held forever systematically understates win-rate (a quick
+// bounce that the strategy would have banked at +1% is held for weeks until it
+// eventually nicks the stop). So settlement applies, in priority order per bar:
+//
+//   1. ENTRY TRIGGER (buy-stop strategies): when `pendingEntry` is set, the trade
+//      stays dormant until price trades up through `entry`. A name that rolls to
+//      the stop without ever triggering stays OPEN, not LOSS.
+//   2. SL / TP touch — first touch wins; same-bar TP+SL is a PESSIMISTIC loss
+//      (assume the stop filled first, matching the backtest engine).
+//   3. NATIVE EXIT — the strategy's documented discretionary exit (RSI(2): first
+//      close back above the 5-SMA). Exits at that bar's close: win if green.
+//      Requires the full bar series via opts; skipped if unavailable.
+//   4. TIME STOP — at the strategy's max hold (STRATEGY_HOLD), exit at the bar's
+//      close: win if green, else loss.
+//
+// `opts = { bars, entryIdx }` supplies the full price series and the signal's
+// index within it so native exits can recompute indicators. Without it (e.g. unit
+// tests passing only { entry, tp, sl }), only the TP/SL/entry-trigger rules
+// apply — preserving the original simple contract.
+//
+// Determinism: every rule is a function of the bars up to the deciding bar, and
+// settlement returns on the FIRST bar that resolves the trade, so re-running as
+// more bars accrue yields an identical verdict — a decided W/L never changes.
 // =============================================================================
 
-export function settleSignal(envelope, postSignalBars) {
-  if (!envelope || !postSignalBars || postSignalBars.length === 0) {
-    return { status: 'open', winLoss: null, settledAt: null, hitPrice: null };
+// Documented max hold per strategy, in trading bars. After this many held bars
+// with no TP/SL/native exit, settle at that bar's close.
+const STRATEGY_HOLD = {
+  rsi2: 7, nr7: 7, pocket_pivot: 15, peg: 20, pullback: 15, vcp: 25,
+  htf: 40, fifty_two_wh: 30, quality_dip: 30, pead: 60, insider: 60,
+  analyst: 45, fvg: 60,
+};
+
+// Build a native (indicator-based) exit predicate `(fullSeriesIdx) => boolean`
+// for strategies whose documented exit changes the WIN/LOSS verdict. Only RSI(2)
+// qualifies: its bounce is captured by close>5-SMA well before a fixed +R target.
+// Trend strategies book their win at the first target (= tp) and otherwise fall
+// through to the time stop, so they need no native rule here.
+function buildNativeExit(strategyKey, bars) {
+  if (strategyKey === 'rsi2') {
+    const closes = bars.map(b => b.close);
+    const s5 = sma(closes, 5);
+    return (i) => Number.isFinite(s5[i]) && closes[i] > s5[i];
   }
-  const { tp, sl } = envelope;
-  for (const bar of postSignalBars) {
+  return null;
+}
+
+export function settleSignal(envelope, postSignalBars, opts = {}) {
+  if (!envelope || !postSignalBars || postSignalBars.length === 0) {
+    return { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null };
+  }
+  const { tp, sl, entry, pendingEntry, strategyKey } = envelope;
+  const maxHold = STRATEGY_HOLD[strategyKey]; // undefined => no time stop
+  const fullBars = opts.bars || null;
+  const entryIdx = opts.entryIdx;
+  const nativeExit = (fullBars && Number.isFinite(entryIdx))
+    ? buildNativeExit(strategyKey, fullBars) : null;
+
+  const done = (winLoss, date, price, reason) =>
+    ({ status: 'closed', winLoss, settledAt: date, hitPrice: price, exitReason: reason });
+
+  // For buy-stop entries, the trade is dormant until price trades through `entry`.
+  let triggered = !(pendingEntry && Number.isFinite(entry));
+  let held = 0; // bars elapsed since the entry filled
+
+  for (let k = 0; k < postSignalBars.length; k++) {
+    const bar = postSignalBars[k];
+    if (!triggered) {
+      if (bar.high >= entry) triggered = true; // fills this bar — evaluate it below
+      else continue;                           // not yet filled — nothing applies
+    }
+    held++;
+
     const hitTp = bar.high >= tp;
     const hitSl = bar.low  <= sl;
-    if (hitTp && hitSl) {
-      // Conservative: assume SL fills first within the bar.
-      return { status: 'closed', winLoss: 'loss', settledAt: bar.date, hitPrice: sl };
+    if (hitTp && hitSl) return done('loss', bar.date, sl, 'sl'); // pessimistic tie
+    if (hitTp) return done('win',  bar.date, tp, 'tp');
+    if (hitSl) return done('loss', bar.date, sl, 'sl');
+
+    // Native discretionary exit — exit at this bar's close.
+    if (nativeExit && Number.isFinite(bar.close)) {
+      const fullIdx = entryIdx + 1 + k; // this bar's index in the full series
+      if (nativeExit(fullIdx)) {
+        return done(bar.close > entry ? 'win' : 'loss', bar.date, bar.close, 'native');
+      }
     }
-    if (hitTp) return { status: 'closed', winLoss: 'win',  settledAt: bar.date, hitPrice: tp };
-    if (hitSl) return { status: 'closed', winLoss: 'loss', settledAt: bar.date, hitPrice: sl };
+
+    // Time stop — exit at the close of the max-hold bar.
+    if (maxHold && held >= maxHold && Number.isFinite(bar.close)) {
+      return done(bar.close > entry ? 'win' : 'loss', bar.date, bar.close, 'time_stop');
+    }
   }
-  return { status: 'open', winLoss: null, settledAt: null, hitPrice: null };
+  return { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null };
 }
 
 // =============================================================================
@@ -394,59 +509,99 @@ export function settleSignal(envelope, postSignalBars) {
 //   Tier 2  — strategy fires but with caveats (e.g. armed without confirmation,
 //             missing volume dry-up, weak trend backdrop)
 // =============================================================================
-export function computeTier(strategyKey, raw) {
-  if (!raw) return 'Tier 1';
+// tierReasons() is the single source of truth for tiering. It returns BOTH the
+// tier bucket AND the human-readable confluence factors that drove it, so the UI
+// can answer "why is this A+?" on hover. `computeTier()` is a thin wrapper that
+// keeps the old string-only contract for callers that don't need the reasons.
+//
+// The tier boundaries here are character-for-character the same conditions the
+// previous computeTier() used — only the explanatory strings are new.
+export function tierReasons(strategyKey, raw) {
+  if (!raw) return { tier: 'Tier 1', reasons: [] };
   switch (strategyKey) {
     case 'pullback': {
       const v   = raw.metrics?.volume_multiple ?? 0;
       const r   = raw.metrics?.ret_1m;
       const spy = raw.metrics?.spy_ret_1m;
       const rsExcess = (r != null && spy != null) ? (r - spy) : 0;
-      if (raw.confirmation_bar && v >= 1.5 && rsExcess >= 0.04) return 'A+';
-      if (raw.confirmation_bar) return 'Tier 1';
-      return 'Tier 2';
+      if (raw.confirmation_bar && v >= 1.5 && rsExcess >= 0.04) {
+        return { tier: 'A+', reasons: [
+          'Confirmation bar printed',
+          `Volume ${v.toFixed(1)}× ≥ 1.5× avg`,
+          `RS vs SPY +${(rsExcess * 100).toFixed(1)}% ≥ 4%`,
+        ] };
+      }
+      if (raw.confirmation_bar) return { tier: 'Tier 1', reasons: ['Confirmation bar printed'] };
+      return { tier: 'Tier 2', reasons: ['Setup armed without confirmation'] };
     }
     case 'rsi2':
-      if (raw.extreme && raw.three_day_decline) return 'A+';
-      if (raw.extreme || raw.three_day_decline) return 'Tier 1';
-      return 'Tier 1';
+      if (raw.extreme && raw.three_day_decline) {
+        return { tier: 'A+', reasons: ['RSI(2) extreme (< 5)', '3-day decline streak'] };
+      }
+      if (raw.extreme)            return { tier: 'Tier 1', reasons: ['RSI(2) extreme (< 5)'] };
+      if (raw.three_day_decline)  return { tier: 'Tier 1', reasons: ['3-day decline streak'] };
+      return { tier: 'Tier 1', reasons: ['RSI(2) < 10 above 200-SMA'] };
     case 'vcp':
-      if (raw.volume_dry && (raw.pct_below_pivot ?? 99) < 3) return 'A+';
-      if (raw.volume_dry) return 'Tier 1';
-      return 'Tier 2';
+      if (raw.volume_dry && (raw.pct_below_pivot ?? 99) < 3) {
+        return { tier: 'A+', reasons: ['Volume dry-up confirmed', `Within ${(raw.pct_below_pivot ?? 0).toFixed(1)}% of pivot (< 3%)`] };
+      }
+      if (raw.volume_dry) return { tier: 'Tier 1', reasons: ['Volume dry-up confirmed'] };
+      return { tier: 'Tier 2', reasons: ['Contractions formed; volume not yet dry'] };
     case 'pocket_pivot':
-      if ((raw.vol_ratio ?? 0) > 2.0) return 'A+';
-      return 'Tier 1';
+      if ((raw.vol_ratio ?? 0) > 2.0) {
+        return { tier: 'A+', reasons: [`Up-volume ${(raw.vol_ratio ?? 0).toFixed(1)}× max down-vol (> 2×)`] };
+      }
+      return { tier: 'Tier 1', reasons: ['Pocket pivot up-volume confirmed'] };
     case 'htf':
-      // HTF is rare by construction — tight flag + above-trend = A+, else Tier 1
-      if ((raw.flag_depth_pct ?? 100) < 15) return 'A+';
-      return 'Tier 1';
+      // HTF is rare by construction — tight flag = A+, else Tier 1.
+      if ((raw.flag_depth_pct ?? 100) < 15) {
+        return { tier: 'A+', reasons: [`Tight flag ${(raw.flag_depth_pct ?? 0).toFixed(0)}% deep (< 15%)`] };
+      }
+      return { tier: 'Tier 1', reasons: ['High tight flag formed'] };
     case 'nr7':
-      if (raw.above_50sma) return 'Tier 1';
-      return 'Tier 2';
+      if (raw.above_50sma) return { tier: 'Tier 1', reasons: ['NR7 inside day above 50-SMA'] };
+      return { tier: 'Tier 2', reasons: ['NR7 inside day below 50-SMA'] };
     case 'fifty_two_wh':
-      if (raw.strong) return 'A+';
-      return 'Tier 1';
+      if (raw.strong) return { tier: 'A+', reasons: [`Breakout volume ${(raw.vol_ratio ?? 0).toFixed(1)}× avg (> 1.5×)`] };
+      return { tier: 'Tier 1', reasons: ['New 52-week high on above-avg volume'] };
     case 'peg':
-      if ((raw.gap_pct ?? 0) >= 7 && (raw.gap_vol_ratio ?? 0) >= 3) return 'A+';
-      return 'Tier 1';
+      if ((raw.gap_pct ?? 0) >= 7 && (raw.gap_vol_ratio ?? 0) >= 3) {
+        return { tier: 'A+', reasons: [`Gap +${(raw.gap_pct ?? 0).toFixed(1)}% ≥ 7%`, `Gap volume ${(raw.gap_vol_ratio ?? 0).toFixed(1)}× ≥ 3×`] };
+      }
+      return { tier: 'Tier 1', reasons: ['Power earnings gap held'] };
     case 'pead':
-      if (raw.strong && raw.fresh) return 'A+';
-      if (raw.strong || raw.fresh) return 'Tier 1';
-      return 'Tier 2';
+      if (raw.strong && raw.fresh) {
+        return { tier: 'A+', reasons: [`Strong beat +${(raw.surprise_pct ?? 0).toFixed(1)}% (> 15%)`, `Fresh (${raw.days_since ?? '?'}d ago, ≤ 10d)`] };
+      }
+      if (raw.strong) return { tier: 'Tier 1', reasons: [`Strong beat +${(raw.surprise_pct ?? 0).toFixed(1)}%`] };
+      if (raw.fresh)  return { tier: 'Tier 1', reasons: [`Fresh earnings (${raw.days_since ?? '?'}d ago)`] };
+      return { tier: 'Tier 2', reasons: ['Earnings beat, not strong or fresh'] };
     case 'insider':
-      if (raw.strong) return 'A+';
-      return 'Tier 1';
+      if (raw.strong) return { tier: 'A+', reasons: [`Cluster of ${raw.cluster_size ?? '3+'} insiders (≥ 3)`] };
+      return { tier: 'Tier 1', reasons: ['Insider cluster buy (≥ 2)'] };
     case 'analyst':
-      if (raw.strong) return 'A+';
-      return 'Tier 1';
+      if (raw.strong) return { tier: 'A+', reasons: [`${raw.total_bullish ?? '2+'} bullish actions, multi-firm (≥ 2)`] };
+      return { tier: 'Tier 1', reasons: ['Analyst upgrade/initiation'] };
     case 'quality_dip':
-      if (raw.volume_confirmed && (raw.trade_plan?.r_multiple ?? 0) > 2) return 'A+';
-      if (raw.volume_confirmed) return 'Tier 1';
-      return 'Tier 2';
+      if (raw.volume_confirmed && (raw.trade_plan?.r_multiple ?? 0) > 2) {
+        return { tier: 'A+', reasons: ['Volume confirmed', `R-multiple ${(raw.trade_plan?.r_multiple ?? 0).toFixed(1)}R (> 2R)`] };
+      }
+      if (raw.volume_confirmed) return { tier: 'Tier 1', reasons: ['Volume confirmed'] };
+      return { tier: 'Tier 2', reasons: ['Dip stabilized; volume weak'] };
+    case 'fvg':
+      // Full reclaim of the gap (close back above the zone top) is the strongest
+      // reversal; a close above the gap mid is a standard bullish reaction.
+      if (Number.isFinite(raw.zone_high) && Number.isFinite(raw.current_close) && raw.current_close >= raw.zone_high) {
+        return { tier: 'A+', reasons: ['Monthly uptrend intact', 'Reclaimed full FVG zone (close ≥ zone high)'] };
+      }
+      return { tier: 'Tier 1', reasons: ['Monthly uptrend intact', 'Bullish reaction off FVG (close > zone mid)'] };
     default:
-      return 'Tier 1';
+      return { tier: 'Tier 1', reasons: [] };
   }
+}
+
+export function computeTier(strategyKey, raw) {
+  return tierReasons(strategyKey, raw).tier;
 }
 
 // Convenience: run all applicable strategies on a single ticker.
@@ -463,8 +618,8 @@ export function scanAllStrategies(bars, ctx = {}) {
     try {
       const result = def.evaluate(bars, ctx);
       if (result) {
-        const tier = computeTier(key, result.raw);
-        out.push({ strategy: key, strategyName: def.name, short: def.short, tier, ...result });
+        const { tier, reasons } = tierReasons(key, result.raw);
+        out.push({ strategy: key, strategyName: def.name, short: def.short, tier, tierReasons: reasons, ...result });
       }
     } catch (e) {
       // Strategy threw — skip with a console warning; do not break the scan.
