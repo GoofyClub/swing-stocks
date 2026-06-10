@@ -23,7 +23,7 @@
 import admin from 'firebase-admin';
 import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
-import { STRATEGIES, settleSignal, tierReasons } from '../src/strategy/normalize.js';
+import { STRATEGIES, settleSignal, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
 
@@ -244,43 +244,56 @@ async function scanMarket(db, market, ctxIn) {
 }
 
 // Re-evaluate W/L for signals in the last 90 days based on current bars.
+//
+// Processes every recent signal that is still OPEN *or* was settled under an
+// older SETTLEMENT_VERSION. The latter is a one-time backfill: when the
+// settlement model changes, previously-closed signals are re-graded once so the
+// History win-rates reflect the current model. A signal already closed at the
+// current version is skipped (decided once per model — no re-checking).
 async function resettleRecentSignals(db, market, ctxIn) {
   const cfg = MARKET_CONFIGS[market];
   const ctx = ctxIn || buildCtx(market);
   const cutoff = daysAgo(RETENTION_DAYS);
-  console.log(`[resettle] market=${market} cutoff=${cutoff}`);
+  console.log(`[resettle] market=${market} cutoff=${cutoff} settlementVersion=${SETTLEMENT_VERSION}`);
 
-  // Group open signals by ticker so we fetch bars once per ticker.
+  // No status filter — we may need to re-grade closed signals too. Uses the
+  // existing (market, signalTs) collection-group index. (A `settlementVersion`
+  // inequality can't be queried server-side because legacy docs lack the field,
+  // so we filter client-side.)
   const cg = await db.collectionGroup('signals')
     .where('market', '==', market)
-    .where('status', '==', 'open')
     .where('signalTs', '>=', cutoff + 'T00:00:00Z')
     .get();
 
   const byTicker = new Map();
   cg.forEach(s => {
     const d = s.data();
+    const needs = d.status === 'open' || d.settlementVersion !== SETTLEMENT_VERSION;
+    if (!needs) return; // already settled at the current model version — leave it
     if (!byTicker.has(d.ticker)) byTicker.set(d.ticker, []);
     byTicker.get(d.ticker).push({ ref: s.ref, ...d });
   });
 
-  let settled = 0;
+  let settled = 0, regraded = 0;
   for (const [ticker, signals] of byTicker) {
     let bars;
     try { bars = await fetchBars(ticker, ctx); }
     catch (e) { console.warn(`[resettle] ${ticker}: ${e.message}`); continue; }
     const dateMap = new Map();
     bars.forEach((b, i) => dateMap.set(b.date, i));
+    const lastClose = bars[bars.length - 1].close;
     for (const sig of signals) {
       const sigDate = (sig.signalTs || '').slice(0, 10);
       const idx = dateMap.get(sigDate);
       if (idx == null) continue;
+      const wasClosed = sig.status === 'closed';
       const postBars = bars.slice(idx + 1);
       const verdict = settleSignal(
         { entry: sig.entryPrice, tp: sig.tpPrice, sl: sig.slPrice, pendingEntry: sig.pendingEntry, strategyKey: sig.strategyKey },
         postBars,
         { bars, entryIdx: idx },
       );
+      const pctChange = ((lastClose - sig.entryPrice) / sig.entryPrice) * 100;
       if (verdict.status === 'closed') {
         await sig.ref.update({
           status:      'closed',
@@ -288,21 +301,30 @@ async function resettleRecentSignals(db, market, ctxIn) {
           settledAt:   verdict.settledAt,
           hitPrice:    verdict.hitPrice,
           exitReason:  verdict.exitReason ?? null,
-          currentPrice: bars[bars.length - 1].close,
-          pctChange:   ((bars[bars.length - 1].close - sig.entryPrice) / sig.entryPrice) * 100,
+          settlementVersion: SETTLEMENT_VERSION,
+          currentPrice: lastClose,
+          pctChange,
         });
-        settled++;
+        if (wasClosed) regraded++; else settled++;
       } else {
-        // Just refresh currentPrice
-        await sig.ref.update({
-          currentPrice: bars[bars.length - 1].close,
+        // Open under the current model. If it had been closed under the old model
+        // (e.g. a buy-stop that never actually triggered), revert it to open and
+        // clear the stale verdict so it stops counting as a loss.
+        const update = {
+          settlementVersion: SETTLEMENT_VERSION,
+          currentPrice: lastClose,
           currentPriceTs: new Date().toISOString(),
-          pctChange:   ((bars[bars.length - 1].close - sig.entryPrice) / sig.entryPrice) * 100,
-        });
+          pctChange,
+        };
+        if (wasClosed) {
+          Object.assign(update, { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null });
+          regraded++;
+        }
+        await sig.ref.update(update);
       }
     }
   }
-  console.log(`[resettle] market=${market} settled=${settled}`);
+  console.log(`[resettle] market=${market} settled=${settled} regraded=${regraded}`);
 }
 
 // =============================================================================

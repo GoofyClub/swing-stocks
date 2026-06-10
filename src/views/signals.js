@@ -438,6 +438,7 @@ export async function renderSignals(root) {
             <button data-value="buy"  type="button">BUYS</button>
             <button data-value="sell" type="button">SELLS</button>
           </div>
+          <select id="f-strategy" class="btn-bare" title="Filter by strategy"><option value="">All strategies</option></select>
           <select id="f-sector" class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
           <input id="f-min" type="number" step="0.01" placeholder="min price" class="btn-bare" style="width:100px">
           <input id="f-max" type="number" step="0.01" placeholder="max price" class="btn-bare" style="width:100px">
@@ -536,30 +537,38 @@ export async function renderSignals(root) {
     return cv.signals.map(r => unify(r, 'cron'));
   }
 
-  function refreshSectorOptions(rows) {
-    const sel = $('f-sector');
+  // Populate a <select> with the distinct values found in `rows[field]`, keeping
+  // the current selection. Used for both the sector and strategy filters.
+  function refreshSelectOptions(selId, field, rows) {
+    const sel = $(selId);
     const cur = sel.value;
     const seen = new Set(Array.from(sel.options).map(o => o.value));
-    for (const s of rows.map(x => x.sector).filter(Boolean)) {
-      if (!seen.has(s)) {
-        sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`);
-        seen.add(s);
+    for (const v of rows.map(x => x[field]).filter(Boolean)) {
+      if (!seen.has(v)) {
+        sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`);
+        seen.add(v);
       }
     }
     sel.value = cur;
   }
+  function refreshSectorOptions(rows) {
+    refreshSelectOptions('f-sector', 'sector', rows);
+    refreshSelectOptions('f-strategy', 'short', rows);
+  }
 
   function applyFilters(rows) {
-    const tier   = getSeg('seg-tier');
-    const side   = getSeg('seg-side');
-    const sector = $('f-sector').value;
+    const tier     = getSeg('seg-tier');
+    const side     = getSeg('seg-side');
+    const strategy = $('f-strategy').value;
+    const sector   = $('f-sector').value;
     const minP   = parseFloat($('f-min').value);
     const maxP   = parseFloat($('f-max').value);
     const q      = $('f-q').value.trim().toLowerCase();
     return rows.filter(r => {
-      if (tier   && r.tier !== tier) return false;
-      if (side   && r.side !== side) return false;
-      if (sector && r.sector !== sector) return false;
+      if (tier     && r.tier !== tier) return false;
+      if (side     && r.side !== side) return false;
+      if (strategy && r.short !== strategy) return false;
+      if (sector   && r.sector !== sector) return false;
       if (Number.isFinite(minP) && r.entry < minP) return false;
       if (Number.isFinite(maxP) && r.entry > maxP) return false;
       if (q) {
@@ -722,6 +731,7 @@ export async function renderSignals(root) {
   $('btn-reset').addEventListener('click', () => {
     setSeg('seg-tier', '');
     setSeg('seg-side', '');
+    $('f-strategy').value = '';
     $('f-sector').value = '';
     $('f-min').value = '';
     $('f-max').value = '';
@@ -735,6 +745,7 @@ export async function renderSignals(root) {
   });
   wireSeg('seg-tier', renderResults);
   wireSeg('seg-side', renderResults);
+  $('f-strategy').addEventListener('change', renderResults);
   $('f-sector').addEventListener('change', renderResults);
   ['f-min', 'f-max', 'f-q'].forEach(id => $(id).addEventListener('input', renderResults));
 

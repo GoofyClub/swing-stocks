@@ -425,6 +425,14 @@ export { STRATEGY_TARGETS };
 // more bars accrue yields an identical verdict — a decided W/L never changes.
 // =============================================================================
 
+// Bump whenever the settlement model changes in a way that should re-grade
+// already-closed signals. The cron stamps each settled signal with this and
+// re-settles any signal carrying an older version exactly once, so historical
+// win/loss reflects the current model without re-checking on every run.
+//   1 — original: fixed TP/SL, first touch, held indefinitely.
+//   2 — entry-trigger gating + RSI(2) native exit + per-strategy time stop.
+export const SETTLEMENT_VERSION = 2;
+
 // Documented max hold per strategy, in trading bars. After this many held bars
 // with no TP/SL/native exit, settle at that bar's close.
 const STRATEGY_HOLD = {
