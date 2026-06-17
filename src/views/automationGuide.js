@@ -35,7 +35,7 @@ export function renderAutomationGuide(root) {
         <ol>
           <li><b>Phase 1 — Config (shipped):</b> rules UI (markets, strategies, tiers, risk, filters), persisted per user.</li>
           <li><b>Phase 2 — Paper execution (shipped):</b> worker reads matching signals + your rules, sizes by fixed-fractional risk, and submits <b>bracket orders</b> (entry + stop + target) to a paper account. Idempotent (deterministic client order id), with an order journal + reconciliation. Runs manually, dry-run by default.</li>
-          <li><b>Phase 3 — Guardrails (partly in):</b> position/sector caps, portfolio-heat cap, daily-loss halt, slippage guard, and trade-day gate are <b>live in the worker</b>. Still to add: market-regime gate and a global kill switch.</li>
+          <li><b>Phase 3 — Guardrails (shipped):</b> position/sector caps, portfolio-heat cap, daily-loss halt, slippage guard, trade-day gate, <b>market-regime gate</b> (blocks new longs when risk-off), and a <b>global kill switch</b> (env <code>KILL_SWITCH</code> or <code>publicConfig/automation.paused</code>). An <b>Auto Orders</b> page shows what the worker did.</li>
           <li><b>Phase 4 — Live (small size):</b> US first, tiny position sizes; India once the regulatory path is confirmed.</li>
         </ol>
         <p class="muted">How to run it: GitHub → Actions → <b>Auto-trade (paper)</b> → Run workflow. Leave <code>dry_run = true</code> first and read the logs; set it to <code>false</code> only once the dry-run output looks right.</p>
@@ -149,6 +149,7 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
+          <tr><td>2026-06-17</td><td>Phase 3: market-regime gate (blocks new longs when risk-off), global kill switch (env <code>KILL_SWITCH</code> / <code>publicConfig/automation.paused</code>), and an <b>Auto Orders</b> page showing the worker's journal. New "Respect market regime" toggle on the settings page.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 2: paper-execution worker (<code>scripts/auto-trade.mjs</code> + <i>Auto-trade (paper)</i> Action). Risk-based sizing, bracket orders, idempotent client order ids, order journal + reconciliation, and guardrails (position/sector caps, portfolio heat, daily-loss halt, slippage, trade-day gate). Manual + dry-run by default; Alpaca paper enforced unless mode=live.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 1: Automation settings page (broker connection, markets/tiers/strategies/sides, trade days, price band, liquidity floor, exclusion list, risk &amp; sizing) + this guide.</td></tr>
         </tbody></table>

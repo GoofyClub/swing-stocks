@@ -18,6 +18,10 @@ on:
         description: 'Restrict to a single user uid (optional)'
         required: false
         default: ''
+      kill_switch:
+        description: 'Global kill switch — abort without placing any orders'
+        required: false
+        default: 'false'
   # schedule:
   #   - cron: "40 13 * * 1-5"   # ~09:40 ET, just after the US open
 
@@ -40,6 +44,7 @@ jobs:
         env:
           FIREBASE_PROJECT_ID:           ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          DRY_RUN:  ${{ github.event.inputs.dry_run || 'true' }}
-          ONLY_UID: ${{ github.event.inputs.only_uid || '' }}
+          DRY_RUN:     ${{ github.event.inputs.dry_run || 'true' }}
+          ONLY_UID:    ${{ github.event.inputs.only_uid || '' }}
+          KILL_SWITCH: ${{ github.event.inputs.kill_switch || 'false' }}
         run: node scripts/auto-trade.mjs

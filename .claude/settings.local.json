@@ -6,7 +6,18 @@
       "Bash(npm run *)",
       "Bash(node --check scripts/refresh-signals.mjs)",
       "Bash(node -e \"const fs = require\\('fs'\\); const j = JSON.parse\\(fs.readFileSync\\('firestore.indexes.json', 'utf8'\\)\\); console.log\\('Indexes file valid JSON.\\\\\\\\nComposite indexes:', j.indexes.length\\); console.log\\('Single-field overrides:', j.fieldOverrides.length\\); for \\(const i of j.indexes\\) { console.log\\('  -', i.collectionGroup, '@', i.queryScope, i.fields.map\\(f => f.fieldPath + ' ' + f.order\\).join\\(' + '\\)\\); }\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(npm test *)",
+      "Bash(firebase --version)",
+      "Bash(firebase projects:list)",
+      "Bash(git check-ignore *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'v0.6.0: settlement realism \\(native exits + time stop + entry trigger\\), A+ reasons, monthly FVG strategy *)",
+      "Bash(git push *)",
+      "Bash(gh run *)",
+      "Bash(node -e \"import\\('./scripts/refresh-signals.mjs'\\).catch\\(e=>{if\\(/FIREBASE_PROJECT_ID/.test\\(e.message\\)\\){console.log\\('cron module loads OK \\(expected env error\\)'\\)}else{console.error\\('IMPORT ERROR',e.message\\);process.exit\\(1\\)}}\\)\")",
+      "Bash(node -e \"import\\('./src/strategy/normalize.js'\\).then\\(m=>{console.log\\('SETTLEMENT_VERSION =', m.SETTLEMENT_VERSION\\); console.log\\('exports ok:', ['settleSignal','tierReasons','SETTLEMENT_VERSION','STRATEGIES'].every\\(k=>k in m\\)\\)}\\)\")",
+      "Bash(git commit -m 'Live Signals strategy filter + one-time re-settlement of historical signals *)"
     ]
   }
 }

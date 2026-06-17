@@ -31,6 +31,7 @@ export const DEFAULT_AUTOMATION = {
 
   // --- Scheduling ---
   tradeDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+  respectRegime: true,       // block new longs when the market regime is risk-off
 
   // --- Universe filters ---
   excludeTickers: [],        // never auto-trade these symbols

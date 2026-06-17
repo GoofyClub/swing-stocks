@@ -8,7 +8,7 @@
 
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder,
+  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry,
 } from '../src/auto/engine.js';
 
 let pass = 0, fail = 0;
@@ -88,6 +88,14 @@ console.log('\n--- slippageOk ---');
   t('buy within budget ok', slippageOk(baseCfg, 100, 100.2, 'buy'));
   t('buy past budget skipped', !slippageOk(baseCfg, 100, 100.5, 'buy'));
   t('sell gapped down skipped', !slippageOk(baseCfg, 100, 99.5, 'sell'));
+}
+
+console.log('\n--- regimeAllowsEntry ---');
+{
+  t('risk-off blocks new longs', !regimeAllowsEntry({ go_to_cash: true }, 'buy').ok);
+  t('risk-on allows longs', regimeAllowsEntry({ go_to_cash: false }, 'buy').ok);
+  t('missing regime fails open', regimeAllowsEntry(null, 'buy').ok);
+  t('risk-off does not block sells', regimeAllowsEntry({ go_to_cash: true }, 'sell').ok);
 }
 
 console.log('\n--- buildBracketOrder ---');

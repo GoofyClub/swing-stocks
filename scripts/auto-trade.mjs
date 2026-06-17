@@ -29,13 +29,16 @@
 import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder,
+  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry,
 } from '../src/auto/engine.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
 
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true').toLowerCase() !== 'false';
 const ONLY_UID = process.env.ONLY_UID || null;
+// Operator kill switch via env (workflow input). A Firestore-based switch is
+// also honored (see isGloballyPaused) so it can be flipped without a re-run.
+const ENV_KILL = String(process.env.KILL_SWITCH ?? 'false').toLowerCase() === 'true';
 
 function todayKey(now = new Date()) { return now.toISOString().slice(0, 10); }
 
@@ -62,6 +65,29 @@ async function loadTodaySignals(db, markets) {
   const snap = await db.collection('marketData').doc(bucket).collection('signals').get();
   const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   return rows.filter(r => r.status === 'open' && (!r.market || markets.includes(r.market)));
+}
+
+// Latest regime snapshot per market (/marketData/{today}/regime/{market}).
+async function loadRegimes(db, markets) {
+  const bucket = todayKey();
+  const out = {};
+  for (const m of markets) {
+    try {
+      const snap = await db.collection('marketData').doc(bucket).collection('regime').doc(m).get();
+      out[m] = snap.exists ? snap.data() : null;
+    } catch { out[m] = null; }
+  }
+  return out;
+}
+
+// Global kill switch via Firestore: /publicConfig/automation { paused: true }.
+// Lets an operator pause ALL users' automation between runs (set in the console)
+// without editing the workflow. Env KILL_SWITCH is checked separately.
+async function isGloballyPaused(db) {
+  try {
+    const snap = await db.collection('publicConfig').doc('automation').get();
+    return snap.exists && snap.data()?.paused === true;
+  } catch { return false; }
 }
 
 // Users with automation enabled. Each config doc lives at users/{uid}/automation/config.
@@ -108,7 +134,9 @@ async function processUser(db, uid, cfg) {
 
   log(`mode=${cfg.mode} equity=${equity.toFixed(0)} open=${openCount} dayP/L=${dayRealizedPct.toFixed(2)}% dryRun=${DRY_RUN}`);
 
-  const signals = await loadTodaySignals(db, cfg.markets || ['US']);
+  const markets = cfg.markets || ['US'];
+  const signals = await loadTodaySignals(db, markets);
+  const regimes = cfg.respectRegime !== false ? await loadRegimes(db, markets) : {};
   // Best signals first so limited slots go to the highest-conviction names.
   const tierRank = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
   signals.sort((a, b) => (tierRank[a.tier] ?? 9) - (tierRank[b.tier] ?? 9));
@@ -123,6 +151,11 @@ async function processUser(db, uid, cfg) {
 
     const match = signalMatchesRules(sig, cfg);
     if (!match.ok) { skipped++; continue; }
+
+    if (cfg.respectRegime !== false) {
+      const reg = regimeAllowsEntry(regimes[sig.market || markets[0]], sig.side || 'buy');
+      if (!reg.ok) { log(`skip ${sig.ticker}: ${reg.reason}`); skipped++; continue; }
+    }
 
     if (!slippageOk(cfg, sig.entryPrice, sig.currentPrice, sig.side || 'buy')) {
       log(`skip ${sig.ticker}: slippage (live ${sig.currentPrice} vs entry ${sig.entryPrice})`); skipped++; continue;
@@ -193,6 +226,11 @@ async function processUser(db, uid, cfg) {
 async function main() {
   const db = initAdmin();
   console.log(`[auto] start dryRun=${DRY_RUN}${ONLY_UID ? ` onlyUid=${ONLY_UID}` : ''}`);
+
+  // Global kill switch — env (this run) or Firestore (persisted operator pause).
+  if (ENV_KILL) { console.log('[auto] KILL_SWITCH env set — aborting, no orders.'); return; }
+  if (await isGloballyPaused(db)) { console.log('[auto] globally paused (publicConfig/automation.paused) — aborting.'); return; }
+
   const configs = await loadEnabledConfigs(db);
   console.log(`[auto] ${configs.length} user(s) with automation enabled`);
   for (const { uid, cfg } of configs) {

@@ -114,6 +114,10 @@ export async function renderAutomation(root) {
       <h2>When to trade</h2>
       <div class="seg-label" style="margin-bottom:6px">Trade days</div>
       ${chips('tradeDays', DAYS, cfg.tradeDays)}
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px">
+        <input id="a-regime" type="checkbox" ${cfg.respectRegime !== false ? 'checked' : ''}>
+        <span>Respect market regime — block new long entries when the market is risk-off (index below its 200-day average / volatility spike)</span>
+      </label>
     </div>
 
     <div class="card">
@@ -170,6 +174,7 @@ export async function renderAutomation(root) {
       sides: readChips('sides'),
       strategies: readChips('strategies'),
       tradeDays: readChips('tradeDays'),
+      respectRegime: $('a-regime').checked,
       excludeTickers: excludeRaw.split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean),
       minPrice: num('a-minprice', DEFAULT_AUTOMATION.minPrice),
       maxPrice: num('a-maxprice', DEFAULT_AUTOMATION.maxPrice),

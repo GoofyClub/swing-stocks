@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.11.0 — 2026-06-17 (automation Phase 3: regime gate, kill switch, Auto Orders + README)
+
+### Added
+- **Market-regime gate** — the worker reads the latest `/marketData/{date}/regime/
+  {market}` snapshot and blocks new long entries when it says go-to-cash (risk-off).
+  Fails open if no snapshot exists. New "Respect market regime" toggle on the
+  Automation settings page (`respectRegime`, default on).
+- **Global kill switch** — abort all automation via the Auto-trade Action input
+  `kill_switch=true` / env `KILL_SWITCH`, or persistently via Firestore
+  `publicConfig/automation.paused = true` (checked every run).
+- **Auto Orders page** (`/auto-orders`) — read-only view of the worker's journal
+  (`/users/{uid}/autoOrders`): dry-run intents and real orders with status.
+- **README.md** — operational reference: quick-command table, app/rules/index
+  deploy steps, both workers' flags (DRY_RUN, only_uid, kill_switch), automation
+  enablement, data model, and project layout.
+- 4 more engine unit tests for the regime gate (40 total in `tests/auto.mjs`).
+
 ## v0.10.0 — 2026-06-17 (automation Phase 2: paper-execution worker + Live Signals R:R)
 
 ### Added

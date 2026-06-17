@@ -76,6 +76,17 @@ export function isTradeDayAllowed(cfg, date = new Date()) {
   return cfg.tradeDays.includes(DAY_NAMES[date.getUTCDay()]);
 }
 
+// Market-regime gate. When the latest regime snapshot says "go to cash" (index
+// broke its 200-DMA / volatility spike), block NEW long entries. Fails OPEN when
+// no regime data is available, so a missing snapshot doesn't halt everything.
+export function regimeAllowsEntry(regime, side = 'buy') {
+  if (!regime) return { ok: true, reason: null };
+  if ((side || 'buy') === 'buy' && regime.go_to_cash) {
+    return { ok: false, reason: 'market regime: go-to-cash (risk-off) — new longs blocked' };
+  }
+  return { ok: true, reason: null };
+}
+
 // Skip if the live price has already run past the entry beyond the slippage
 // budget (for a buy: price gapped up; for a sell: price gapped down).
 export function slippageOk(cfg, entry, livePrice, side = 'buy') {
