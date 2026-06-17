@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.9.0 — 2026-06-17 (automation config + guide, Phase 1)
+
+### Added
+- **Automation settings page** (`/automation`) — config-only rules for auto-trading
+  signals: master enable + paper/live mode, broker connection (broker, REST API
+  base, API key/secret), signal selection (markets, tiers, sides, strategy
+  allow-list), trade days, universe filters (price band, 20d $ADV floor, ticker
+  exclusion list), and risk/sizing (risk per trade, max positions, per-sector cap,
+  portfolio heat, daily-loss halt, slippage budget). Persists to
+  `/users/{uid}/automation/config`.
+- **Automation guide page** (`/automation-guide`) — how it works, full settings
+  reference, risk management, pro practices, broker setup (Alpaca / India + SEBI
+  note), safety/paper-first, legal/compliance, glossary, and an enhancement log
+  to keep updated.
+- New **Automation** sidebar group.
+
+### Notes
+- **Config-only:** the server-side execution worker that places broker orders is
+  not yet deployed. Settings are saved but no orders are sent. `enabled` defaults
+  off, `mode` defaults to paper.
+- **Requires a Firestore rules deploy** (`firebase deploy --only firestore:rules`)
+  so the new `/users/{uid}/automation/{doc}` owner-only rule takes effect; without
+  it, saving the config is denied.
+
 ## v0.8.0 — 2026-06-17 (client-side realized %, R:R column, column customization, saved filters)
 
 ### Why

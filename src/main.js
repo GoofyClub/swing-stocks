@@ -17,6 +17,8 @@ import { renderWatchlist } from './views/watchlist.js';
 import { renderSettings } from './views/settings.js';
 import { renderGuide } from './views/guide.js';
 import { renderStocksInPlay } from './views/stocksInPlay.js';
+import { renderAutomation } from './views/automation.js';
+import { renderAutomationGuide } from './views/automationGuide.js';
 import { onForegroundMessage, isFCMSupported } from './data/messaging.js';
 
 // Theme + font-size attributes are pre-set by an inline script in index.html
@@ -67,6 +69,8 @@ function mountAppShell() {
   route('settings',     renderSettings);
   route('guide',        renderGuide);
   route('stocksinplay', renderStocksInPlay);
+  route('automation',       renderAutomation);
+  route('automation-guide', renderAutomationGuide);
   defaultRoute('dashboard');
   const dispatch = start(main);
 

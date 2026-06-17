@@ -11,6 +11,10 @@ const NAV = [
     { id: 'history',       icon: '⏱', label: 'Signal History' },
     { id: 'watchlist',     icon: '≡', label: 'Watchlist' },
   ]},
+  { group: 'Automation', items: [
+    { id: 'automation',       icon: '⚡', label: 'Automation' },
+    { id: 'automation-guide', icon: 'i', label: 'Automation Guide' },
+  ]},
   { group: 'System', items: [
     { id: 'guide',     icon: 'i', label: 'User Guide' },
     { id: 'settings',  icon: '⚙', label: 'Settings' },
@@ -32,7 +36,7 @@ export function renderSidebar(el) {
       `);
     }
   }
-  html.push(`<div class="foot">v0.2.0 · alpha</div>`);
+  html.push(`<div class="foot">v0.8.0 · alpha</div>`);
   el.innerHTML = html.join('');
   el.querySelectorAll('.nav-item').forEach(n => {
     n.addEventListener('click', () => navigate(n.dataset.view));

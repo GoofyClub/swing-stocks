@@ -79,6 +79,14 @@ service cloud.firestore {
       match /fcmTokens/{token} {
         allow read, write: if isOwner(uid);
       }
+
+      // Automation config (/users/{uid}/automation/config). Holds the user's
+      // auto-trade rules AND broker API credentials, so it must be readable only
+      // by the owner. The execution worker reads it via the Admin SDK (bypasses
+      // these rules). Never broaden this read rule.
+      match /automation/{docId} {
+        allow read, write: if isOwner(uid);
+      }
     }
 
     // -----------------------------------------------------------------------
