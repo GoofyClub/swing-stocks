@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.8.0 — 2026-06-17 (client-side realized %, R:R column, column customization, saved filters)
+
+### Why
+A strategy summary showed winners with a realized % *above* their TP cap (e.g. an
+NR7 win at +3.71% when the TP only allowed +3.39%). Root cause: closed trades whose
+docs were settled under the old model still carried a live-price `pctChange`, and
+the v3 re-settlement cron hadn't re-graded them yet. The numbers looked
+over-profitable.
+
+### Fixed
+- **Realized % computed client-side from `hitPrice`.** Signal History now derives a
+  closed trade's return from the stored exit price (`hitPrice`) directly, so it's
+  frozen at the TP/SL/native exit regardless of whether the settlement cron has
+  re-graded the row. Winners no longer exceed their TP cap; losers no longer drift
+  past their SL. Summary PF / AVG R / AVG %Δ / TOTAL %Δ all use this value.
+- **Sector shows its name** ("Technology") instead of the raw ETF tag ("XLK"), in
+  both Signal History and Live Signals. New `SECTOR_NAMES` / `sectorName()` map
+  covers US SPDR sectors and the NSE sector indices.
+
+### Added
+- **R:R column** (planned reward-to-risk) on each Signal History row and a per-
+  strategy **R:R** column in the summary.
+- **CLOSED filter** in the Signal History W/L filter row (was open/win/loss only).
+- **Customizable columns** — a ⚙ COLUMNS dialog to reorder (▲▼) and show/hide
+  Signal History columns, persisted per browser. Default order is now
+  date, name, ticker, strategy, status, %Δ, entry, TP, SL, then the rest.
+- **Save filters** — a ★ SAVE FILTERS button stores the full filter set + timeframe
+  to localStorage and restores it on the next visit (URL deep-links still win).
+
 ## v0.7.0 — 2026-06-16 (realized-return fix, R/profit-factor metrics, longer history)
 
 ### Why

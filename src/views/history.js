@@ -11,12 +11,50 @@ import { collection, query, orderBy, limit, getDocs, collectionGroup } from 'fir
 import { enterTrade, removeTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
 import { computeEntryStatus, entryStatusBadge, indexMultiSignal, multiSignalBadge } from '../ui/signal-status.js';
+import { sectorName } from '../data/markets.js';
+import { loadColumnPrefs, saveColumnPrefs, resetColumnPrefs, visibleColumns, openColumnConfig } from '../ui/column-prefs.js';
+
+const FILTERS_LS_KEY = 'swing.history.filters';
+const COLS_TABLE_KEY = 'history';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function fmtDate(d) {
   return d.toISOString().slice(0, 10);
+}
+
+// --- Realized-performance helpers ------------------------------------------
+// A CLOSED trade's return is frozen at its EXIT price. The signal doc stores
+// `hitPrice` (the tp/sl/native/time-stop level it left at), so we compute the
+// realized % from that directly — correct even if the stored `pctChange` is a
+// stale pre-settlement live mark. Open trades use the live (current-price) mark.
+function pctFor(r) {
+  if (r.status === 'closed' && r.hitPrice != null && r.entryPrice) {
+    return ((r.hitPrice - r.entryPrice) / r.entryPrice) * 100;
+  }
+  if (r.pctChange != null) return r.pctChange;
+  if (r.currentPrice != null && r.entryPrice) return ((r.currentPrice - r.entryPrice) / r.entryPrice) * 100;
+  return null;
+}
+// Stop distance as % of entry (the risk taken). Prefer the stored slPct; fall
+// back to deriving it from entry/SL for older signals that lack the field.
+function slPctFor(r) {
+  if (r.slPct != null && r.slPct > 0) return r.slPct;
+  if (r.entryPrice && r.slPrice != null && r.entryPrice > r.slPrice) {
+    return ((r.entryPrice - r.slPrice) / r.entryPrice) * 100;
+  }
+  return null;
+}
+// Planned reward-to-risk ratio (e.g. 2.0 = 2:1). Known at signal time.
+function rrFor(r) {
+  if (r.expectedR != null) return r.expectedR;
+  if (r.entryPrice && r.tpPrice != null && r.slPrice != null) {
+    const reward = Math.abs(r.tpPrice - r.entryPrice);
+    const risk = Math.abs(r.entryPrice - r.slPrice);
+    return risk > 0 ? reward / risk : null;
+  }
+  return null;
 }
 
 function parseHashParams() {
@@ -80,9 +118,10 @@ function applyFilters(rows, f) {
       if (es !== f.entryStatus) return false;
     }
     if (f.winLoss) {
-      if (f.winLoss === 'open' && r.status !== 'open') return false;
-      if (f.winLoss === 'win'  && r.winLoss !== 'win')  return false;
-      if (f.winLoss === 'loss' && r.winLoss !== 'loss') return false;
+      if (f.winLoss === 'open'   && r.status !== 'open')   return false;
+      if (f.winLoss === 'closed' && r.status !== 'closed') return false;
+      if (f.winLoss === 'win'    && r.winLoss !== 'win')   return false;
+      if (f.winLoss === 'loss'   && r.winLoss !== 'loss')  return false;
     }
     if (f.q) {
       const needle = f.q.toLowerCase();
@@ -98,28 +137,29 @@ function summariseByStrategy(rows) {
   const m = new Map();
   for (const r of rows) {
     const k = r.strategy || '—';
-    if (!m.has(k)) m.set(k, { strategy: k, total: 0, wins: 0, losses: 0, open: 0, aplus: 0, totalPct: 0, sumR: 0, rCount: 0, grossWin: 0, grossLoss: 0 });
+    if (!m.has(k)) m.set(k, { strategy: k, total: 0, wins: 0, losses: 0, open: 0, aplus: 0, totalPct: 0, sumR: 0, rCount: 0, grossWin: 0, grossLoss: 0, sumRR: 0, rrCount: 0 });
     const s = m.get(k);
     s.total++;
     if (r.tier === 'A+') s.aplus++;
+    // Planned reward:risk is known for every signal (open or closed).
+    const rr = rrFor(r);
+    if (rr != null) { s.sumRR += rr; s.rrCount++; }
     if (r.status === 'closed') {
       if (r.winLoss === 'win')  s.wins++;
       else if (r.winLoss === 'loss') s.losses++;
-      // Only closed trades contribute to realized performance — their pctChange
-      // is frozen at the exit price. Open trades carry an unrealized live mark we
+      // Only closed trades contribute to realized performance — frozen at the
+      // exit price via pctFor(). Open trades carry an unrealized live mark we
       // deliberately exclude so AVG/TOTAL % reflect booked results, not paper P&L.
-      if (r.pctChange != null) {
-        s.totalPct += r.pctChange;
+      const p = pctFor(r);
+      if (p != null) {
+        s.totalPct += p;
         // Profit factor: gross wins vs gross losses (absolute).
-        if (r.pctChange >= 0) s.grossWin += r.pctChange;
-        else s.grossLoss += -r.pctChange;
-        // Realized R = return ÷ risk taken. slPct is the planned stop distance as
-        // a % of entry, so pctChange / slPct normalizes each trade by its own risk
-        // (a TP-hit ≈ +2R, an SL-hit ≈ −1R) — the fair way to compare strategies.
-        if (r.slPct != null && r.slPct > 0) {
-          s.sumR += r.pctChange / r.slPct;
-          s.rCount++;
-        }
+        if (p >= 0) s.grossWin += p;
+        else s.grossLoss += -p;
+        // Realized R = return ÷ risk taken. Normalizes each trade by its own
+        // stop distance (a TP-hit ≈ +2R, an SL-hit ≈ −1R).
+        const slp = slPctFor(r);
+        if (slp != null) { s.sumR += p / slp; s.rCount++; }
       }
     } else {
       s.open++;
@@ -132,6 +172,7 @@ function summariseByStrategy(rows) {
       winRate: closed ? s.wins / closed : null,
       avgPct:  closed ? s.totalPct / closed : 0,
       avgR:    s.rCount ? s.sumR / s.rCount : null,
+      avgRR:   s.rrCount ? s.sumRR / s.rrCount : null,
       // Profit factor: >1 net-profitable, ∞ when there are wins but no losses yet.
       profitFactor: s.grossLoss > 0 ? s.grossWin / s.grossLoss : (s.grossWin > 0 ? Infinity : null),
     };
@@ -140,6 +181,52 @@ function summariseByStrategy(rows) {
   out.sort((a, b) => b.total - a.total || ((b.winRate ?? -1) - (a.winRate ?? -1)));
   return out;
 }
+
+// Win/Loss outcome badge (the column the UI labels "STATUS").
+function wlBadge(r) {
+  const exitWhy = {
+    tp: 'Hit take-profit', sl: 'Hit stop-loss',
+    native: 'Indicator exit (close > 5-SMA)', time_stop: 'Time stop (max hold reached)',
+  }[r.exitReason] || '';
+  const t = exitWhy ? ` title="${escapeHtml(exitWhy)}"` : '';
+  const inner = r.status === 'open' ? '<span class="badge open">open</span>'
+    : r.winLoss === 'win'  ? `<span class="badge win"${t}>WIN</span>`
+    : r.winLoss === 'loss' ? `<span class="badge loss"${t}>LOSS</span>`
+    : '<span class="badge">—</span>';
+  return `<td>${inner}</td>`;
+}
+
+// Column registry for the Signals table. Each entry renders one <th> (header)
+// and one <td> via render(row, ctx). The action column ('star') is fixed-first
+// and can't be hidden. Order + visibility are user-customizable (column-prefs).
+const SIGNAL_COLUMNS = {
+  star:    { label: 'Track ★', header: '<th></th>',
+             render: (r, ctx) => { const id = tradeIdFor(r); const on = ctx.entered.has(id);
+               return `<td><button class="star-btn" data-action="${on ? 'remove' : 'enter'}" data-signal-id="${escapeHtml(id)}" title="${on ? 'Remove from My Trades' : 'Track on My Trades'}" aria-label="${on ? 'Remove' : 'Enter'} trade for ${escapeHtml(r.ticker)}">${on ? '★' : '☆'}</button></td>`; } },
+  date:    { label: 'Date',          header: '<th>DATE</th>',     render: r => `<td>${escapeHtml((r.signalTs || '').slice(0, 10))}</td>` },
+  name:    { label: 'Name',          header: '<th>NAME</th>',     render: (r, ctx) => `<td>${escapeHtml(r.name || '—')}${multiSignalBadge(r.ticker, ctx.multiTickers, ctx.tickerCount)}</td>` },
+  ticker:  { label: 'Ticker',        header: '<th>TICKER</th>',   render: r => `<td>${escapeHtml(r.ticker || '')}</td>` },
+  strategy:{ label: 'Strategy',      header: '<th>STRATEGY</th>', render: r => `<td>${escapeHtml(r.strategy || '—')}</td>` },
+  wl:      { label: 'Status (W/L)',  header: '<th>STATUS</th>',   render: r => wlBadge(r) },
+  pct:     { label: '%Δ (return)',   header: '<th class="num">%Δ</th>',
+             render: r => { const p = pctFor(r); const c = p == null ? 'var(--text-dim)' : p >= 0 ? 'var(--green)' : 'var(--red)';
+               return `<td class="num" style="color:${c}">${p == null ? '—' : (p >= 0 ? '+' : '') + p.toFixed(2) + '%'}</td>`; } },
+  entry:   { label: 'Entry',         header: '<th class="num">ENTRY</th>',
+             render: r => { const slp = slPctFor(r); return `<td class="num" title="${slp != null ? 'Risk: ' + slp.toFixed(2) + '%' : ''}">${(r.entryPrice ?? 0).toFixed(2)}</td>`; } },
+  tp:      { label: 'TP',            header: '<th class="num">TP</th>', render: r => `<td class="num" style="color:var(--green)">${(r.tpPrice ?? 0).toFixed(2)}</td>` },
+  sl:      { label: 'SL',            header: '<th class="num">SL</th>', render: r => `<td class="num" style="color:var(--red)">${(r.slPrice ?? 0).toFixed(2)}</td>` },
+  rr:      { label: 'R:R (planned)', header: '<th class="num">R:R</th>',
+             render: r => { const rr = rrFor(r); return `<td class="num" title="Planned reward-to-risk: TP distance ÷ SL distance">${rr == null ? '—' : rr.toFixed(2) + ':1'}</td>`; } },
+  current: { label: 'Current price', header: '<th class="num">CURRENT</th>', render: r => `<td class="num">${r.currentPrice != null ? r.currentPrice.toFixed(2) : '—'}</td>` },
+  sector:  { label: 'Sector',        header: '<th>SECTOR</th>', render: r => `<td title="${escapeHtml(r.sector || '')}">${escapeHtml(sectorName(r.sector) || '—')}</td>` },
+  tier:    { label: 'Tier',          header: '<th>TIER</th>', render: r => `<td>${tierBadge(r.tier, r.tierReasons)}</td>` },
+  estatus: { label: 'Entry status',  header: '<th>ENTRY STATUS</th>',
+             render: r => { const es = r.status === 'open' ? computeEntryStatus(r) : null; return `<td>${es ? entryStatusBadge(es) : '<span class="badge">—</span>'}</td>`; } },
+};
+// User-requested default order: date, name, ticker, strategy, status, %, entry,
+// TP, SL, then the remaining columns. 'star' is the fixed action column.
+const DEFAULT_SIGNAL_COL_ORDER = ['star', 'date', 'name', 'ticker', 'strategy', 'wl', 'pct', 'entry', 'tp', 'sl', 'rr', 'current', 'sector', 'tier', 'estatus'];
+const FIXED_SIGNAL_COLS = ['star'];
 
 export async function renderHistory(root) {
   const params = parseHashParams();
@@ -184,14 +271,17 @@ export async function renderHistory(root) {
           </div>
           <div class="seg-group" id="seg-winloss" role="group" aria-label="Win/Loss filter">
             <span class="seg-label">W/L</span>
-            <button data-value=""     class="active" type="button">ALL</button>
-            <button data-value="open" type="button">OPEN</button>
-            <button data-value="win"  class="wl-win"  type="button">WIN</button>
-            <button data-value="loss" class="wl-loss" type="button">LOSS</button>
+            <button data-value=""       class="active" type="button">ALL</button>
+            <button data-value="open"   type="button">OPEN</button>
+            <button data-value="closed" type="button">CLOSED</button>
+            <button data-value="win"    class="wl-win"  type="button">WIN</button>
+            <button data-value="loss"   class="wl-loss" type="button">LOSS</button>
           </div>
           <select id="f-strategy" class="btn-bare" title="Filter by strategy"><option value="">All strategies</option></select>
           <select id="f-sector"   class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
           <input  id="f-q"   class="search" type="search" placeholder="ticker / name" style="max-width:220px">
+          <button id="btn-save-filters" class="btn-bare" type="button" title="Save these filters for next time (this browser)">★ SAVE FILTERS</button>
+          <button id="btn-columns" class="btn-bare" type="button" title="Reorder / show / hide table columns">⚙ COLUMNS</button>
           <button id="btn-csv" class="btn-bare" type="button">CSV ↓</button>
           <span id="row-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
         </div>
@@ -214,6 +304,9 @@ export async function renderHistory(root) {
     loadEnteredTradeIds(),
   ]);
   const entered = new Set(enteredIds);
+
+  // User-customizable column order/visibility for the Signals table.
+  let colPrefs = loadColumnPrefs(COLS_TABLE_KEY, DEFAULT_SIGNAL_COL_ORDER);
 
   const $ = (id) => document.getElementById(id);
 
@@ -396,6 +489,7 @@ export async function renderHistory(root) {
           <th class="num">LOSS</th>
           <th class="num">OPEN</th>
           <th class="num">WIN RATE</th>
+          <th class="num">R:R</th>
           <th class="num">AVG R</th>
           <th class="num">PF</th>
           <th class="num">AVG %Δ</th>
@@ -416,6 +510,7 @@ export async function renderHistory(root) {
             const pfColor = g.profitFactor == null ? 'var(--text-dim)'
               : g.profitFactor === Infinity || g.profitFactor >= 1.5 ? 'var(--green)'
               : g.profitFactor < 1 ? 'var(--red)' : 'var(--amber)';
+            const rrStr = g.avgRR == null ? '—' : g.avgRR.toFixed(2) + ':1';
             return `<tr style="cursor:pointer" data-strategy="${escapeHtml(g.strategy)}" title="Click to filter the table below to ${escapeHtml(g.strategy)} only">
               <td><b>${escapeHtml(g.strategy)}</b></td>
               <td class="num">${g.total}</td>
@@ -424,6 +519,7 @@ export async function renderHistory(root) {
               <td class="num" style="color:var(--red)">${g.losses}</td>
               <td class="num" style="color:var(--amber)">${g.open}</td>
               <td class="num" style="color:${wrColor}">${wr}</td>
+              <td class="num" title="Average planned reward-to-risk ratio (TP distance ÷ SL distance) across these signals.">${rrStr}</td>
               <td class="num" style="color:${rColor}" title="Average realized R per closed trade (return ÷ risk). +0.50R means each trade nets half its risk on average.">${rStr}</td>
               <td class="num" style="color:${pfColor}" title="Profit factor: gross wins ÷ gross losses. >1 is net-profitable.">${pfStr}</td>
               <td class="num" style="color:${avgColor}" title="Average realized %Δ per closed trade">${g.avgPct >= 0 ? '+' : ''}${g.avgPct.toFixed(2)}%</td>
@@ -453,55 +549,14 @@ export async function renderHistory(root) {
     // reflects what the user is currently looking at (e.g. when scoped to a
     // single strategy, no row gets the badge).
     const { tickerCount, multiTickers } = indexMultiSignal(filtered);
-    const html = `
-      <table class="data">
-        <thead><tr>
-          <th></th>
-          <th>TIER</th>
-          <th>DATE</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>STRATEGY</th>
-          <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th>
-          <th class="num">CURRENT</th><th class="num">%Δ</th>
-          <th>STATUS</th><th>W/L</th>
-        </tr></thead>
-        <tbody>
-          ${filtered.map(r => {
-            const pct = r.pctChange != null ? r.pctChange : (r.currentPrice && r.entryPrice ? ((r.currentPrice - r.entryPrice) / r.entryPrice) * 100 : null);
-            const exitWhy = {
-              tp: 'Hit take-profit', sl: 'Hit stop-loss',
-              native: 'Indicator exit (close > 5-SMA)', time_stop: 'Time stop (max hold reached)',
-            }[r.exitReason] || '';
-            const wlTitle = exitWhy ? ` title="${escapeHtml(exitWhy)}"` : '';
-            const wl = r.status === 'open' ? '<span class="badge open">open</span>'
-                     : r.winLoss === 'win'  ? `<span class="badge win"${wlTitle}>WIN</span>`
-                     : r.winLoss === 'loss' ? `<span class="badge loss"${wlTitle}>LOSS</span>`
-                     : '<span class="badge">—</span>';
-            const id = tradeIdFor(r);
-            const isEntered = entered.has(id);
-            const entryStatus = r.status === 'open' ? computeEntryStatus(r) : null;
-            const multi = multiSignalBadge(r.ticker, multiTickers, tickerCount);
-            return `<tr data-signal-id="${escapeHtml(id)}">
-              <td>
-                <button class="star-btn" data-action="${isEntered ? 'remove' : 'enter'}" data-signal-id="${escapeHtml(id)}" title="${isEntered ? 'Remove from My Trades' : 'Track on My Trades'}" aria-label="${isEntered ? 'Remove' : 'Enter'} trade for ${escapeHtml(r.ticker)}">${isEntered ? '★' : '☆'}</button>
-              </td>
-              <td>${tierBadge(r.tier, r.tierReasons)}</td>
-              <td>${escapeHtml((r.signalTs || '').slice(0, 10))}</td>
-              <td>${escapeHtml(r.name || '—')}${multi}</td>
-              <td>${escapeHtml(r.ticker || '')}</td>
-              <td>${escapeHtml(r.sector || '—')}</td>
-              <td>${escapeHtml(r.strategy || '—')}</td>
-              <td class="num" title="${r.slPct != null ? 'Risk: ' + r.slPct.toFixed(2) + '% · R:R: ' + (r.expectedR != null ? r.expectedR.toFixed(2) + 'R' : '—') : ''}">${(r.entryPrice ?? 0).toFixed(2)}</td>
-              <td class="num" style="color:var(--green)">${(r.tpPrice ?? 0).toFixed(2)}</td>
-              <td class="num" style="color:var(--red)">${(r.slPrice ?? 0).toFixed(2)}</td>
-              <td class="num">${r.currentPrice != null ? r.currentPrice.toFixed(2) : '—'}</td>
-              <td class="num" style="color:${pct == null ? 'var(--text-dim)' : pct >= 0 ? 'var(--green)' : 'var(--red)'}">${pct == null ? '—' : (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'}</td>
-              <td>${entryStatus ? entryStatusBadge(entryStatus) : '<span class="badge">—</span>'}</td>
-              <td>${wl}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    `;
-    $('history-table').innerHTML = html;
+    const ctx = { entered, multiTickers, tickerCount };
+    // Render columns in the user's chosen order, skipping hidden ones.
+    const cols = visibleColumns(colPrefs, FIXED_SIGNAL_COLS);
+    const thead = cols.map(k => SIGNAL_COLUMNS[k]?.header || '').join('');
+    const body = filtered.map(r =>
+      `<tr data-signal-id="${escapeHtml(tradeIdFor(r))}">${cols.map(k => SIGNAL_COLUMNS[k]?.render(r, ctx) || '').join('')}</tr>`
+    ).join('');
+    $('history-table').innerHTML = `<table class="data"><thead><tr>${thead}</tr></thead><tbody>${body}</tbody></table>`;
 
     $('history-table').querySelectorAll('.star-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -581,6 +636,66 @@ export async function renderHistory(root) {
   ['f-strategy', 'f-sector'].forEach(id => $(id).addEventListener('change', refresh));
   $('f-q').addEventListener('input', refresh);
 
+  // ----- Saved filters (localStorage) --------------------------------------
+  // Persist the full filter set + timeframe so the user doesn't re-pick them on
+  // every visit. Applied on load unless the URL deep-links specific filters.
+  function applySavedFilters(saved) {
+    if (!saved) return;
+    setSeg('seg-side',    saved.side    || '');
+    setSeg('seg-tier',    saved.tier    || '');
+    setSeg('seg-winloss', saved.winLoss || '');
+    if (saved.strategy != null) $('f-strategy').value = saved.strategy;
+    if (saved.sector   != null) $('f-sector').value   = saved.sector;
+    if (saved.q        != null) $('f-q').value         = saved.q;
+    if (saved.tfCustom) {
+      tfCustom = saved.tfCustom;
+      $('f-from').value = saved.tfCustom.from || '';
+      $('f-to').value   = saved.tfCustom.to   || '';
+      $('tf-range').style.display = 'inline-flex';
+      $$('tf-chip').forEach(b => b.classList.toggle('active', b.dataset.days === 'custom'));
+    } else if (saved.tfDays != null) {
+      tfDays = saved.tfDays;
+      tfCustom = null;
+      $('tf-range').style.display = 'none';
+      $$('tf-chip').forEach(b => b.classList.toggle('active', b.dataset.days === String(saved.tfDays)));
+    }
+    refreshTfLabel();
+  }
+
+  $('btn-save-filters').addEventListener('click', () => {
+    const payload = {
+      side:     getSeg('seg-side'),
+      tier:     getSeg('seg-tier'),
+      winLoss:  getSeg('seg-winloss'),
+      strategy: $('f-strategy').value,
+      sector:   $('f-sector').value,
+      q:        $('f-q').value.trim(),
+      tfDays:   tfCustom ? null : tfDays,
+      tfCustom: tfCustom || null,
+    };
+    try { localStorage.setItem(FILTERS_LS_KEY, JSON.stringify(payload)); } catch {}
+    const btn = $('btn-save-filters');
+    const prev = btn.textContent;
+    btn.textContent = '✓ SAVED';
+    setTimeout(() => { btn.textContent = prev; }, 1500);
+  });
+
+  // ----- Column customization ----------------------------------------------
+  $('btn-columns').addEventListener('click', () => {
+    openColumnConfig({
+      tableKey: COLS_TABLE_KEY,
+      columns: SIGNAL_COLUMNS,
+      prefs: colPrefs,
+      defaultOrder: DEFAULT_SIGNAL_COL_ORDER,
+      fixedKeys: FIXED_SIGNAL_COLS,
+      onApply: (next) => {
+        colPrefs = next;
+        saveColumnPrefs(COLS_TABLE_KEY, colPrefs);
+        renderTable(applyFilters(rows, currentFilters()));
+      },
+    });
+  });
+
   // Re-render when the user toggles US ↔ INDIA in the topbar. The router also
   // re-dispatches the view on market change, but if this view is the active
   // one we want to filter the EXISTING rows array rather than refetching.
@@ -591,15 +706,18 @@ export async function renderHistory(root) {
 
   $('btn-csv').addEventListener('click', () => {
     const filtered = applyFilters(rows, currentFilters());
-    const header = ['date','market','tier','tierReasons','name','ticker','sector','strategy','side','entry','tp','sl','slPct','expectedR','current','pctChange','status','winLoss','exitReason','entryStatus'];
-    const csvRows = filtered.map(r => [
-      (r.signalTs || '').slice(0, 10), r.market || '', r.tier || '', (r.tierReasons || []).join(' | '), r.name || '', r.ticker || '', r.sector || '', r.strategy || '', r.side || '',
-      r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '',
-      r.slPct != null ? r.slPct.toFixed(3) : '', r.expectedR != null ? r.expectedR.toFixed(2) : '',
-      r.currentPrice ?? '', r.pctChange != null ? r.pctChange : '',
-      r.status || '', r.winLoss || '', r.exitReason || '',
-      computeEntryStatus(r) || '',
-    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+    const header = ['date','market','tier','tierReasons','name','ticker','sector','sectorName','strategy','side','entry','tp','sl','slPct','rr','current','realizedOrLivePct','status','winLoss','exitReason','entryStatus'];
+    const csvRows = filtered.map(r => {
+      const p = pctFor(r); const rr = rrFor(r);
+      return [
+        (r.signalTs || '').slice(0, 10), r.market || '', r.tier || '', (r.tierReasons || []).join(' | '), r.name || '', r.ticker || '', r.sector || '', sectorName(r.sector) || '', r.strategy || '', r.side || '',
+        r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '',
+        slPctFor(r) != null ? slPctFor(r).toFixed(3) : '', rr != null ? rr.toFixed(2) : '',
+        r.currentPrice ?? '', p != null ? p.toFixed(3) : '',
+        r.status || '', r.winLoss || '', r.exitReason || '',
+        computeEntryStatus(r) || '',
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+    });
     const blob = new Blob([header.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -607,6 +725,14 @@ export async function renderHistory(root) {
     a.click();
     URL.revokeObjectURL(a.href);
   });
+
+  // Restore saved filters on load — unless the URL deep-links specific filters
+  // (those take precedence so dashboard tiles always land on what they target).
+  if (!params.side && !params.tier && !params.strategy) {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(FILTERS_LS_KEY) || 'null'); } catch {}
+    applySavedFilters(saved);
+  }
 
   refresh();
 }

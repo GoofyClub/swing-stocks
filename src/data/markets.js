@@ -79,6 +79,26 @@ export const STARTER_WATCHLIST = [
 
 export const SECTOR_ETFS = ['XLK', 'XLV', 'XLF', 'XLY', 'XLC', 'XLI', 'XLP', 'XLE', 'XLU', 'XLB', 'XLRE'];
 
+// Human-readable names for the sector codes stored on each signal (US SPDR
+// sector ETFs + the NSE sector indices used for India). Used wherever we show
+// a SECTOR column so users see "Technology" instead of the raw "XLK" tag.
+export const SECTOR_NAMES = {
+  // US — SPDR select-sector ETFs
+  XLK: 'Technology', XLV: 'Health Care', XLF: 'Financials', XLY: 'Consumer Discretionary',
+  XLC: 'Communication Services', XLI: 'Industrials', XLP: 'Consumer Staples', XLE: 'Energy',
+  XLU: 'Utilities', XLB: 'Materials', XLRE: 'Real Estate',
+  // India — NSE sector indices
+  '^CNXIT': 'IT', '^NSEBANK': 'Banking', '^CNXFMCG': 'FMCG', '^CNXPHARMA': 'Pharma',
+  '^CNXAUTO': 'Auto', '^CNXENERGY': 'Energy', '^CNXMETAL': 'Metal', '^CNXINFRA': 'Infrastructure',
+};
+
+// Maps a stored sector code to its display name, falling back to the raw code
+// (so an unmapped/new sector still shows something rather than a blank cell).
+export function sectorName(code) {
+  if (!code) return '';
+  return SECTOR_NAMES[code] || code;
+}
+
 export const STARTER_WATCHLIST_INDIA = [
   // NIFTY 50 — 48 stocks across 8 NSE sector indices (stored without .NS; yahooSymbol() appends it)
   // IT — ^CNXIT

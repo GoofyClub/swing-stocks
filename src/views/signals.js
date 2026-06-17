@@ -20,7 +20,7 @@ import { fetchBars, DataFetchError } from '../data/fetchers.js';
 import { scanAllStrategies } from '../strategy/normalize.js';
 import { loadWatchlist } from '../data/watchlist.js';
 import {
-  STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, companyName, nameForTicker,
+  STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, companyName, nameForTicker, sectorName,
 } from '../data/markets.js';
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
@@ -624,7 +624,7 @@ export async function renderSignals(root) {
               <td>${tierBadge(s.tier, s.tierReasons)}</td>
               <td>${escapeHtml(s.name || s.ticker)}</td>
               <td>${escapeHtml(s.ticker)}</td>
-              <td>${escapeHtml(s.sector || '—')}</td>
+              <td title="${escapeHtml(s.sector || '')}">${escapeHtml(sectorName(s.sector) || '—')}</td>
               <td>${escapeHtml(s.short)}</td>
               <td>${escapeHtml(s.side)}</td>
               <td class="num">${(s.entry ?? 0).toFixed(2)}</td>
