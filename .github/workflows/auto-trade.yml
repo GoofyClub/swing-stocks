@@ -1,0 +1,45 @@
+name: Auto-trade (paper)
+
+# Phase 2 execution worker. MANUAL-ONLY by default (workflow_dispatch) so it
+# never runs unattended until you've validated it. DRY_RUN defaults to true —
+# the run logs intended orders WITHOUT submitting. Flip the dry_run input to
+# 'false' to actually place orders (paper unless a user set mode='live').
+#
+# To put it on a schedule later, uncomment the `schedule:` block (run a few
+# minutes after the market open so fresh signals exist).
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Simulate only (true) or actually place orders (false)'
+        required: false
+        default: 'true'
+      only_uid:
+        description: 'Restrict to a single user uid (optional)'
+        required: false
+        default: ''
+  # schedule:
+  #   - cron: "40 13 * * 1-5"   # ~09:40 ET, just after the US open
+
+jobs:
+  auto-trade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Run auto-trade worker
+        env:
+          FIREBASE_PROJECT_ID:           ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          DRY_RUN:  ${{ github.event.inputs.dry_run || 'true' }}
+          ONLY_UID: ${{ github.event.inputs.only_uid || '' }}
+        run: node scripts/auto-trade.mjs

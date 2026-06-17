@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.10.0 — 2026-06-17 (automation Phase 2: paper-execution worker + Live Signals R:R)
+
+### Added
+- **Auto-trade worker** (`scripts/auto-trade.mjs`, `Auto-trade (paper)` Action) —
+  for each user with automation enabled, reads today's signals, applies their
+  rules + portfolio guardrails, sizes by fixed-fractional risk, and submits
+  **bracket orders** (entry + stop + target) via Alpaca. Idempotent (deterministic
+  client order id), with an order journal (`/users/{uid}/autoOrders/{id}`) and a
+  reconciliation pass.
+  - **Safe by default:** `DRY_RUN=true` (logs intended orders without submitting);
+    Alpaca **paper** endpoint forced unless `mode='live'`; manual `workflow_dispatch`
+    only (no unattended schedule yet).
+  - Guardrails live in the worker: max concurrent positions, per-sector cap,
+    portfolio-heat cap, daily-loss halt, slippage budget, trade-day gate, price
+    band, liquidity floor, and ticker exclusion list.
+- **Pure engine** (`src/auto/engine.js`) — sizing, rule-matching, guardrails,
+  idempotency, slippage, bracket-intent — covered by **36 unit tests**
+  (`tests/auto.mjs`, now part of `npm test`).
+- **Alpaca adapter** (`src/broker/alpaca.js`) — account, positions, bracket order
+  submit, order lookup/reconcile; no SDK dependency.
+- **Planned R:R column** added to **Live Signals** (matches Signal History).
+- Owner-read Firestore rule for the `autoOrders` journal (requires a rules deploy).
+
+### Notes
+- Requires a Firestore rules deploy for the new `autoOrders` rule.
+- Set repo secrets `FIREBASE_PROJECT_ID` + `FIREBASE_SERVICE_ACCOUNT_JSON` (already
+  used by the refresh cron). Each user's broker keys come from their own config.
+
 ## v0.9.1 — 2026-06-17 (outcome R per trade + NET R totals)
 
 ### Why

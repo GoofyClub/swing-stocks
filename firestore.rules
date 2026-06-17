@@ -87,6 +87,14 @@ service cloud.firestore {
       match /automation/{docId} {
         allow read, write: if isOwner(uid);
       }
+
+      // Auto-trade order journal (/users/{uid}/autoOrders/{clientOrderId}).
+      // Written by the execution worker via the Admin SDK (bypasses rules); the
+      // owner may READ their own order history. Clients must not write here.
+      match /autoOrders/{orderId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
     }
 
     // -----------------------------------------------------------------------

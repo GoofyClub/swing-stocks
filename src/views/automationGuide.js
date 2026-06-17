@@ -30,14 +30,15 @@ export function renderAutomationGuide(root) {
 
       <section class="guide-section" id="a-status">
         <h2>★ Status &amp; roadmap</h2>
-        <div class="guide-warn"><b>Current status: config-only.</b> The Automation settings page saves your rules to your private profile, but the server-side execution worker that places broker orders is <b>not yet deployed</b>. No live or paper orders are sent until it ships. Nothing on the settings page can move money today.</div>
+        <div class="guide-warn"><b>Current status: paper worker shipped, manual + dry-run.</b> The execution worker (<code>scripts/auto-trade.mjs</code>) is in the repo and runnable via the <i>Auto-trade (paper)</i> GitHub Action. It defaults to <b>DRY_RUN</b> (logs intended orders without submitting) and to the Alpaca <b>paper</b> endpoint. It only acts for users who set <b>Enable = on</b> and provided broker keys. No scheduled/unattended runs yet.</div>
         <p>Rollout is phased so real money is only ever at risk after the safeguards are proven:</p>
         <ol>
           <li><b>Phase 1 — Config (shipped):</b> rules UI (markets, strategies, tiers, risk, filters), persisted per user.</li>
-          <li><b>Phase 2 — Paper execution:</b> worker reads matching signals + your rules and places <b>bracket orders</b> against a paper broker account. Run in shadow for weeks; compare paper fills to the backtest.</li>
-          <li><b>Phase 3 — Guardrails:</b> portfolio heat cap, daily-loss halt, market-regime gate, slippage guard, global kill switch, reconciliation loop.</li>
+          <li><b>Phase 2 — Paper execution (shipped):</b> worker reads matching signals + your rules, sizes by fixed-fractional risk, and submits <b>bracket orders</b> (entry + stop + target) to a paper account. Idempotent (deterministic client order id), with an order journal + reconciliation. Runs manually, dry-run by default.</li>
+          <li><b>Phase 3 — Guardrails (partly in):</b> position/sector caps, portfolio-heat cap, daily-loss halt, slippage guard, and trade-day gate are <b>live in the worker</b>. Still to add: market-regime gate and a global kill switch.</li>
           <li><b>Phase 4 — Live (small size):</b> US first, tiny position sizes; India once the regulatory path is confirmed.</li>
         </ol>
+        <p class="muted">How to run it: GitHub → Actions → <b>Auto-trade (paper)</b> → Run workflow. Leave <code>dry_run = true</code> first and read the logs; set it to <code>false</code> only once the dry-run output looks right.</p>
       </section>
 
       <section class="guide-section" id="a-how">
@@ -148,7 +149,8 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
-          <tr><td>2026-06-17</td><td>Phase 1 shipped: Automation settings page (broker connection, markets/tiers/strategies/sides, trade days, price band, liquidity floor, exclusion list, risk &amp; sizing) + this guide.</td></tr>
+          <tr><td>2026-06-17</td><td>Phase 2: paper-execution worker (<code>scripts/auto-trade.mjs</code> + <i>Auto-trade (paper)</i> Action). Risk-based sizing, bracket orders, idempotent client order ids, order journal + reconciliation, and guardrails (position/sector caps, portfolio heat, daily-loss halt, slippage, trade-day gate). Manual + dry-run by default; Alpaca paper enforced unless mode=live.</td></tr>
+          <tr><td>2026-06-17</td><td>Phase 1: Automation settings page (broker connection, markets/tiers/strategies/sides, trade days, price band, liquidity floor, exclusion list, risk &amp; sizing) + this guide.</td></tr>
         </tbody></table>
       </section>
     </div>

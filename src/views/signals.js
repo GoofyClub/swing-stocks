@@ -33,6 +33,18 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Planned reward-to-risk for a signal: TP distance ÷ SL distance (the setup
+// geometry, known at signal time). Prefers a stored expectedR if present.
+function plannedRR(s) {
+  if (s.expectedR != null) return s.expectedR;
+  if (s.entry != null && s.tp != null && s.sl != null) {
+    const reward = Math.abs(s.tp - s.entry);
+    const risk = Math.abs(s.entry - s.sl);
+    return risk > 0 ? reward / risk : null;
+  }
+  return null;
+}
+
 // =============================================================================
 // Module-level state
 // =============================================================================
@@ -604,7 +616,7 @@ export async function renderSignals(root) {
       <table class="data">
         <thead><tr>
           <th></th><th>TIER</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>STRATEGY</th><th>SIDE</th>
-          <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th>
+          <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th><th class="num">R:R</th>
           ${isCron ? '<th class="num">CURRENT</th><th class="num">%Δ</th><th>W/L</th>' : '<th>REASON</th>'}
         </tr></thead>
         <tbody>
@@ -630,6 +642,7 @@ export async function renderSignals(root) {
               <td class="num">${(s.entry ?? 0).toFixed(2)}</td>
               <td class="num" style="color:var(--green)">${(s.tp ?? 0).toFixed(2)}</td>
               <td class="num" style="color:var(--red)">${(s.sl ?? 0).toFixed(2)}</td>
+              <td class="num" title="Planned reward-to-risk: TP distance ÷ SL distance">${(() => { const rr = plannedRR(s); return rr == null ? '—' : rr.toFixed(2) + ':1'; })()}</td>
               ${lastCols}
             </tr>`;
           }).join('')}
