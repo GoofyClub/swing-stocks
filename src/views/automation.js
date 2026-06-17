@@ -156,7 +156,8 @@ export async function renderAutomation(root) {
         ${numField('a-maxpos', 'Max open positions', cfg.maxConcurrentPositions, 'step="1" min="0"')}
         ${numField('a-maxsector', 'Max per sector', cfg.maxPositionsPerSector, 'step="1" min="0"')}
         ${numField('a-heat', 'Max portfolio heat %', cfg.maxPortfolioHeatPct, 'step="0.5" min="0"', 'Sum of open risk')}
-        ${numField('a-dailyhalt', 'Daily loss halt %', cfg.dailyLossHaltPct, 'step="0.5" min="0"', 'Stop new entries')}
+        ${numField('a-dailyhalt', 'Daily loss halt %', cfg.dailyLossHaltPct, 'step="0.5" min="0"', 'Stop new entries (intraday)')}
+        ${numField('a-ddhalt', 'Max drawdown halt %', cfg.maxDrawdownHaltPct, 'step="1" min="0"', 'Equity peak-to-now (0 = off)')}
         ${numField('a-slippage', 'Slippage budget %', cfg.slippageBudgetPct, 'step="0.05" min="0"', 'Skip if price ran away')}
       </div>
     </div>
@@ -202,6 +203,7 @@ export async function renderAutomation(root) {
       maxPositionsPerSector: num('a-maxsector', DEFAULT_AUTOMATION.maxPositionsPerSector),
       maxPortfolioHeatPct: num('a-heat', DEFAULT_AUTOMATION.maxPortfolioHeatPct),
       dailyLossHaltPct: num('a-dailyhalt', DEFAULT_AUTOMATION.dailyLossHaltPct),
+      maxDrawdownHaltPct: num('a-ddhalt', DEFAULT_AUTOMATION.maxDrawdownHaltPct),
       slippageBudgetPct: num('a-slippage', DEFAULT_AUTOMATION.slippageBudgetPct),
     };
   }

@@ -76,7 +76,8 @@ export function renderAutomationGuide(root) {
           <tr><td><b>Max open positions</b></td><td>Hard cap on concurrent positions.</td></tr>
           <tr><td><b>Max per sector</b></td><td>Cap on positions in one sector — prevents over-concentration in a single theme.</td></tr>
           <tr><td><b>Max portfolio heat %</b></td><td>Cap on the <i>sum</i> of open risk across all positions — your worst-case same-day drawdown.</td></tr>
-          <tr><td><b>Daily loss halt %</b></td><td>Stop opening new positions once the day's loss hits this level (circuit breaker).</td></tr>
+          <tr><td><b>Daily loss halt %</b></td><td>Stop opening new positions once the day's loss hits this level (intraday circuit breaker).</td></tr>
+          <tr><td><b>Max drawdown halt %</b></td><td>Account-level circuit breaker: stop opening new positions when equity is this far below its all-time peak (high-water mark). A multi-day backstop; 0 = off. Existing positions keep their stops.</td></tr>
           <tr><td><b>Slippage budget %</b></td><td>At execution, skip a signal if the live price has already run past the entry by more than this.</td></tr>
         </tbody></table>
       </section>
@@ -152,6 +153,7 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
+          <tr><td>2026-06-17</td><td>Risk + reporting: account-level <b>max-drawdown halt</b> (stops new entries when equity falls a set % below its peak; persists a high-water mark) and an <b>equity curve + P&amp;L summary</b> on the Auto Orders page (current/change/peak/drawdown from daily equity snapshots).</td></tr>
           <tr><td>2026-06-17</td><td>Phase 4 prep: pre-trade <b>live-quote slippage check</b> (Alpaca data API) and a <b>market-hours guard</b> (skips placing when the market is closed; dry-run continues). Added a read-only <b>Alpaca smoke-test</b> (<code>npm run auto:smoketest</code>). Noted that the US PDT $25k day-trading rule has been removed.</td></tr>
           <tr><td>2026-06-17</td><td>Sizing: added <b>Fixed $ per trade</b> mode and a <b>Max $ per position</b> cap (both whole-shares, bracket-safe) for small accounts, plus buying-power awareness in the worker (skips a trade it can't fund). Note: fractional shares aren't supported because Alpaca disallows them with bracket orders.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 3: market-regime gate (blocks new longs when risk-off), global kill switch (env <code>KILL_SWITCH</code> / <code>publicConfig/automation.paused</code>), and an <b>Auto Orders</b> page showing the worker's journal. New "Respect market regime" toggle on the settings page.</td></tr>

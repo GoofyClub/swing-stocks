@@ -48,6 +48,7 @@ export const DEFAULT_AUTOMATION = {
   maxPositionsPerSector: 2,
   maxPortfolioHeatPct: 4,    // cap on summed open risk across all positions
   dailyLossHaltPct: 3,       // halt new entries after this daily drawdown
+  maxDrawdownHaltPct: 20,    // halt new entries when equity is this far below its peak (0 = off)
   slippageBudgetPct: 0.3,    // skip if live price ran past entry by more than this
 
   updatedAt: null,

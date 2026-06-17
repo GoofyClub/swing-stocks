@@ -84,6 +84,17 @@ export function passesPortfolioGuards({ cfg, openCount, sectorCount, openHeatPct
   return { ok: true, reason: null };
 }
 
+// Account-level circuit breaker. Halts NEW entries when equity has fallen
+// maxDrawdownHaltPct from its peak (high-water mark) — a multi-day backstop that
+// complements the intraday daily-loss halt. 0/undefined disables it. Also returns
+// the (possibly updated) peak so the caller can persist the new high-water mark.
+export function drawdownHalted({ equity, peakEquity, maxDrawdownHaltPct }) {
+  const peak = Math.max(peakEquity || 0, equity || 0);
+  const drawdownPct = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+  const halted = maxDrawdownHaltPct > 0 && drawdownPct >= maxDrawdownHaltPct;
+  return { halted, drawdownPct, peak };
+}
+
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Is `date` an allowed trade day per the config? Uses UTC weekday; the worker

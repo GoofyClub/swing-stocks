@@ -8,7 +8,7 @@
 
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry,
+  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
 } from '../src/auto/engine.js';
 
 let pass = 0, fail = 0;
@@ -103,6 +103,15 @@ console.log('\n--- slippageOk ---');
   t('buy within budget ok', slippageOk(baseCfg, 100, 100.2, 'buy'));
   t('buy past budget skipped', !slippageOk(baseCfg, 100, 100.5, 'buy'));
   t('sell gapped down skipped', !slippageOk(baseCfg, 100, 99.5, 'sell'));
+}
+
+console.log('\n--- drawdownHalted ---');
+{
+  t('within drawdown limit not halted', !drawdownHalted({ equity: 9500, peakEquity: 10000, maxDrawdownHaltPct: 20 }).halted);
+  t('beyond limit halts', drawdownHalted({ equity: 7900, peakEquity: 10000, maxDrawdownHaltPct: 20 }).halted);
+  t('reports drawdown %', Math.abs(drawdownHalted({ equity: 8000, peakEquity: 10000, maxDrawdownHaltPct: 20 }).drawdownPct - 20) < 1e-9);
+  t('new high resets peak, 0 drawdown', drawdownHalted({ equity: 11000, peakEquity: 10000, maxDrawdownHaltPct: 20 }).peak === 11000);
+  t('disabled when pct 0', !drawdownHalted({ equity: 5000, peakEquity: 10000, maxDrawdownHaltPct: 0 }).halted);
 }
 
 console.log('\n--- regimeAllowsEntry ---');

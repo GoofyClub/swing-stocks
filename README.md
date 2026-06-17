@@ -183,7 +183,9 @@ and are readable only by the owner (and the worker via the Admin SDK).
 | `marketData/{date}/regime/{market}` | refresh worker | dashboard + auto-trade worker |
 | `users/{uid}/enteredTrades/{id}` | owner | owner |
 | `users/{uid}/automation/config` | owner | owner + worker (Admin) |
+| `users/{uid}/automation/state` | auto-trade worker (Admin) | owner (equity high-water mark) |
 | `users/{uid}/autoOrders/{clientOrderId}` | auto-trade worker (Admin) | owner (read-only) |
+| `users/{uid}/autoEquity/{date}` | auto-trade worker (Admin) | owner (equity curve) |
 | `users/{uid}/fcmTokens/{token}` | owner | worker (Admin) |
 | `publicConfig/automation` | operator (console) | auto-trade worker |
 

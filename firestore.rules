@@ -95,6 +95,13 @@ service cloud.firestore {
         allow read: if isOwner(uid);
         allow write: if false;
       }
+
+      // Daily account-equity snapshots (/users/{uid}/autoEquity/{date}) for the
+      // equity curve. Written by the worker (Admin); owner reads. No client write.
+      match /autoEquity/{date} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
     }
 
     // -----------------------------------------------------------------------

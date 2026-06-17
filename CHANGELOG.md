@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.14.0 — 2026-06-17 (max-drawdown halt + equity curve / P&L)
+
+### Added
+- **Account-level max-drawdown halt** — stops opening new positions when equity
+  falls a configurable % below its all-time peak (high-water mark persisted in
+  `/users/{uid}/automation/state`). A multi-day backstop complementing the
+  intraday daily-loss halt. New "Max drawdown halt %" setting (default 20, 0 = off).
+  Existing positions keep their stops; reconciliation still runs while halted.
+- **Equity curve + P&L summary** on the **Auto Orders** page — current equity,
+  change since start ($ and %), peak, and drawdown-from-peak, with an inline
+  equity line chart. Driven by daily equity snapshots written to
+  `/users/{uid}/autoEquity/{date}` by the worker.
+- 5 new engine tests for the drawdown halt (52 total in `tests/auto.mjs`).
+
+### Notes
+- Adds owner-read Firestore rule for `autoEquity` — **requires a rules deploy**.
+
 ## v0.13.0 — 2026-06-17 (live-quote slippage, market-hours guard, Alpaca smoke-test)
 
 ### Added

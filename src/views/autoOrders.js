@@ -15,18 +15,41 @@ function fmtTs(ts) {
 
 async function loadAutoOrders() {
   const { db, ok } = initFirebase();
-  if (!ok) return [];
+  if (!ok) return { orders: [], equity: [] };
   const auth = (await import('firebase/auth')).getAuth();
   const user = auth.currentUser;
-  if (!user) return [];
-  const snap = await getDocs(collection(db, 'users', user.uid, 'autoOrders'));
-  const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  rows.sort((a, b) => {
+  if (!user) return { orders: [], equity: [] };
+  const [ordSnap, eqSnap] = await Promise.all([
+    getDocs(collection(db, 'users', user.uid, 'autoOrders')),
+    getDocs(collection(db, 'users', user.uid, 'autoEquity')),
+  ]);
+  const orders = ordSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  orders.sort((a, b) => {
     const at = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
     const bt = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
     return bt - at;
   });
-  return rows;
+  // Equity snapshots are keyed by date (doc id = YYYY-MM-DD) — sort ascending.
+  const equity = eqSnap.docs.map(d => ({ date: d.id, ...d.data() }))
+    .filter(e => Number.isFinite(e.equity))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  return { orders, equity };
+}
+
+// Minimal inline SVG line chart of the equity series (no chart lib).
+function equitySparkline(series, { w = 640, h = 120 } = {}) {
+  if (series.length < 2) return '<div class="empty" style="padding:8px 0">Need at least two daily snapshots to draw the curve.</div>';
+  const vals = series.map(s => s.equity);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const pad = 6, span = (max - min) || 1;
+  const x = (i) => pad + (i / (series.length - 1)) * (w - 2 * pad);
+  const y = (v) => pad + (1 - (v - min) / span) * (h - 2 * pad);
+  const pts = series.map((s, i) => `${x(i).toFixed(1)},${y(s.equity).toFixed(1)}`).join(' ');
+  const up = vals[vals.length - 1] >= vals[0];
+  const color = up ? 'var(--green)' : 'var(--red)';
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" style="display:block">
+    <polyline fill="none" stroke="${color}" stroke-width="1.5" points="${pts}" />
+  </svg>`;
 }
 
 function statusBadge(o) {
@@ -42,16 +65,40 @@ export async function renderAutoOrders(root) {
   root.innerHTML = `
     <div class="view">
       <h1>Auto Orders</h1>
-      <p class="subtitle">Every decision the auto-trade worker recorded — dry-run intents and real orders. Read-only; configure rules on the <a href="#/automation" style="color:var(--cyan)">Automation</a> page.</p>
-      <div class="card"><div id="ao-table"><div class="empty">Loading…</div></div></div>
+      <p class="subtitle">How the automated account is performing, plus every decision the worker recorded — dry-run intents and real orders. Read-only; configure rules on the <a href="#/automation" style="color:var(--cyan)">Automation</a> page.</p>
+      <div id="ao-equity"></div>
+      <div class="card"><h2>Order journal</h2><div id="ao-table"><div class="empty">Loading…</div></div></div>
     </div>
   `;
 
-  let rows = [];
-  try { rows = await loadAutoOrders(); }
+  let rows = [], equity = [];
+  try { ({ orders: rows, equity } = await loadAutoOrders()); }
   catch (e) {
     document.getElementById('ao-table').innerHTML = `<div class="empty" style="text-align:left"><b>Couldn't load auto orders.</b><br><span style="color:var(--red);font-family:var(--font-mono);font-size:0.9rem">${escapeHtml(e.message)}</span></div>`;
     return;
+  }
+
+  // ---- Equity / P&L summary ----
+  const eqEl = document.getElementById('ao-equity');
+  if (equity.length) {
+    const start = equity[0].equity, cur = equity[equity.length - 1].equity;
+    const peak = Math.max(...equity.map(e => e.equity));
+    const chg = cur - start, chgPct = start > 0 ? (chg / start) * 100 : 0;
+    const ddNow = peak > 0 ? ((peak - cur) / peak) * 100 : 0;
+    const stat = (label, val, color) => `<div style="display:flex;flex-direction:column;gap:2px">
+      <span style="color:var(--text-mute);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">${label}</span>
+      <span style="font-family:var(--font-mono);font-size:1.1rem;${color ? `color:${color}` : ''}">${val}</span></div>`;
+    eqEl.innerHTML = `<div class="card">
+      <h2>Account equity <span class="count">(${equity.length} day${equity.length === 1 ? '' : 's'})</span></h2>
+      <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:12px">
+        ${stat('Current', '$' + cur.toFixed(2))}
+        ${stat('Change', (chg >= 0 ? '+$' : '-$') + Math.abs(chg).toFixed(2) + ` (${chg >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)`, chg >= 0 ? 'var(--green)' : 'var(--red)')}
+        ${stat('Peak', '$' + peak.toFixed(2))}
+        ${stat('Drawdown from peak', '-' + ddNow.toFixed(2) + '%', ddNow > 0 ? 'var(--red)' : 'var(--text)')}
+      </div>
+      ${equitySparkline(equity)}
+      <div style="color:var(--text-dim);font-size:0.8rem;font-family:var(--font-mono);margin-top:4px">${escapeHtml(equity[0].date)} → ${escapeHtml(equity[equity.length - 1].date)}</div>
+    </div>`;
   }
 
   if (!rows.length) {

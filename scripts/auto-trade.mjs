@@ -29,7 +29,7 @@
 import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry,
+  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
 } from '../src/auto/engine.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
@@ -131,6 +131,17 @@ async function processUser(db, uid, cfg) {
 
   const equity = account.equity;
   const dayRealizedPct = account.lastEquity > 0 ? ((account.equity - account.lastEquity) / account.lastEquity) * 100 : 0;
+
+  // Account-level drawdown halt + equity snapshot for the curve. The peak (high-
+  // water mark) persists in /users/{uid}/automation/state; a daily snapshot lands
+  // in /users/{uid}/autoEquity/{date} so the app can plot the equity curve.
+  const stateRef = db.collection('users').doc(uid).collection('automation').doc('state');
+  const prevPeak = (await stateRef.get().then(s => s.exists ? s.data().peakEquity : 0).catch(() => 0)) || 0;
+  const dd = drawdownHalted({ equity, peakEquity: prevPeak, maxDrawdownHaltPct: cfg.maxDrawdownHaltPct });
+  await stateRef.set({ peakEquity: dd.peak, lastEquity: equity, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  await db.collection('users').doc(uid).collection('autoEquity').doc(todayKey())
+    .set({ date: todayKey(), equity, peak: dd.peak, drawdownPct: dd.drawdownPct, ts: admin.firestore.FieldValue.serverTimestamp() });
+  if (dd.halted) log(`DRAWDOWN HALT: -${dd.drawdownPct.toFixed(1)}% from peak $${dd.peak.toFixed(0)} (>= ${cfg.maxDrawdownHaltPct}%) — no new entries`);
   let openCount = positions.length;
   const sectorCount = new Map();
   for (const p of positions) {
@@ -152,7 +163,9 @@ async function processUser(db, uid, cfg) {
   signals.sort((a, b) => (tierRank[a.tier] ?? 9) - (tierRank[b.tier] ?? 9));
 
   let placed = 0, skipped = 0;
-  for (const sig of signals) {
+  // When in a drawdown halt we open nothing new, but still fall through to the
+  // reconciliation pass below so existing orders keep updating.
+  for (const sig of (dd.halted ? [] : signals)) {
     const coid = clientOrderId(uid, sig.id);
     const journalRef = db.collection('users').doc(uid).collection('autoOrders').doc(coid);
 
