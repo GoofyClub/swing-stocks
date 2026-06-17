@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.9.1 — 2026-06-17 (outcome R per trade + NET R totals)
+
+### Why
+The R:R column showed *planned* reward-to-risk (set at signal time), which looked
+contradictory next to the result — a loss could show 1.50:1 and a win 0.92:1.
+Planned R:R is the setup geometry, not the outcome.
+
+### Added
+- **Outcome R column** (`OUT R`) on each Signal History row — the realized R once
+  closed (return ÷ risk: a TP-hit on a 2:1 setup ≈ +2R, an SL-hit ≈ −1R). Empty
+  while the trade is open, so it only shows a number once there's a real result.
+  The existing R:R column now explicitly means *planned* reward-to-risk.
+- **NET R column** in the strategy summary — total profit/loss in R across each
+  strategy's closed trades — plus an **ALL totals row** (net R, avg R, win rate,
+  PF, total %Δ) so you can read the bottom line of every listed trade at a glance.
+- Outcome R added to the CSV export (`plannedRR` + `outcomeR` columns).
+
 ## v0.9.0 — 2026-06-17 (automation config + guide, Phase 1)
 
 ### Added

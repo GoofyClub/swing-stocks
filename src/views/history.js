@@ -46,7 +46,8 @@ function slPctFor(r) {
   }
   return null;
 }
-// Planned reward-to-risk ratio (e.g. 2.0 = 2:1). Known at signal time.
+// Planned reward-to-risk ratio (e.g. 2.0 = 2:1). Known at signal time — this is
+// the SETUP geometry (TP distance ÷ SL distance), not the result.
 function rrFor(r) {
   if (r.expectedR != null) return r.expectedR;
   if (r.entryPrice && r.tpPrice != null && r.slPrice != null) {
@@ -55,6 +56,16 @@ function rrFor(r) {
     return risk > 0 ? reward / risk : null;
   }
   return null;
+}
+// Outcome R — the realized R multiple once CLOSED (return ÷ risk taken). A
+// TP-hit on a 2:1 setup ≈ +2R; an SL-hit ≈ −1R. Null while the trade is open,
+// so the column stays empty until there's a real result to show.
+function resultRFor(r) {
+  if (r.status !== 'closed') return null;
+  const p = pctFor(r);
+  const slp = slPctFor(r);
+  if (p == null || slp == null) return null;
+  return p / slp;
 }
 
 function parseHashParams() {
@@ -172,6 +183,8 @@ function summariseByStrategy(rows) {
       winRate: closed ? s.wins / closed : null,
       avgPct:  closed ? s.totalPct / closed : 0,
       avgR:    s.rCount ? s.sumR / s.rCount : null,
+      // Net R = total profit/loss in R across all closed trades for this strategy.
+      netR:    s.rCount ? s.sumR : null,
       avgRR:   s.rrCount ? s.sumRR / s.rrCount : null,
       // Profit factor: >1 net-profitable, ∞ when there are wins but no losses yet.
       profitFactor: s.grossLoss > 0 ? s.grossWin / s.grossLoss : (s.grossWin > 0 ? Infinity : null),
@@ -216,7 +229,10 @@ const SIGNAL_COLUMNS = {
   tp:      { label: 'TP',            header: '<th class="num">TP</th>', render: r => `<td class="num" style="color:var(--green)">${(r.tpPrice ?? 0).toFixed(2)}</td>` },
   sl:      { label: 'SL',            header: '<th class="num">SL</th>', render: r => `<td class="num" style="color:var(--red)">${(r.slPrice ?? 0).toFixed(2)}</td>` },
   rr:      { label: 'R:R (planned)', header: '<th class="num">R:R</th>',
-             render: r => { const rr = rrFor(r); return `<td class="num" title="Planned reward-to-risk: TP distance ÷ SL distance">${rr == null ? '—' : rr.toFixed(2) + ':1'}</td>`; } },
+             render: r => { const rr = rrFor(r); return `<td class="num" title="Planned reward-to-risk at signal time: TP distance ÷ SL distance. Fixed regardless of outcome.">${rr == null ? '—' : rr.toFixed(2) + ':1'}</td>`; } },
+  resultr: { label: 'Outcome R (result)', header: '<th class="num">OUT R</th>',
+             render: r => { const rr = resultRFor(r); if (rr == null) return '<td class="num" style="color:var(--text-dim)">—</td>';
+               const c = rr >= 0 ? 'var(--green)' : 'var(--red)'; return `<td class="num" style="color:${c}" title="Realized R once closed: return ÷ risk taken. +2R = made twice the risk; −1R = lost the full risk.">${(rr >= 0 ? '+' : '') + rr.toFixed(2)}R</td>`; } },
   current: { label: 'Current price', header: '<th class="num">CURRENT</th>', render: r => `<td class="num">${r.currentPrice != null ? r.currentPrice.toFixed(2) : '—'}</td>` },
   sector:  { label: 'Sector',        header: '<th>SECTOR</th>', render: r => `<td title="${escapeHtml(r.sector || '')}">${escapeHtml(sectorName(r.sector) || '—')}</td>` },
   tier:    { label: 'Tier',          header: '<th>TIER</th>', render: r => `<td>${tierBadge(r.tier, r.tierReasons)}</td>` },
@@ -225,7 +241,7 @@ const SIGNAL_COLUMNS = {
 };
 // User-requested default order: date, name, ticker, strategy, status, %, entry,
 // TP, SL, then the remaining columns. 'star' is the fixed action column.
-const DEFAULT_SIGNAL_COL_ORDER = ['star', 'date', 'name', 'ticker', 'strategy', 'wl', 'pct', 'entry', 'tp', 'sl', 'rr', 'current', 'sector', 'tier', 'estatus'];
+const DEFAULT_SIGNAL_COL_ORDER = ['star', 'date', 'name', 'ticker', 'strategy', 'wl', 'pct', 'entry', 'tp', 'sl', 'rr', 'resultr', 'current', 'sector', 'tier', 'estatus'];
 const FIXED_SIGNAL_COLS = ['star'];
 
 export async function renderHistory(root) {
@@ -479,6 +495,21 @@ export async function renderHistory(root) {
       $('summary-table').innerHTML = `<div class="empty">No signals in this window.</div>`;
       return;
     }
+    // Grand totals across every strategy in view — the bottom line of how all
+    // listed trades resulted (net R is the headline profit/loss figure).
+    const tot = groups.reduce((a, g) => ({
+      total: a.total + g.total, aplus: a.aplus + g.aplus,
+      wins: a.wins + g.wins, losses: a.losses + g.losses, open: a.open + g.open,
+      netR: a.netR + (g.netR || 0), netRClosed: a.netRClosed + (g.netR != null ? 1 : 0),
+      totalPct: a.totalPct + g.totalPct, grossWin: a.grossWin + g.grossWin, grossLoss: a.grossLoss + g.grossLoss,
+    }), { total: 0, aplus: 0, wins: 0, losses: 0, open: 0, netR: 0, netRClosed: 0, totalPct: 0, grossWin: 0, grossLoss: 0 });
+    const totClosed = tot.wins + tot.losses;
+    const totWr = totClosed ? Math.round(tot.wins / totClosed * 100) + '%' : '—';
+    const totAvgR = tot.netRClosed ? tot.netR / tot.netRClosed : null;
+    const totPf = tot.grossLoss > 0 ? tot.grossWin / tot.grossLoss : (tot.grossWin > 0 ? Infinity : null);
+    const rSpan = (v, suffix = 'R') => v == null ? '<span style="color:var(--text-dim)">—</span>'
+      : `<span style="color:${v >= 0 ? 'var(--green)' : 'var(--red)'}">${(v >= 0 ? '+' : '') + v.toFixed(2) + suffix}</span>`;
+
     $('summary-table').innerHTML = `
       <table class="data">
         <thead><tr>
@@ -491,6 +522,7 @@ export async function renderHistory(root) {
           <th class="num">WIN RATE</th>
           <th class="num">R:R</th>
           <th class="num">AVG R</th>
+          <th class="num">NET R</th>
           <th class="num">PF</th>
           <th class="num">AVG %Δ</th>
           <th class="num">TOTAL %Δ</th>
@@ -506,6 +538,8 @@ export async function renderHistory(root) {
             const totalColor = g.totalPct >= 0 ? 'var(--green)' : 'var(--red)';
             const rStr = g.avgR == null ? '—' : (g.avgR >= 0 ? '+' : '') + g.avgR.toFixed(2) + 'R';
             const rColor = g.avgR == null ? 'var(--text-dim)' : g.avgR >= 0 ? 'var(--green)' : 'var(--red)';
+            const netRStr = g.netR == null ? '—' : (g.netR >= 0 ? '+' : '') + g.netR.toFixed(2) + 'R';
+            const netRColor = g.netR == null ? 'var(--text-dim)' : g.netR >= 0 ? 'var(--green)' : 'var(--red)';
             const pfStr = g.profitFactor == null ? '—' : g.profitFactor === Infinity ? '∞' : g.profitFactor.toFixed(2);
             const pfColor = g.profitFactor == null ? 'var(--text-dim)'
               : g.profitFactor === Infinity || g.profitFactor >= 1.5 ? 'var(--green)'
@@ -520,13 +554,29 @@ export async function renderHistory(root) {
               <td class="num" style="color:var(--amber)">${g.open}</td>
               <td class="num" style="color:${wrColor}">${wr}</td>
               <td class="num" title="Average planned reward-to-risk ratio (TP distance ÷ SL distance) across these signals.">${rrStr}</td>
-              <td class="num" style="color:${rColor}" title="Average realized R per closed trade (return ÷ risk). +0.50R means each trade nets half its risk on average.">${rStr}</td>
+              <td class="num" style="color:${rColor}" title="Average realized R per closed trade (return ÷ risk).">${rStr}</td>
+              <td class="num" style="color:${netRColor}" title="Net R = total profit/loss in R across all closed trades for this strategy (sum of each closed trade's outcome R).">${netRStr}</td>
               <td class="num" style="color:${pfColor}" title="Profit factor: gross wins ÷ gross losses. >1 is net-profitable.">${pfStr}</td>
               <td class="num" style="color:${avgColor}" title="Average realized %Δ per closed trade">${g.avgPct >= 0 ? '+' : ''}${g.avgPct.toFixed(2)}%</td>
               <td class="num" style="color:${totalColor}" title="Sum of realized %Δ across all closed trades">${g.totalPct >= 0 ? '+' : ''}${g.totalPct.toFixed(2)}%</td>
             </tr>`;
           }).join('')}
         </tbody>
+        <tfoot><tr style="border-top:2px solid var(--line);font-weight:600">
+          <td><b>ALL</b></td>
+          <td class="num">${tot.total}</td>
+          <td class="num">${tot.aplus}</td>
+          <td class="num" style="color:var(--green)">${tot.wins}</td>
+          <td class="num" style="color:var(--red)">${tot.losses}</td>
+          <td class="num" style="color:var(--amber)">${tot.open}</td>
+          <td class="num">${totWr}</td>
+          <td class="num">—</td>
+          <td class="num" title="Average realized R per closed trade, across all strategies.">${rSpan(totAvgR)}</td>
+          <td class="num" title="NET R — total profit/loss in R across every closed trade listed. This is the bottom line of how all the trades resulted.">${rSpan(tot.netRClosed ? tot.netR : null)}</td>
+          <td class="num" title="Profit factor across all closed trades.">${totPf == null ? '—' : totPf === Infinity ? '∞' : totPf.toFixed(2)}</td>
+          <td class="num">—</td>
+          <td class="num" title="Sum of realized %Δ across every closed trade listed.">${rSpan(tot.totalPct, '%')}</td>
+        </tr></tfoot>
       </table>
     `;
     // Click a summary row → set the strategy filter to that row's strategy.
@@ -706,13 +756,13 @@ export async function renderHistory(root) {
 
   $('btn-csv').addEventListener('click', () => {
     const filtered = applyFilters(rows, currentFilters());
-    const header = ['date','market','tier','tierReasons','name','ticker','sector','sectorName','strategy','side','entry','tp','sl','slPct','rr','current','realizedOrLivePct','status','winLoss','exitReason','entryStatus'];
+    const header = ['date','market','tier','tierReasons','name','ticker','sector','sectorName','strategy','side','entry','tp','sl','slPct','plannedRR','outcomeR','current','realizedOrLivePct','status','winLoss','exitReason','entryStatus'];
     const csvRows = filtered.map(r => {
-      const p = pctFor(r); const rr = rrFor(r);
+      const p = pctFor(r); const rr = rrFor(r); const outR = resultRFor(r);
       return [
         (r.signalTs || '').slice(0, 10), r.market || '', r.tier || '', (r.tierReasons || []).join(' | '), r.name || '', r.ticker || '', r.sector || '', sectorName(r.sector) || '', r.strategy || '', r.side || '',
         r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '',
-        slPctFor(r) != null ? slPctFor(r).toFixed(3) : '', rr != null ? rr.toFixed(2) : '',
+        slPctFor(r) != null ? slPctFor(r).toFixed(3) : '', rr != null ? rr.toFixed(2) : '', outR != null ? outR.toFixed(3) : '',
         r.currentPrice ?? '', p != null ? p.toFixed(3) : '',
         r.status || '', r.winLoss || '', r.exitReason || '',
         computeEntryStatus(r) || '',
