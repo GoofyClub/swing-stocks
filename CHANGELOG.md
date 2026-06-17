@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.13.0 — 2026-06-17 (live-quote slippage, market-hours guard, Alpaca smoke-test)
+
+### Added
+- **Live-quote slippage check** — the worker fetches a live trade price from the
+  Alpaca data API for the pre-trade slippage guard instead of the cron's last
+  close (falls back to the close if the data API is unavailable).
+- **Market-hours guard** — won't place orders when the market is closed; dry-run
+  continues so you can test any time. Adds `getClock()` + `getLatestPrice()` to
+  the Alpaca adapter.
+- **Alpaca smoke-test** (`scripts/alpaca-smoketest.mjs`, `npm run auto:smoketest`)
+  — read-only validation of account/clock/positions/latest-price against a real
+  (paper) account; places no orders.
+
+### Changed
+- **PDT note updated** — the US Pattern Day Trader rule ($25k minimum / 3-day-
+  trades-per-5-days) has been removed; day-trade frequency is no longer capped by
+  account size. Updated in the Automation guide and README.
+
 ## v0.12.0 — 2026-06-17 (sizing modes for small capital)
 
 ### Added

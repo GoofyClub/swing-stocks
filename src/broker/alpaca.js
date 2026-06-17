@@ -9,11 +9,12 @@
 // secret. The worker decides paper vs live; this adapter just talks to baseUrl.
 // =============================================================================
 
-export function createAlpacaClient({ baseUrl, apiKey, apiSecret, fetchImpl = globalThis.fetch }) {
+export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = 'https://data.alpaca.markets', fetchImpl = globalThis.fetch }) {
   if (!baseUrl || !apiKey || !apiSecret) {
     throw new Error('Alpaca client needs baseUrl, apiKey, apiSecret');
   }
   const root = baseUrl.replace(/\/$/, '');
+  const dataRoot = dataBaseUrl.replace(/\/$/, '');
   const headers = {
     'APCA-API-KEY-ID': apiKey,
     'APCA-API-SECRET-KEY': apiSecret,
@@ -93,6 +94,26 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, fetchImpl = glo
     // Order status by Alpaca order id (reconciliation).
     async getOrder(orderId) {
       return req('GET', `/v2/orders/${encodeURIComponent(orderId)}`);
+    },
+
+    // Market clock — is the (US) market open right now, and when does it next
+    // open/close. Used to avoid placing orders outside regular session.
+    async getClock() {
+      const c = await req('GET', '/v2/clock');
+      return { isOpen: !!c.is_open, nextOpen: c.next_open, nextClose: c.next_close, timestamp: c.timestamp };
+    },
+
+    // Latest trade price from the market-data API (separate host). Used for the
+    // pre-trade slippage check so we compare against a live price, not a stale
+    // EOD close. Returns null on any failure so the caller can fall back.
+    async getLatestPrice(symbol) {
+      try {
+        const res = await fetchImpl(`${dataRoot}/v2/stocks/${encodeURIComponent(symbol)}/trades/latest`, { headers });
+        if (!res.ok) return null;
+        const j = await res.json().catch(() => null);
+        const p = j?.trade?.p;
+        return Number.isFinite(p) ? p : null;
+      } catch { return null; }
     },
   };
 }

@@ -115,11 +115,19 @@ async function processUser(db, uid, cfg) {
   const live = cfg.mode === 'live';
   const client = createAlpacaClient({ baseUrl, apiKey: cfg.apiKey, apiSecret: cfg.apiSecret });
 
-  let account, positions;
+  let account, positions, clock;
   try {
     account = await client.getAccount();
     positions = await client.getPositions();
+    clock = await client.getClock();
   } catch (e) { log(`broker connect failed: ${e.message} — skipping`); return; }
+
+  // Market-hours guard: never place real orders outside the regular session.
+  // In dry-run we continue (so you can test any time) but flag it.
+  if (!clock.isOpen) {
+    if (!DRY_RUN) { log(`market closed (next open ${clock.nextOpen}) — skipping`); return; }
+    log(`market closed (next open ${clock.nextOpen}) — dry-run continues for testing`);
+  }
 
   const equity = account.equity;
   const dayRealizedPct = account.lastEquity > 0 ? ((account.equity - account.lastEquity) / account.lastEquity) * 100 : 0;
@@ -159,8 +167,11 @@ async function processUser(db, uid, cfg) {
       if (!reg.ok) { log(`skip ${sig.ticker}: ${reg.reason}`); skipped++; continue; }
     }
 
-    if (!slippageOk(cfg, sig.entryPrice, sig.currentPrice, sig.side || 'buy')) {
-      log(`skip ${sig.ticker}: slippage (live ${sig.currentPrice} vs entry ${sig.entryPrice})`); skipped++; continue;
+    // Prefer a live trade price for the slippage check; fall back to the cron's
+    // last close if the data API is unavailable.
+    const livePrice = (await client.getLatestPrice(sig.ticker)) ?? sig.currentPrice;
+    if (!slippageOk(cfg, sig.entryPrice, livePrice, sig.side || 'buy')) {
+      log(`skip ${sig.ticker}: slippage (live ${livePrice} vs entry ${sig.entryPrice})`); skipped++; continue;
     }
 
     const sec = sig.sector || SECTOR_BY_TICKER.get(sig.ticker) || '?';

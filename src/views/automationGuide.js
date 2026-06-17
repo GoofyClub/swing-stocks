@@ -36,7 +36,7 @@ export function renderAutomationGuide(root) {
           <li><b>Phase 1 — Config (shipped):</b> rules UI (markets, strategies, tiers, risk, filters), persisted per user.</li>
           <li><b>Phase 2 — Paper execution (shipped):</b> worker reads matching signals + your rules, sizes by fixed-fractional risk, and submits <b>bracket orders</b> (entry + stop + target) to a paper account. Idempotent (deterministic client order id), with an order journal + reconciliation. Runs manually, dry-run by default.</li>
           <li><b>Phase 3 — Guardrails (shipped):</b> position/sector caps, portfolio-heat cap, daily-loss halt, slippage guard, trade-day gate, <b>market-regime gate</b> (blocks new longs when risk-off), and a <b>global kill switch</b> (env <code>KILL_SWITCH</code> or <code>publicConfig/automation.paused</code>). An <b>Auto Orders</b> page shows what the worker did.</li>
-          <li><b>Phase 4 — Live (small size):</b> US first, tiny position sizes; India once the regulatory path is confirmed.</li>
+          <li><b>Phase 4 — Live (small size):</b> US first, tiny position sizes; India once the regulatory path is confirmed. Pre-trade live-quote slippage check and a market-hours guard are <b>in</b>; an Alpaca smoke-test (<code>npm run auto:smoketest</code>) validates the adapter against a real paper account.</li>
         </ol>
         <p class="muted">How to run it: GitHub → Actions → <b>Auto-trade (paper)</b> → Run workflow. Leave <code>dry_run = true</code> first and read the logs; set it to <code>false</code> only once the dry-run output looks right.</p>
       </section>
@@ -129,7 +129,7 @@ export function renderAutomationGuide(root) {
       <section class="guide-section" id="a-legal">
         <h2>7. Legal &amp; compliance</h2>
         <ul>
-          <li><b>US Pattern Day Trader rule</b> — accounts under $25k are capped at 3 day-trades per 5 business days. Swing horizons mostly avoid this, but same-day native/time-stop exits can trip it.</li>
+          <li><b>US Pattern Day Trader rule — removed.</b> The old $25k minimum / 3-day-trades-per-5-days restriction no longer applies, so day-trade frequency isn't capped by account size. (Confirm your broker's current terms, which can differ.)</li>
           <li><b>India SEBI</b> — automated/API order placement requires broker approval; verify before going live.</li>
           <li><b>Taxes</b> — keep the audit journal; track wash sales (US) and short-term gains.</li>
           <li><b>This is not financial advice.</b> You are responsible for every order placed under your credentials.</li>
@@ -152,6 +152,7 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
+          <tr><td>2026-06-17</td><td>Phase 4 prep: pre-trade <b>live-quote slippage check</b> (Alpaca data API) and a <b>market-hours guard</b> (skips placing when the market is closed; dry-run continues). Added a read-only <b>Alpaca smoke-test</b> (<code>npm run auto:smoketest</code>). Noted that the US PDT $25k day-trading rule has been removed.</td></tr>
           <tr><td>2026-06-17</td><td>Sizing: added <b>Fixed $ per trade</b> mode and a <b>Max $ per position</b> cap (both whole-shares, bracket-safe) for small accounts, plus buying-power awareness in the worker (skips a trade it can't fund). Note: fractional shares aren't supported because Alpaca disallows them with bracket orders.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 3: market-regime gate (blocks new longs when risk-off), global kill switch (env <code>KILL_SWITCH</code> / <code>publicConfig/automation.paused</code>), and an <b>Auto Orders</b> page showing the worker's journal. New "Respect market regime" toggle on the settings page.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 2: paper-execution worker (<code>scripts/auto-trade.mjs</code> + <i>Auto-trade (paper)</i> Action). Risk-based sizing, bracket orders, idempotent client order ids, order journal + reconciliation, and guardrails (position/sector caps, portfolio heat, daily-loss halt, slippage, trade-day gate). Manual + dry-run by default; Alpaca paper enforced unless mode=live.</td></tr>

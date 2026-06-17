@@ -28,6 +28,7 @@ generation and (paper) auto-trading.
 | Run signal refresh now | GitHub → Actions → **Refresh shared signals** → Run workflow |
 | Run auto-trade (dry-run) | GitHub → Actions → **Auto-trade (paper)** → Run workflow (`dry_run=true`) |
 | Place real paper orders | same Action with `dry_run=false` |
+| Validate broker adapter | `ALPACA_KEY=... ALPACA_SECRET=... npm run auto:smoketest` (read-only) |
 | Kill all automation | Auto-trade Action with `kill_switch=true`, **or** set Firestore `publicConfig/automation.paused = true` |
 
 > ⚠️ **Pushing to `main` deploys the app automatically. It does NOT deploy
@@ -133,10 +134,28 @@ DRY_RUN=false ONLY_UID=<uid> node scripts/auto-trade.mjs
 - Persisted: set Firestore `publicConfig/automation` doc field `paused: true`
   (via the Firebase console). The worker checks this every run and aborts.
 
-**Recommended rollout:** keep `dry_run=true`, inspect the Action logs and the
-in-app **Auto Orders** page, then run one real paper order with `only_uid=<your
-uid>` before trusting it broadly. Go live (`mode='live'`) only after weeks of
-clean paper results, US-only, tiny size.
+**Pre-trade checks (live):** the worker fetches a **live trade price** (Alpaca
+data API) for the slippage guard instead of the cron's last close, and enforces a
+**market-hours guard** — it won't place orders when the market is closed (dry-run
+still runs so you can test any time).
+
+**Validate the adapter first** with the read-only smoke-test (no orders placed):
+
+```bash
+ALPACA_KEY=... ALPACA_SECRET=... npm run auto:smoketest   # paper base by default
+```
+
+It checks account, clock, positions, and the latest-price endpoint against a real
+account, confirming keys/base URLs/response shapes.
+
+**Recommended rollout:** smoke-test → keep `dry_run=true` and inspect the Action
+logs + in-app **Auto Orders** page → run one real paper order with
+`only_uid=<your uid>` → go live (`mode='live'`) only after weeks of clean paper
+results, tiny size.
+
+> **PDT note:** the old US Pattern Day Trader rule (the $25k minimum / 3-day-trades-
+> per-5-days cap) has been removed, so day-trade frequency is no longer limited by
+> account size. Confirm your broker's current terms regardless.
 
 ---
 
