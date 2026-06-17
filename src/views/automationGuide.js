@@ -69,7 +69,10 @@ export function renderAutomationGuide(root) {
           <tr><td><b>Min / Max price</b></td><td>Skip signals priced outside this band (avoid illiquid penny names / very high-priced shares).</td></tr>
           <tr><td><b>Min 20d $ ADV</b></td><td>Liquidity floor — skip names that don't trade enough dollar volume to fill cleanly.</td></tr>
           <tr><td><b>Exclude tickers</b></td><td>Symbols to never auto-trade, regardless of signal (e.g. names you hold elsewhere or distrust).</td></tr>
-          <tr><td><b>Risk per trade %</b></td><td>% of equity risked per trade. Shares = (equity × risk%) ÷ (entry × SL distance%). Normalizes every trade to the same dollar risk.</td></tr>
+          <tr><td><b>Sizing mode</b></td><td><b>Risk %</b> = size so a fixed % of equity is at risk (capital used varies with stop width). <b>Fixed $</b> = spend a set dollar amount per trade — best for small accounts.</td></tr>
+          <tr><td><b>Fixed $ per trade</b></td><td>[Fixed mode] Dollars to deploy per signal. Whole shares only, so a budget below one share's price skips that trade. Pair with a low <i>Max price</i> so signals are affordable.</td></tr>
+          <tr><td><b>Max $ per position</b></td><td>Hard cap on dollars in any single position (both modes). 0 = no cap. The simplest way to guarantee you never put more than you intend into one name.</td></tr>
+          <tr><td><b>Risk per trade %</b></td><td>[Risk mode] % of equity risked per trade. Shares = (equity × risk%) ÷ SL distance. Normalizes every trade to the same dollar risk.</td></tr>
           <tr><td><b>Max open positions</b></td><td>Hard cap on concurrent positions.</td></tr>
           <tr><td><b>Max per sector</b></td><td>Cap on positions in one sector — prevents over-concentration in a single theme.</td></tr>
           <tr><td><b>Max portfolio heat %</b></td><td>Cap on the <i>sum</i> of open risk across all positions — your worst-case same-day drawdown.</td></tr>
@@ -149,6 +152,7 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
+          <tr><td>2026-06-17</td><td>Sizing: added <b>Fixed $ per trade</b> mode and a <b>Max $ per position</b> cap (both whole-shares, bracket-safe) for small accounts, plus buying-power awareness in the worker (skips a trade it can't fund). Note: fractional shares aren't supported because Alpaca disallows them with bracket orders.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 3: market-regime gate (blocks new longs when risk-off), global kill switch (env <code>KILL_SWITCH</code> / <code>publicConfig/automation.paused</code>), and an <b>Auto Orders</b> page showing the worker's journal. New "Respect market regime" toggle on the settings page.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 2: paper-execution worker (<code>scripts/auto-trade.mjs</code> + <i>Auto-trade (paper)</i> Action). Risk-based sizing, bracket orders, idempotent client order ids, order journal + reconciliation, and guardrails (position/sector caps, portfolio heat, daily-loss halt, slippage, trade-day gate). Manual + dry-run by default; Alpaca paper enforced unless mode=live.</td></tr>
           <tr><td>2026-06-17</td><td>Phase 1: Automation settings page (broker connection, markets/tiers/strategies/sides, trade days, price band, liquidity floor, exclusion list, risk &amp; sizing) + this guide.</td></tr>

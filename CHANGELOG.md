@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.12.0 — 2026-06-17 (sizing modes for small capital)
+
+### Added
+- **Fixed $ per trade** sizing mode — spend a set dollar amount per signal
+  instead of risk-% of equity. Best for small accounts that want a known, small
+  spend per name.
+- **Max $ per position** — hard cap on the dollars in any single position, in
+  both sizing modes (0 = no cap).
+- **Buying-power awareness** in the worker — skips any trade whose notional
+  exceeds remaining buying power, and reserves capital across a run.
+- 7 new sizing unit tests (47 total in `tests/auto.mjs`).
+
+### Notes
+- Whole shares only (Alpaca bracket orders don't permit fractional shares), so a
+  fixed budget below one share's price skips the trade — pair Fixed $ with a low
+  Max price so signals are affordable. Back-compatible: default mode stays Risk %.
+
 ## v0.11.0 — 2026-06-17 (automation Phase 3: regime gate, kill switch, Auto Orders + README)
 
 ### Added

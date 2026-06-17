@@ -135,9 +135,24 @@ export async function renderAutomation(root) {
     </div>
 
     <div class="card">
-      <h2>Risk &amp; sizing</h2>
+      <h2>Position sizing</h2>
+      <p style="color:var(--text-dim);font-size:0.92rem;margin-top:0"><b>Risk %</b> sizes each trade so a fixed % of equity is at risk (capital used varies with stop width). <b>Fixed $</b> spends a set dollar amount per trade — best for small accounts. Whole shares only; a budget below one share's price skips the trade. <b>Max $ per position</b> hard-caps either mode.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:760px">
-        ${numField('a-risk', 'Risk per trade %', cfg.riskPerTradePct, 'step="0.05" min="0"', 'Sized off SL distance')}
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:0.8rem;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.06em">Sizing mode
+          <select id="a-sizingmode" class="btn-bare">
+            <option value="risk"  ${cfg.sizingMode !== 'fixed' ? 'selected' : ''}>Risk % of equity</option>
+            <option value="fixed" ${cfg.sizingMode === 'fixed' ? 'selected' : ''}>Fixed $ per trade</option>
+          </select>
+        </label>
+        ${numField('a-fixednotional', 'Fixed $ per trade', cfg.fixedNotional, 'step="10" min="0"', 'Used in fixed mode')}
+        ${numField('a-maxnotional', 'Max $ per position', cfg.maxPositionNotional, 'step="10" min="0"', '0 = no cap')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Risk limits</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:760px">
+        ${numField('a-risk', 'Risk per trade %', cfg.riskPerTradePct, 'step="0.05" min="0"', 'Risk mode only')}
         ${numField('a-maxpos', 'Max open positions', cfg.maxConcurrentPositions, 'step="1" min="0"')}
         ${numField('a-maxsector', 'Max per sector', cfg.maxPositionsPerSector, 'step="1" min="0"')}
         ${numField('a-heat', 'Max portfolio heat %', cfg.maxPortfolioHeatPct, 'step="0.5" min="0"', 'Sum of open risk')}
@@ -179,6 +194,9 @@ export async function renderAutomation(root) {
       minPrice: num('a-minprice', DEFAULT_AUTOMATION.minPrice),
       maxPrice: num('a-maxprice', DEFAULT_AUTOMATION.maxPrice),
       minAdvUsd: num('a-minadv', DEFAULT_AUTOMATION.minAdvUsd),
+      sizingMode: $('a-sizingmode').value,
+      fixedNotional: num('a-fixednotional', DEFAULT_AUTOMATION.fixedNotional),
+      maxPositionNotional: num('a-maxnotional', DEFAULT_AUTOMATION.maxPositionNotional),
       riskPerTradePct: num('a-risk', DEFAULT_AUTOMATION.riskPerTradePct),
       maxConcurrentPositions: num('a-maxpos', DEFAULT_AUTOMATION.maxConcurrentPositions),
       maxPositionsPerSector: num('a-maxsector', DEFAULT_AUTOMATION.maxPositionsPerSector),

@@ -131,6 +131,8 @@ async function processUser(db, uid, cfg) {
   }
   // Heat proxy: each open position carries ~riskPerTradePct of risk.
   let openHeatPct = openCount * (cfg.riskPerTradePct || 0);
+  // Track remaining buying power so we never queue more than the account can fund.
+  let availableBp = account.buyingPower;
 
   log(`mode=${cfg.mode} equity=${equity.toFixed(0)} open=${openCount} dayP/L=${dayRealizedPct.toFixed(2)}% dryRun=${DRY_RUN}`);
 
@@ -168,8 +170,13 @@ async function processUser(db, uid, cfg) {
     });
     if (!guard.ok) { log(`skip ${sig.ticker}: ${guard.reason}`); skipped++; continue; }
 
-    const size = sizePosition({ equity, riskPerTradePct: cfg.riskPerTradePct, entry: sig.entryPrice, sl: sig.slPrice });
-    if (size.shares < 1) { log(`skip ${sig.ticker}: size < 1 share`); skipped++; continue; }
+    const size = sizePosition({
+      equity, sizingMode: cfg.sizingMode, riskPerTradePct: cfg.riskPerTradePct,
+      fixedNotional: cfg.fixedNotional, maxPositionNotional: cfg.maxPositionNotional,
+      entry: sig.entryPrice, sl: sig.slPrice,
+    });
+    if (size.shares < 1) { log(`skip ${sig.ticker}: size < 1 share (budget too small for price ${sig.entryPrice})`); skipped++; continue; }
+    if (size.notional > availableBp + 1e-6) { log(`skip ${sig.ticker}: notional $${size.notional.toFixed(0)} > buying power $${availableBp.toFixed(0)}`); skipped++; continue; }
 
     const intent = buildBracketOrder({ signal: sig, shares: size.shares, clientOrderId: coid });
     const journal = {
@@ -200,8 +207,9 @@ async function processUser(db, uid, cfg) {
       }
     }
 
-    // Reserve the slot for subsequent signals this run.
+    // Reserve the slot + capital for subsequent signals this run.
     placed++; openCount++; openHeatPct += cfg.riskPerTradePct || 0;
+    availableBp -= size.notional;
     sectorCount.set(sec, (sectorCount.get(sec) || 0) + 1);
   }
 

@@ -40,7 +40,10 @@ export const DEFAULT_AUTOMATION = {
   minAdvUsd: 20_000_000,     // liquidity floor (20d avg dollar volume)
 
   // --- Risk & sizing ---
-  riskPerTradePct: 0.5,      // % of equity risked per trade (sizes off SL distance)
+  sizingMode: 'risk',        // 'risk' (% of equity) | 'fixed' ($ per trade)
+  riskPerTradePct: 0.5,      // [risk mode] % of equity risked per trade (off SL distance)
+  fixedNotional: 100,        // [fixed mode] $ to deploy per trade
+  maxPositionNotional: 0,    // hard $ cap per position (0 = no cap), both modes
   maxConcurrentPositions: 8,
   maxPositionsPerSector: 2,
   maxPortfolioHeatPct: 4,    // cap on summed open risk across all positions

@@ -14,17 +14,34 @@ export function clientOrderId(uid, signalId) {
   return `at.${uid}.${signalId}`.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 120);
 }
 
-// Position size from fixed-fractional risk. shares = (equity × risk%) ÷ risk/share
-// where risk/share = |entry − stop|. Returns 0 shares when inputs are unusable
-// (no equity, no stop distance) so the caller simply skips the trade.
-export function sizePosition({ equity, riskPerTradePct, entry, sl }) {
+// Position size. Two modes:
+//   • 'risk'  (default) — fixed-fractional risk: shares = (equity × risk%) ÷
+//                         |entry − stop|. Capital deployed varies with stop width.
+//   • 'fixed' — a fixed dollar budget per trade: shares = fixedNotional ÷ entry.
+//                Best for small accounts that want a known, small spend per name.
+// `maxPositionNotional` (when > 0) hard-caps the dollars in any single position
+// in BOTH modes. Whole shares only (Alpaca bracket orders don't allow fractional),
+// so a budget below one share's price yields 0 shares → the caller skips.
+export function sizePosition({ equity, sizingMode = 'risk', riskPerTradePct, fixedNotional, maxPositionNotional, entry, sl }) {
   const riskPerShare = (entry != null && sl != null) ? Math.abs(entry - sl) : 0;
-  const dollarRisk = (equity > 0 && riskPerTradePct > 0) ? equity * (riskPerTradePct / 100) : 0;
-  if (riskPerShare <= 0 || dollarRisk <= 0 || !(entry > 0)) {
-    return { shares: 0, riskPerShare, dollarRisk, notional: 0 };
+  const zero = { shares: 0, riskPerShare, dollarRisk: 0, notional: 0 };
+  if (!(entry > 0)) return zero;
+
+  let rawShares;
+  if (sizingMode === 'fixed') {
+    if (!(fixedNotional > 0)) return zero;
+    rawShares = fixedNotional / entry;
+  } else {
+    const dollarRisk = (equity > 0 && riskPerTradePct > 0) ? equity * (riskPerTradePct / 100) : 0;
+    if (riskPerShare <= 0 || dollarRisk <= 0) return zero;
+    rawShares = dollarRisk / riskPerShare;
   }
-  const shares = Math.floor(dollarRisk / riskPerShare);
-  return { shares, riskPerShare, dollarRisk, notional: shares * entry };
+  // Hard cap on capital per position (applies to both modes).
+  if (maxPositionNotional > 0) rawShares = Math.min(rawShares, maxPositionNotional / entry);
+
+  const shares = Math.floor(rawShares);
+  if (shares < 1) return { ...zero, riskPerShare };
+  return { shares, riskPerShare, dollarRisk: riskPerShare > 0 ? shares * riskPerShare : 0, notional: shares * entry };
 }
 
 // Does a signal pass the user's selection rules? Returns every failed reason so

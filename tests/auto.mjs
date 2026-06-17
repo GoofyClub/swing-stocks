@@ -49,6 +49,21 @@ console.log('\n--- sizePosition: fixed-fractional risk ---');
   t('rounds DOWN (never over-risk)', sizePosition({ equity: 100_000, riskPerTradePct: 0.5, entry: 100, sl: 97 }).shares === 166);
 }
 
+console.log('\n--- sizePosition: fixed $ mode + per-position cap (small capital) ---');
+{
+  // Fixed $ budget ignores equity/stop; shares = floor(budget / entry).
+  t('fixed: $200 budget at $50 = 4 shares', sizePosition({ sizingMode: 'fixed', fixedNotional: 200, entry: 50, sl: 47 }).shares === 4);
+  t('fixed: budget below 1 share price = 0', sizePosition({ sizingMode: 'fixed', fixedNotional: 100, entry: 223, sl: 218 }).shares === 0);
+  t('fixed: notional = shares*entry', sizePosition({ sizingMode: 'fixed', fixedNotional: 200, entry: 50, sl: 47 }).notional === 200);
+  t('fixed still tracks dollarRisk from stop', sizePosition({ sizingMode: 'fixed', fixedNotional: 200, entry: 50, sl: 47 }).dollarRisk === 12);
+  // maxPositionNotional caps BOTH modes.
+  t('risk mode capped by max $ per position',
+    sizePosition({ equity: 100_000, riskPerTradePct: 0.5, entry: 100, sl: 95, maxPositionNotional: 1000 }).shares === 10);
+  t('fixed mode under cap unaffected',
+    sizePosition({ sizingMode: 'fixed', fixedNotional: 300, entry: 50, sl: 47, maxPositionNotional: 1000 }).shares === 6);
+  t('default mode is risk (back-compat)', sizePosition({ equity: 100_000, riskPerTradePct: 0.5, entry: 100, sl: 95 }).shares === 100);
+}
+
 console.log('\n--- signalMatchesRules ---');
 {
   t('clean signal passes', signalMatchesRules(sig(), baseCfg).ok);
