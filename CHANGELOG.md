@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.7.0 — 2026-06-16 (realized-return fix, R/profit-factor metrics, longer history)
+
+### Why
+The History strategy summary reported a 50% win rate alongside a near-zero total
+return — a contradiction. Two bugs: closed signals' `pctChange` tracked the *latest
+close* instead of the exit price (a settled −50% SL loss on a stock that later fell
+to −75% was booked as −75%), and the per-strategy average diluted realized results
+by dividing across *open* trades too.
+
+### Fixed
+- **Closed-signal returns frozen at exit.** `resettleRecentSignals` now derives a
+  closed signal's `pctChange` from `verdict.hitPrice` (the tp/sl/native/time-stop
+  level it left at), not the most recent close — matching how My Trades already
+  computed `realizedPct`. `SETTLEMENT_VERSION` → 3 re-grades every retained closed
+  signal once so historical numbers self-correct on the next cron run.
+- **AVG %Δ is closed-only.** The strategy summary's average now sums realized
+  `pctChange` across closed trades only and divides by the closed count, so open
+  positions' paper marks no longer wash out the average.
+
+### Added
+- **AVG R and Profit Factor columns** in the strategy summary. AVG R normalizes each
+  trade by its own risk (`pctChange / slPct`; a TP-hit ≈ +2R, an SL-hit ≈ −1R);
+  Profit Factor is gross wins ÷ gross losses (>1 net-profitable, ∞ = wins, no losses).
+- **TOTAL %Δ column** alongside AVG %Δ — sum of realized %Δ across closed trades.
+- **Longer History timeframes.** Added 6M / 1Y / 2Y / All chips (default stays 90D).
+  Load cap raised 500 → 3000 and signal retention 90 → 800 days so 1Y+ history can
+  accrue. *Retention only affects data captured from here forward; already-pruned
+  buckets are gone.*
+
 ## v0.6.0 — 2026-06-09 (settlement realism, A+ reasons, FVG strategy)
 
 ### Why

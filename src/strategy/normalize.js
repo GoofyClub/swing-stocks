@@ -431,7 +431,8 @@ export { STRATEGY_TARGETS };
 // win/loss reflects the current model without re-checking on every run.
 //   1 — original: fixed TP/SL, first touch, held indefinitely.
 //   2 — entry-trigger gating + RSI(2) native exit + per-strategy time stop.
-export const SETTLEMENT_VERSION = 2;
+//   3 — closed-signal pctChange frozen at exit (hitPrice), not latest close.
+export const SETTLEMENT_VERSION = 3;
 
 // Documented max hold per strategy, in trading bars. After this many held bars
 // with no TP/SL/native exit, settle at that bar's close.

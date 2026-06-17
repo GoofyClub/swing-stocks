@@ -31,14 +31,15 @@ function parseHashParams() {
   return out;
 }
 
-// Pulls a generous window of signals (cap 500) — Firestore Index is on signalTs DESC.
+// Pulls a generous window of signals (cap 3000) — Firestore Index is on signalTs DESC.
 // We then filter client-side by the user-chosen date range so users can flip
-// timeframes without re-reading from the backend.
+// timeframes without re-reading from the backend. The cap is high enough to cover
+// 1Y+ of daily signals across the watchlist; the timeframe chips slice this set.
 async function loadHistory() {
   const { db, ok } = initFirebase();
   if (!ok) return { rows: [], err: 'Firebase not configured (see SETUP.md)' };
   try {
-    const q1 = query(collectionGroup(db, 'signals'), orderBy('signalTs', 'desc'), limit(500));
+    const q1 = query(collectionGroup(db, 'signals'), orderBy('signalTs', 'desc'), limit(3000));
     const snap = await getDocs(q1);
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     return { rows };
@@ -97,24 +98,42 @@ function summariseByStrategy(rows) {
   const m = new Map();
   for (const r of rows) {
     const k = r.strategy || '—';
-    if (!m.has(k)) m.set(k, { strategy: k, total: 0, wins: 0, losses: 0, open: 0, aplus: 0, totalPct: 0 });
+    if (!m.has(k)) m.set(k, { strategy: k, total: 0, wins: 0, losses: 0, open: 0, aplus: 0, totalPct: 0, sumR: 0, rCount: 0, grossWin: 0, grossLoss: 0 });
     const s = m.get(k);
     s.total++;
     if (r.tier === 'A+') s.aplus++;
     if (r.status === 'closed') {
       if (r.winLoss === 'win')  s.wins++;
       else if (r.winLoss === 'loss') s.losses++;
+      // Only closed trades contribute to realized performance — their pctChange
+      // is frozen at the exit price. Open trades carry an unrealized live mark we
+      // deliberately exclude so AVG/TOTAL % reflect booked results, not paper P&L.
+      if (r.pctChange != null) {
+        s.totalPct += r.pctChange;
+        // Profit factor: gross wins vs gross losses (absolute).
+        if (r.pctChange >= 0) s.grossWin += r.pctChange;
+        else s.grossLoss += -r.pctChange;
+        // Realized R = return ÷ risk taken. slPct is the planned stop distance as
+        // a % of entry, so pctChange / slPct normalizes each trade by its own risk
+        // (a TP-hit ≈ +2R, an SL-hit ≈ −1R) — the fair way to compare strategies.
+        if (r.slPct != null && r.slPct > 0) {
+          s.sumR += r.pctChange / r.slPct;
+          s.rCount++;
+        }
+      }
     } else {
       s.open++;
     }
-    if (r.pctChange != null) s.totalPct += r.pctChange;
   }
   const out = [...m.values()].map(s => {
     const closed = s.wins + s.losses;
     return {
       ...s,
       winRate: closed ? s.wins / closed : null,
-      avgPct:  s.total ? s.totalPct / s.total : 0,
+      avgPct:  closed ? s.totalPct / closed : 0,
+      avgR:    s.rCount ? s.sumR / s.rCount : null,
+      // Profit factor: >1 net-profitable, ∞ when there are wins but no losses yet.
+      profitFactor: s.grossLoss > 0 ? s.grossWin / s.grossLoss : (s.grossWin > 0 ? Infinity : null),
     };
   });
   // Sort by total descending, then win rate descending.
@@ -127,7 +146,7 @@ export async function renderHistory(root) {
   root.innerHTML = `
     <div class="view">
       <h1>Signal History · <span style="color:var(--cyan);font-weight:300">${escapeHtml(state.market)}</span></h1>
-      <p class="subtitle">Signals from the last 3 months, scoped to your selected market. Pick a timeframe, filter, and click <span style="color:var(--amber)">★</span> on any row to track it. Switch market in the top bar to view the other side.</p>
+      <p class="subtitle">Your full signal history, scoped to your selected market. Pick a timeframe (up to 2Y or All), filter, and click <span style="color:var(--amber)">★</span> on any row to track it. Switch market in the top bar to view the other side.</p>
 
       <div class="card">
         <!-- Timeframe row -->
@@ -136,6 +155,10 @@ export async function renderHistory(root) {
           <button class="btn-bare tf-chip" data-days="7">7D</button>
           <button class="btn-bare tf-chip" data-days="30">30D</button>
           <button class="btn-bare tf-chip active" data-days="90">90D</button>
+          <button class="btn-bare tf-chip" data-days="180">6M</button>
+          <button class="btn-bare tf-chip" data-days="365">1Y</button>
+          <button class="btn-bare tf-chip" data-days="730">2Y</button>
+          <button class="btn-bare tf-chip" data-days="all">All</button>
           <button class="btn-bare tf-chip" data-days="custom">Custom…</button>
           <span id="tf-range" style="display:none;gap:6px;align-items:center">
             <input id="f-from" type="date" class="btn-bare">
@@ -268,19 +291,21 @@ export async function renderHistory(root) {
   if (params.strategy) $('f-strategy').value = params.strategy;
 
   // ---- Timeframe state ----
-  let tfDays = 90;
+  let tfDays = 90;     // number of days, or 'all' for the entire loaded set
   let tfCustom = null; // { from, to }
 
   function activeRange() {
     if (tfCustom) return { from: tfCustom.from, to: tfCustom.to };
     const today = new Date();
+    // 'all' = no lower bound: show everything the query returned.
+    if (tfDays === 'all') return { from: '', to: fmtDate(today) };
     const from = new Date(today.getTime() - tfDays * 86400_000);
     return { from: fmtDate(from), to: fmtDate(today) };
   }
 
   function refreshTfLabel() {
     const { from, to } = activeRange();
-    $('tf-label').textContent = `${from} → ${to}`;
+    $('tf-label').textContent = from ? `${from} → ${to}` : `all → ${to}`;
   }
 
   // Wire timeframe chips
@@ -289,13 +314,15 @@ export async function renderHistory(root) {
     const v = btn.dataset.days;
     if (v === 'custom') {
       const today = new Date();
-      const start = new Date(today.getTime() - tfDays * 86400_000);
+      // Seed the custom range from a sensible default (90d) when coming from 'all'.
+      const seedDays = typeof tfDays === 'number' ? tfDays : 90;
+      const start = new Date(today.getTime() - seedDays * 86400_000);
       $('f-from').value = fmtDate(start);
       $('f-to').value   = fmtDate(today);
       tfCustom = { from: $('f-from').value, to: $('f-to').value };
       $('tf-range').style.display = 'inline-flex';
     } else {
-      tfDays = Number(v);
+      tfDays = v === 'all' ? 'all' : Number(v);
       tfCustom = null;
       $('tf-range').style.display = 'none';
     }
@@ -369,7 +396,10 @@ export async function renderHistory(root) {
           <th class="num">LOSS</th>
           <th class="num">OPEN</th>
           <th class="num">WIN RATE</th>
+          <th class="num">AVG R</th>
+          <th class="num">PF</th>
           <th class="num">AVG %Δ</th>
+          <th class="num">TOTAL %Δ</th>
         </tr></thead>
         <tbody>
           ${groups.map(g => {
@@ -379,6 +409,13 @@ export async function renderHistory(root) {
               : g.winRate <= 0.4  ? 'var(--red)'
               : 'var(--amber)';
             const avgColor = g.avgPct >= 0 ? 'var(--green)' : 'var(--red)';
+            const totalColor = g.totalPct >= 0 ? 'var(--green)' : 'var(--red)';
+            const rStr = g.avgR == null ? '—' : (g.avgR >= 0 ? '+' : '') + g.avgR.toFixed(2) + 'R';
+            const rColor = g.avgR == null ? 'var(--text-dim)' : g.avgR >= 0 ? 'var(--green)' : 'var(--red)';
+            const pfStr = g.profitFactor == null ? '—' : g.profitFactor === Infinity ? '∞' : g.profitFactor.toFixed(2);
+            const pfColor = g.profitFactor == null ? 'var(--text-dim)'
+              : g.profitFactor === Infinity || g.profitFactor >= 1.5 ? 'var(--green)'
+              : g.profitFactor < 1 ? 'var(--red)' : 'var(--amber)';
             return `<tr style="cursor:pointer" data-strategy="${escapeHtml(g.strategy)}" title="Click to filter the table below to ${escapeHtml(g.strategy)} only">
               <td><b>${escapeHtml(g.strategy)}</b></td>
               <td class="num">${g.total}</td>
@@ -387,7 +424,10 @@ export async function renderHistory(root) {
               <td class="num" style="color:var(--red)">${g.losses}</td>
               <td class="num" style="color:var(--amber)">${g.open}</td>
               <td class="num" style="color:${wrColor}">${wr}</td>
-              <td class="num" style="color:${avgColor}">${g.avgPct >= 0 ? '+' : ''}${g.avgPct.toFixed(2)}%</td>
+              <td class="num" style="color:${rColor}" title="Average realized R per closed trade (return ÷ risk). +0.50R means each trade nets half its risk on average.">${rStr}</td>
+              <td class="num" style="color:${pfColor}" title="Profit factor: gross wins ÷ gross losses. >1 is net-profitable.">${pfStr}</td>
+              <td class="num" style="color:${avgColor}" title="Average realized %Δ per closed trade">${g.avgPct >= 0 ? '+' : ''}${g.avgPct.toFixed(2)}%</td>
+              <td class="num" style="color:${totalColor}" title="Sum of realized %Δ across all closed trades">${g.totalPct >= 0 ? '+' : ''}${g.totalPct.toFixed(2)}%</td>
             </tr>`;
           }).join('')}
         </tbody>

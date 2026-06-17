@@ -27,7 +27,11 @@ import { STRATEGIES, settleSignal, tierReasons, SETTLEMENT_VERSION } from '../sr
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
 
-const RETENTION_DAYS = 90;
+// Signals are retained (and re-gradable) for this many days. Drives both the
+// prune cutoff and the re-settle window, so it must cover the longest timeframe
+// the History view offers (2Y chip) with a margin. Extending this only affects
+// data captured from here on — anything already pruned is gone for good.
+const RETENTION_DAYS = 800;
 const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s.trim());
 // Public site URL. Used as the click-through target in push notifications so
 // tapping the alert opens the deployed app at My Trades.
@@ -293,7 +297,13 @@ async function resettleRecentSignals(db, market, ctxIn) {
         postBars,
         { bars, entryIdx: idx },
       );
-      const pctChange = ((lastClose - sig.entryPrice) / sig.entryPrice) * 100;
+      // For a closed signal the realized return is locked to the exit price
+      // (verdict.hitPrice = the tp/sl/native/time-stop level the trade left at),
+      // NOT the latest close — otherwise a settled loser keeps drifting with the
+      // live price and overstates the loss. Open signals still track lastClose.
+      const pctChange = verdict.status === 'closed'
+        ? ((verdict.hitPrice - sig.entryPrice) / sig.entryPrice) * 100
+        : ((lastClose - sig.entryPrice) / sig.entryPrice) * 100;
       if (verdict.status === 'closed') {
         await sig.ref.update({
           status:      'closed',
