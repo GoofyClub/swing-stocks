@@ -17,6 +17,7 @@ const NAV = [
     { id: 'automation-guide', icon: 'i', label: 'Automation Guide' },
   ]},
   { group: 'System', items: [
+    { id: 'cron-status', icon: '◷', label: 'Cron Status' },
     { id: 'guide',     icon: 'i', label: 'User Guide' },
     { id: 'settings',  icon: '⚙', label: 'Settings' },
   ]},

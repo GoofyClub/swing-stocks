@@ -33,6 +33,7 @@ import {
 } from '../src/auto/engine.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
+import { sendTelegram } from '../src/data/telegram.js';
 
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true').toLowerCase() !== 'false';
 const ONLY_UID = process.env.ONLY_UID || null;
@@ -102,6 +103,17 @@ async function loadEnabledConfigs(db) {
     out.push({ uid, cfg: doc.data() });
   });
   return out;
+}
+
+// Best-effort Telegram alert for a user, if they configured + enabled it.
+async function notify(db, uid, text) {
+  try {
+    const snap = await db.collection('users').doc(uid).collection('notifications').doc('config').get();
+    const n = snap.exists ? snap.data() : null;
+    if (n?.telegramEnabled && n.telegramBotToken && n.telegramChatId) {
+      await sendTelegram(n.telegramBotToken, n.telegramChatId, text);
+    }
+  } catch (e) { console.warn(`[auto][${uid.slice(0, 6)}] telegram failed: ${e.message}`); }
 }
 
 async function processUser(db, uid, cfg) {
@@ -222,6 +234,7 @@ async function processUser(db, uid, cfg) {
         journal.brokerOrderId = order?.id || null;
         await journalRef.set(journal);
         log(`PLACED ${intent.side} ${size.shares} ${sig.ticker} (order ${order?.id})`);
+        await notify(db, uid, `🟢 <b>ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ${sig.entryPrice} · TP ${sig.tpPrice} / SL ${sig.slPrice} · ${cfg.mode}${live ? ' LIVE' : ''}`);
       } catch (e) {
         journal.status = 'error';
         journal.error = e.message;
@@ -247,6 +260,9 @@ async function processUser(db, uid, cfg) {
         const o = await client.getOrder(data.brokerOrderId);
         if (o?.status && o.status !== 'new') {
           await d.ref.update({ status: o.status, filledQty: Number(o.filled_qty || 0), filledAvgPrice: o.filled_avg_price ? Number(o.filled_avg_price) : null, reconciledAt: admin.firestore.FieldValue.serverTimestamp() });
+          if (o.status === 'filled') {
+            await notify(db, uid, `🔵 <b>FILLED</b> ${data.ticker} ${data.qty} @ ${o.filled_avg_price || data.entry}`);
+          }
         }
       } catch (e) { log(`reconcile ${data.ticker} failed: ${e.message}`); }
     }

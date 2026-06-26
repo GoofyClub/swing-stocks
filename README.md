@@ -187,6 +187,8 @@ and are readable only by the owner (and the worker via the Admin SDK).
 | `users/{uid}/autoOrders/{clientOrderId}` | auto-trade worker (Admin) | owner (read-only) |
 | `users/{uid}/autoEquity/{date}` | auto-trade worker (Admin) | owner (equity curve) |
 | `users/{uid}/fcmTokens/{token}` | owner | worker (Admin) |
+| `users/{uid}/notifications/config` | owner | owner + workers (Admin) — Telegram creds |
+| `cronRuns/{id}` | refresh worker (Admin) | any signed-in user — execution history |
 | `publicConfig/automation` | operator (console) | auto-trade worker |
 
 Access rules: [`firestore.rules`](firestore.rules).

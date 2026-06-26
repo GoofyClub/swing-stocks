@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.15.0 — 2026-06-18 (broker test button, Telegram alerts, Cron Status page)
+
+### Added
+- **Broker "Test connection" button** on the Automation page — validates Alpaca
+  keys by fetching the account (with a clear CORS note pointing to
+  `npm run auto:smoketest` when the browser blocks the call).
+- **Telegram notifications** — Settings page section (bot token + chat id +
+  "Send test message"), stored at `/users/{uid}/notifications/config`. The
+  auto-trade worker sends **entry/fill** alerts and the refresh worker sends
+  **TP/SL exit** alerts (alongside existing FCM push).
+- **Cron Status page** (`/cron-status`) — execution history of the Refresh
+  worker: last-run time + staleness flag, duration, result, and per-market
+  signal/settlement counts. The refresh worker now records each run to
+  `/cronRuns`.
+
+### Notes
+- Adds owner-read rules for `notifications` and a signed-in read rule for
+  `cronRuns` — **requires a Firestore rules deploy**.
+- Re: a signal whose intraday price hit TP but still shows "open" — settlement
+  runs on EOD **daily bars**: an intraday touch only counts once that day's
+  completed bar (with a high ≥ TP) is fetched on a later cron pass. The Cron
+  Status page shows whether/when the worker last ran.
+
 ## v0.14.0 — 2026-06-17 (max-drawdown halt + equity curve / P&L)
 
 ### Added

@@ -6,6 +6,8 @@ import { DATA_SOURCE_ORDER } from '../data/markets.js';
 import {
   isFCMSupported, enableNotifications, disableNotifications, isCurrentDeviceRegistered,
 } from '../data/messaging.js';
+import { loadNotifications, saveNotifications } from '../data/notifications.js';
+import { sendTelegram } from '../data/telegram.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -66,6 +68,27 @@ export function renderSettings(root) {
         <div id="notif-status" style="margin-bottom:10px;font-family:var(--font-mono);font-size:0.85rem;color:var(--text-dim)">Checking…</div>
         <button id="btn-notif" class="btn-bare" type="button" disabled>—</button>
         <div id="notif-err" style="display:none;margin-top:10px;color:var(--red);font-size:0.92rem"></div>
+      </div>
+
+      <div class="card" id="tg-card">
+        <h2>Telegram notifications</h2>
+        <p style="color:var(--text-dim);font-size:0.92rem;margin:0 0 12px">
+          Get trade <b>entry</b> and <b>exit</b> alerts in Telegram. Create a bot with <b>@BotFather</b> for the token, message your bot once, then read your chat id from <code>api.telegram.org/bot&lt;token&gt;/getUpdates</code>. Stored privately in your profile; the workers use it to message you.
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:560px">
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.8rem;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.06em">Bot token
+            <input id="tg-token" type="password" autocomplete="off" class="btn-bare" placeholder="123456:ABC-..." style="font-family:var(--font-mono)">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.8rem;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.06em">Chat id
+            <input id="tg-chat" type="text" autocomplete="off" class="btn-bare" placeholder="e.g. 987654321" style="font-family:var(--font-mono)">
+          </label>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px"><input id="tg-enabled" type="checkbox"> <span>Enable Telegram alerts</span></label>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+          <button id="tg-save" class="btn-primary" type="button">SAVE</button>
+          <button id="tg-test" class="btn-bare" type="button">Send test message</button>
+          <span id="tg-status" style="color:var(--text-dim);font-size:0.92rem"></span>
+        </div>
       </div>
 
       <details class="collapsible" id="ds-collapse">
@@ -232,5 +255,40 @@ export function renderSettings(root) {
     } finally {
       notifBtn.disabled = false;
     }
+  });
+
+  // ----- Telegram notifications -----
+  const tgToken = document.getElementById('tg-token');
+  const tgChat = document.getElementById('tg-chat');
+  const tgEnabled = document.getElementById('tg-enabled');
+  const tgStatus = document.getElementById('tg-status');
+  const setTgStatus = (msg, color) => { tgStatus.style.color = color || 'var(--text-dim)'; tgStatus.textContent = msg; };
+
+  (async () => {
+    try {
+      const n = await loadNotifications();
+      tgToken.value = n.telegramBotToken || '';
+      tgChat.value = n.telegramChatId || '';
+      tgEnabled.checked = !!n.telegramEnabled;
+    } catch (e) { console.warn('[settings] load notifications failed', e); }
+  })();
+
+  document.getElementById('tg-save').addEventListener('click', async () => {
+    setTgStatus('Saving…');
+    try {
+      await saveNotifications({ telegramBotToken: tgToken.value.trim(), telegramChatId: tgChat.value.trim(), telegramEnabled: tgEnabled.checked });
+      setTgStatus('✓ Saved', 'var(--green)');
+      setTimeout(() => { if (tgStatus.textContent === '✓ Saved') setTgStatus(''); }, 2500);
+    } catch (e) { setTgStatus(e?.message || String(e), 'var(--red)'); }
+  });
+
+  document.getElementById('tg-test').addEventListener('click', async () => {
+    const token = tgToken.value.trim(), chat = tgChat.value.trim();
+    if (!token || !chat) { setTgStatus('Enter bot token and chat id first.', 'var(--red)'); return; }
+    setTgStatus('Sending…');
+    try {
+      await sendTelegram(token, chat, '✅ <b>Swing Terminal</b> test message — Telegram alerts are working.');
+      setTgStatus('✓ Sent — check Telegram', 'var(--green)');
+    } catch (e) { setTgStatus(e?.message || String(e), 'var(--red)'); }
   });
 }

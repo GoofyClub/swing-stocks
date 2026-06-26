@@ -6,6 +6,7 @@
 import { navigate } from '../core/router.js';
 import { STRATEGIES } from '../strategy/normalize.js';
 import { loadAutomationConfig, saveAutomationConfig, DEFAULT_AUTOMATION } from '../data/automation.js';
+import { createAlpacaClient, resolveAlpacaBaseUrl } from '../broker/alpaca.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -94,6 +95,10 @@ export async function renderAutomation(root) {
         <label style="display:flex;flex-direction:column;gap:6px;font-size:0.8rem;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.06em">API secret
           <input id="a-apisecret" type="password" autocomplete="off" class="btn-bare" value="${escapeHtml(cfg.apiSecret)}" placeholder="secret" style="font-family:var(--font-mono)">
         </label>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+        <button id="a-test" class="btn-bare" type="button">Test connection</button>
+        <span id="a-test-status" style="color:var(--text-dim);font-size:0.92rem"></span>
       </div>
     </div>
 
@@ -233,6 +238,30 @@ export async function renderAutomation(root) {
     } finally {
       $('a-save').disabled = false;
       setTimeout(() => { if (status.textContent === '✓ Saved') status.textContent = ''; }, 2500);
+    }
+  });
+
+  $('a-test').addEventListener('click', async () => {
+    const status = $('a-test-status');
+    const broker = $('a-broker').value;
+    if (broker !== 'alpaca') { status.style.color = 'var(--amber)'; status.textContent = 'Connection test currently supports Alpaca only.'; return; }
+    const key = $('a-apikey').value.trim(), secret = $('a-apisecret').value.trim();
+    if (!key || !secret) { status.style.color = 'var(--red)'; status.textContent = 'Enter API key and secret first.'; return; }
+    status.style.color = 'var(--text-dim)';
+    status.textContent = 'Testing…';
+    try {
+      const baseUrl = resolveAlpacaBaseUrl({ mode: $('a-mode').value, restApiBase: $('a-resturl').value.trim() });
+      const client = createAlpacaClient({ baseUrl, apiKey: key, apiSecret: secret });
+      const acct = await client.getAccount();
+      status.style.color = 'var(--green)';
+      status.textContent = `✓ Connected — ${acct.status}, equity $${acct.equity?.toFixed(2)}, buying power $${acct.buyingPower?.toFixed(2)}`;
+    } catch (e) {
+      status.style.color = 'var(--red)';
+      // Alpaca blocks browser cross-origin calls; guide the user to the smoke-test.
+      const cors = /Failed to fetch|NetworkError|CORS/i.test(e.message);
+      status.textContent = cors
+        ? 'Browser blocked by broker CORS — verify keys with: npm run auto:smoketest'
+        : (e.message || 'Connection failed');
     }
   });
 

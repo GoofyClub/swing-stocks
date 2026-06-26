@@ -20,6 +20,7 @@ import { renderStocksInPlay } from './views/stocksInPlay.js';
 import { renderAutomation } from './views/automation.js';
 import { renderAutomationGuide } from './views/automationGuide.js';
 import { renderAutoOrders } from './views/autoOrders.js';
+import { renderCronStatus } from './views/cronStatus.js';
 import { onForegroundMessage, isFCMSupported } from './data/messaging.js';
 
 // Theme + font-size attributes are pre-set by an inline script in index.html
@@ -73,6 +74,7 @@ function mountAppShell() {
   route('automation',       renderAutomation);
   route('automation-guide', renderAutomationGuide);
   route('auto-orders',      renderAutoOrders);
+  route('cron-status',      renderCronStatus);
   defaultRoute('dashboard');
   const dispatch = start(main);
 

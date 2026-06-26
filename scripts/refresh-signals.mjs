@@ -26,6 +26,7 @@ import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
 import { STRATEGIES, settleSignal, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
+import { sendTelegram } from '../src/data/telegram.js';
 
 // Signals are retained (and re-gradable) for this many days. Drives both the
 // prune cutoff and the re-settle window, so it must cover the longest timeframe
@@ -358,7 +359,18 @@ async function notifyTradeClosed(db, uid, trade, verdict) {
   const isWin = verdict.winLoss === 'win';
   const symbol = trade.name || trade.ticker;
   const title = `${isWin ? 'TARGET HIT' : 'STOP HIT'} · ${trade.ticker}`;
-  const body  = `${symbol} ${isWin ? 'reached your TP' : 'broke your SL'} at ${verdict.hitPrice?.toFixed(2)} (${(verdict.realizedPct ?? ((verdict.hitPrice - trade.entryPrice) / trade.entryPrice) * 100).toFixed(2)}%).`;
+  const pct = (verdict.realizedPct ?? ((verdict.hitPrice - trade.entryPrice) / trade.entryPrice) * 100).toFixed(2);
+  const body  = `${symbol} ${isWin ? 'reached your TP' : 'broke your SL'} at ${verdict.hitPrice?.toFixed(2)} (${pct}%).`;
+
+  // Telegram exit alert (best-effort) — independent of FCM tokens.
+  try {
+    const nSnap = await db.collection('users').doc(uid).collection('notifications').doc('config').get();
+    const n = nSnap.exists ? nSnap.data() : null;
+    if (n?.telegramEnabled && n.telegramBotToken && n.telegramChatId) {
+      await sendTelegram(n.telegramBotToken, n.telegramChatId,
+        `${isWin ? '🎯 <b>TARGET HIT</b>' : '🛑 <b>STOP HIT</b>'} <b>${trade.ticker}</b> exit ${verdict.hitPrice?.toFixed(2)} (${pct}%)`);
+    }
+  } catch (e) { console.warn(`[notify] telegram failed for ${uid}: ${e.message}`); }
 
   for (const tokDoc of tokensSnap.docs) {
     const token = tokDoc.id;
@@ -510,9 +522,42 @@ async function pruneOldBuckets(db) {
   console.log(`[prune] deleted ${deleted} buckets older than ${cutoff}`);
 }
 
+// Record a run summary to /cronRuns so the app can show execution history
+// (last run time, per-market signal counts, errors). Best-effort: a failure to
+// write the record never fails the run.
+async function recordRun(db, { startedAt, summary, error }) {
+  try {
+    const finishedAt = Date.now();
+    const markets = summary.map(s => ({
+      market: s.market,
+      error: s.error || null,
+      written: s.writes ?? null,
+      errors: s.errors ?? null,
+      buys: s.buyCount ?? null,
+      sells: s.sellCount ?? null,
+      settled: s.userTrades?.settled ?? null,
+    }));
+    const okCount = markets.filter(m => !m.error).length;
+    await db.collection('cronRuns').add({
+      startedAt: admin.firestore.Timestamp.fromMillis(startedAt),
+      finishedAt: admin.firestore.Timestamp.fromMillis(finishedAt),
+      durationMs: finishedAt - startedAt,
+      ok: !error && okCount === markets.length && markets.length > 0,
+      trigger: process.env.GITHUB_EVENT_NAME || 'manual',
+      markets,
+      error: error ? String(error) : null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn('[main] recordRun failed', e.message);
+  }
+}
+
 async function main() {
   const db = initAdmin();
+  const startedAt = Date.now();
   const summary = [];
+  let fatal = null;
   for (const m of MARKETS_TO_RUN) {
     if (!MARKET_CONFIGS[m]) { console.warn(`[main] unknown market ${m}, skip`); continue; }
     try {
@@ -530,6 +575,7 @@ async function main() {
     }
   }
   try { await pruneOldBuckets(db); } catch (e) { console.warn('[main] prune failed', e.message); }
+  await recordRun(db, { startedAt, summary, error: fatal });
   console.log('\n[main] DONE', JSON.stringify(summary));
 }
 

@@ -153,6 +153,7 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
+          <tr><td>2026-06-18</td><td>Broker <b>Test connection</b> button (Alpaca), <b>Telegram</b> entry/exit alerts (Settings page + Test message), and a <b>Cron Status</b> page showing the refresh worker's execution history.</td></tr>
           <tr><td>2026-06-17</td><td>Risk + reporting: account-level <b>max-drawdown halt</b> (stops new entries when equity falls a set % below its peak; persists a high-water mark) and an <b>equity curve + P&amp;L summary</b> on the Auto Orders page (current/change/peak/drawdown from daily equity snapshots).</td></tr>
           <tr><td>2026-06-17</td><td>Phase 4 prep: pre-trade <b>live-quote slippage check</b> (Alpaca data API) and a <b>market-hours guard</b> (skips placing when the market is closed; dry-run continues). Added a read-only <b>Alpaca smoke-test</b> (<code>npm run auto:smoketest</code>). Noted that the US PDT $25k day-trading rule has been removed.</td></tr>
           <tr><td>2026-06-17</td><td>Sizing: added <b>Fixed $ per trade</b> mode and a <b>Max $ per position</b> cap (both whole-shares, bracket-safe) for small accounts, plus buying-power awareness in the worker (skips a trade it can't fund). Note: fractional shares aren't supported because Alpaca disallows them with bracket orders.</td></tr>
