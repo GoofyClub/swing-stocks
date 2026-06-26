@@ -105,8 +105,14 @@ Generates signals, settles open/closed trades, prunes old data.
 
 ### 2. Auto-trade (paper) — `.github/workflows/auto-trade.yml`
 Places broker orders from matching signals for users who enabled automation.
-**Manual-only and dry-run by default.** Script:
-[`scripts/auto-trade.mjs`](scripts/auto-trade.mjs).
+**Runs on a daily schedule** (just after the US open + near the close) and on
+demand. **Dry-run by default.** Script: [`scripts/auto-trade.mjs`](scripts/auto-trade.mjs).
+
+- **Scheduled runs are dry-run** until you set the repo **variable**
+  `AUTO_DRY_RUN = false` (Repo → Settings → Secrets and variables → Actions →
+  **Variables**). A manual run can override via the `dry_run` input.
+- Per-user `enabled` + `mode` still gate everything; Alpaca **paper** is forced
+  unless a user set `mode='live'`.
 
 Workflow inputs:
 

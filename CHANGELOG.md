@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.19.0 — 2026-06-26 (scheduled auto-trade + Options Playbook page)
+
+### Added
+- **Auto-trade now runs on a daily schedule** (just after the US open to enter
+  signals, near the close to reconcile) — no more manual triggering. Stays safe:
+  scheduled runs are **dry-run** until you set the repo variable
+  `AUTO_DRY_RUN=false`. Manual runs can still override. Per-user enable/mode and
+  paper-endpoint enforcement are unchanged.
+- **Options Playbook page** (`/options-playbook`) — per-strategy "what to do" with
+  options, in plain rules (no premiums/greeks): sell premium on the high-win-rate
+  mean-reversion signals (RSI2, Quality Dip), buy calls / call spreads on the
+  momentum/breakout ones, with strike/expiry/entry/exit guidance (e.g. ATM vs.
+  "2 strikes above ATM", sell when the stock hits TP). Educational only; the app
+  does not place options orders.
+
 ## v0.18.0 — 2026-06-26 (trailing-stop settlement for trend strategies + automation banner fix)
 
 ### Changed

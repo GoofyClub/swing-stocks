@@ -153,6 +153,7 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
+          <tr><td>2026-06-26</td><td>Auto-trade worker now runs on a <b>daily schedule</b> (after the open + near the close), dry-run until the repo variable <code>AUTO_DRY_RUN=false</code> is set. Added an <b>Options Playbook</b> page (per-strategy options guidance, rules only). Trend strategies now settle on a <b>trailing stop</b> (RSI2 unchanged — keeps its 5-SMA native exit).</td></tr>
           <tr><td>2026-06-18</td><td>Broker <b>Test connection</b> button (Alpaca), <b>Telegram</b> entry/exit alerts (Settings page + Test message), and a <b>Cron Status</b> page showing the refresh worker's execution history.</td></tr>
           <tr><td>2026-06-17</td><td>Risk + reporting: account-level <b>max-drawdown halt</b> (stops new entries when equity falls a set % below its peak; persists a high-water mark) and an <b>equity curve + P&amp;L summary</b> on the Auto Orders page (current/change/peak/drawdown from daily equity snapshots).</td></tr>
           <tr><td>2026-06-17</td><td>Phase 4 prep: pre-trade <b>live-quote slippage check</b> (Alpaca data API) and a <b>market-hours guard</b> (skips placing when the market is closed; dry-run continues). Added a read-only <b>Alpaca smoke-test</b> (<code>npm run auto:smoketest</code>). Noted that the US PDT $25k day-trading rule has been removed.</td></tr>

@@ -1,12 +1,13 @@
 name: Auto-trade (paper)
 
-# Phase 2 execution worker. MANUAL-ONLY by default (workflow_dispatch) so it
-# never runs unattended until you've validated it. DRY_RUN defaults to true —
-# the run logs intended orders WITHOUT submitting. Flip the dry_run input to
-# 'false' to actually place orders (paper unless a user set mode='live').
-#
-# To put it on a schedule later, uncomment the `schedule:` block (run a few
-# minutes after the market open so fresh signals exist).
+# Phase 2 execution worker. Now runs AUTOMATICALLY on a daily schedule, but stays
+# safe by default: scheduled runs are DRY-RUN (log intended orders, submit
+# nothing) until you set the repo variable AUTO_DRY_RUN to 'false'.
+#   - Repo → Settings → Secrets and variables → Actions → Variables →
+#       AUTO_DRY_RUN = false   (when you're ready for real paper orders)
+# Per-user `enabled` + `mode` in each user's config still gate everything, and
+# the Alpaca PAPER endpoint is forced unless a user explicitly set mode='live'.
+# A manual run can always override dry_run via the input below.
 on:
   workflow_dispatch:
     inputs:
@@ -22,8 +23,9 @@ on:
         description: 'Global kill switch — abort without placing any orders'
         required: false
         default: 'false'
-  # schedule:
-  #   - cron: "40 13 * * 1-5"   # ~09:40 ET, just after the US open
+  schedule:
+    - cron: "40 13 * * 1-5"   # ~09:40 ET — just after the US open (enter new signals)
+    - cron: "45 19 * * 1-5"   # ~15:45 ET — near the close (reconcile fills/exits)
 
 jobs:
   auto-trade:
@@ -44,7 +46,9 @@ jobs:
         env:
           FIREBASE_PROJECT_ID:           ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          DRY_RUN:     ${{ github.event.inputs.dry_run || 'true' }}
+          # Manual input wins; otherwise scheduled runs read the AUTO_DRY_RUN repo
+          # variable (defaults to dry-run when unset). Set AUTO_DRY_RUN=false to go live.
+          DRY_RUN:     ${{ github.event.inputs.dry_run || vars.AUTO_DRY_RUN || 'true' }}
           ONLY_UID:    ${{ github.event.inputs.only_uid || '' }}
           KILL_SWITCH: ${{ github.event.inputs.kill_switch || 'false' }}
         run: node scripts/auto-trade.mjs

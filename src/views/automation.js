@@ -65,11 +65,12 @@ export async function renderAutomation(root) {
       Start in <b>paper</b> mode and forward-test for weeks before going live. Live trading uses real money and is irreversible.
     </div>
     <div class="guide-warn" style="text-align:left;border-color:var(--cyan)">
-      <b>Why no trades yet?</b> Enabling automation here only <b>saves your rules</b> — it does not run anything on its own.
-      The worker runs only when you trigger it: <b>GitHub → Actions → “Auto-trade (paper)” → Run workflow</b>.
-      It defaults to <b>dry-run</b> (logs intended orders, places nothing) — set <code>dry_run = false</code> to actually place paper orders,
-      and it only acts <b>during US market hours</b> for signals that pass your rules. Review results on the
-      <a href="#/auto-orders" style="color:var(--cyan)">Auto Orders</a> page. (No automatic schedule yet — that's deliberate until you've validated it.)
+      <b>How it runs:</b> the worker runs <b>automatically each trading day</b> (just after the US open, and near the close to reconcile)
+      — plus you can trigger it any time via <b>GitHub → Actions → “Auto-trade (paper)”</b>. By default every run is <b>dry-run</b>
+      (logs intended orders, places nothing). To make scheduled runs place real <b>paper</b> orders, set the repo variable
+      <code>AUTO_DRY_RUN = false</code> (Repo → Settings → Secrets and variables → Actions → Variables). Your per-account
+      <b>Enable</b> + <b>mode</b> still gate everything, and paper is forced unless mode is Live. Review every decision on the
+      <a href="#/auto-orders" style="color:var(--cyan)">Auto Orders</a> page.
     </div>
 
     <div class="card">

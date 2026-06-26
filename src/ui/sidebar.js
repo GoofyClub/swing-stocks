@@ -14,6 +14,7 @@ const NAV = [
   { group: 'Automation', items: [
     { id: 'automation',       icon: '⚡', label: 'Automation' },
     { id: 'auto-orders',      icon: '⛁', label: 'Auto Orders' },
+    { id: 'options-playbook', icon: '◎', label: 'Options Playbook' },
     { id: 'automation-guide', icon: 'i', label: 'Automation Guide' },
   ]},
   { group: 'System', items: [
