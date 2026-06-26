@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.16.1 — 2026-06-26 (THE real settlement bug: missing Firestore index killed every settle)
+
+### Fixed
+- **Settlement silently failed on every cron run.** The re-settle pass queries
+  `collectionGroup('signals').where('market','==',…).where('signalTs','>=',…)`,
+  which needs a `(market, signalTs)` composite collection-group index that was
+  never deployed. Firestore threw `FAILED_PRECONDITION: requires an index`, and
+  because the per-market block is wrapped in try/catch, **both** the shared-signal
+  settlement *and* the per-user My Trades settlement were skipped — so nothing
+  settled and prices stayed frozen (the real reason the 6/19 Walmart, and
+  everything else, stayed "open"; the earlier date/data fixes never even ran).
+- `resettleRecentSignals` now **falls back to a single-field `signalTs` query**
+  (the same index the History view already uses) with an in-memory market filter
+  when the composite index is missing — so settlement works **with or without an
+  index deploy**. Added the missing composite index to `firestore.indexes.json`
+  for the efficient path once `firebase deploy --only firestore:indexes` is run.
+
+The next cron run settles the entire backlog.
+
 ## v0.16.0 — 2026-06-25 (Alpaca data source for the cron + Live Signals saved filters)
 
 ### Fixed

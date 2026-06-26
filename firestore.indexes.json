@@ -26,6 +26,14 @@
       ]
     },
     {
+      "collectionGroup": "signals",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "market",   "order": "ASCENDING" },
+        { "fieldPath": "signalTs", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "enteredTrades",
       "queryScope": "COLLECTION",
       "fields": [

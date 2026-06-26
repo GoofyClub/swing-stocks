@@ -265,18 +265,38 @@ async function resettleRecentSignals(db, market, ctxIn) {
   const cutoff = daysAgo(RETENTION_DAYS);
   console.log(`[resettle] market=${market} cutoff=${cutoff} settlementVersion=${SETTLEMENT_VERSION}`);
 
-  // No status filter — we may need to re-grade closed signals too. Uses the
-  // existing (market, signalTs) collection-group index. (A `settlementVersion`
-  // inequality can't be queried server-side because legacy docs lack the field,
-  // so we filter client-side.)
-  const cg = await db.collectionGroup('signals')
-    .where('market', '==', market)
-    .where('signalTs', '>=', cutoff + 'T00:00:00Z')
-    .get();
+  // No status filter — we may need to re-grade closed signals too. The ideal
+  // query filters market server-side, but that needs a (market, signalTs)
+  // composite collection-group index. If that index isn't deployed Firestore
+  // throws FAILED_PRECONDITION — which previously killed the ENTIRE settlement
+  // pass (both shared-signal and per-user trade settlement), leaving everything
+  // stuck "open". So we fall back to the single-field signalTs query (which only
+  // needs the index the History view already relies on) and filter market in
+  // memory. Settlement then works with or without the composite index.
+  let cg;
+  try {
+    cg = await db.collectionGroup('signals')
+      .where('market', '==', market)
+      .where('signalTs', '>=', cutoff + 'T00:00:00Z')
+      .get();
+  } catch (e) {
+    if (e.code === 9 || /index/i.test(e.message || '')) {
+      console.warn(`[resettle] composite (market, signalTs) index missing — falling back to signalTs-only query + in-memory market filter. Deploy firestore:indexes to make this efficient. (${e.message})`);
+      cg = await db.collectionGroup('signals')
+        .where('signalTs', '>=', cutoff + 'T00:00:00Z')
+        .get();
+    } else {
+      throw e;
+    }
+  }
 
   const byTicker = new Map();
   cg.forEach(s => {
     const d = s.data();
+    // Client-side market filter (no-op on the server-filtered path; required on
+    // the fallback path). Docs missing `market` are treated as belonging to the
+    // active market, matching the History view's lenient handling of legacy docs.
+    if (d.market && d.market !== market) return;
     const needs = d.status === 'open' || d.settlementVersion !== SETTLEMENT_VERSION;
     if (!needs) return; // already settled at the current model version — leave it
     if (!byTicker.has(d.ticker)) byTicker.set(d.ticker, []);
