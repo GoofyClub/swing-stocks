@@ -21,6 +21,7 @@ export function renderAutomationGuide(root) {
           <a href="#a-risk">3. Risk management</a>
           <a href="#a-pro">4. What pro automation does</a>
           <a href="#a-broker">5. Broker setup</a>
+          <a href="#a-enable">5b. Turning it on</a>
           <a href="#a-safety">6. Safety &amp; paper-first</a>
           <a href="#a-legal">7. Legal &amp; compliance</a>
           <a href="#a-glossary">8. Glossary</a>
@@ -111,6 +112,27 @@ export function renderAutomationGuide(root) {
         <h2>5. Broker setup</h2>
         <p><b>US — Alpaca</b> is the natural fit: clean REST API, free paper trading, native bracket orders, fractional shares. Paper base URL <code>https://paper-api.alpaca.markets</code>, live <code>https://api.alpaca.markets</code>. Generate a key in the Alpaca dashboard; paste the key id and secret on the Automation page.</p>
         <p><b>India — Zerodha Kite / Dhan / Upstox.</b> ⚠️ SEBI regulates retail algo/API trading: brokers require approval/registration for automated order placement, and the rules tightened in 2025. Confirm your broker's algo terms before enabling live. This path is stricter than the US.</p>
+      </section>
+
+      <section class="guide-section" id="a-enable">
+        <h2>5b. Turning it on — two switches</h2>
+        <p>There are <b>two independent gates</b>. Both must be set for real orders to flow:</p>
+        <h3 style="color:var(--text-mute);font-size:0.8rem;letter-spacing:0.1em;text-transform:uppercase;margin:14px 0 6px">A · Per-account (in this app, on the <a href="#/automation" style="color:var(--cyan)">Automation</a> page)</h3>
+        <ol>
+          <li><b>Broker connection</b> — pick Alpaca, paste your API key + secret (paper keys), keep the paper REST base. Hit <b>Test connection</b>.</li>
+          <li>Set your rules (markets, tiers, strategies, sizing, filters).</li>
+          <li><b>Master switch</b> — tick <b>Enable automation</b>, set <b>Mode = Paper</b>.</li>
+          <li>Click <b>SAVE AUTOMATION CONFIG</b>. (Saving needs the Firestore rules deployed — see SETUP.)</li>
+        </ol>
+        <p class="muted">Mode = Paper forces the Alpaca paper endpoint no matter what. Switch to Live only after weeks of clean paper results.</p>
+        <h3 style="color:var(--text-mute);font-size:0.8rem;letter-spacing:0.1em;text-transform:uppercase;margin:14px 0 6px">B · The run-mode switch (GitHub, controls the scheduled worker)</h3>
+        <p>The worker runs on a daily schedule but is <b>dry-run by default</b> — it logs intended orders and submits nothing. To let the <b>scheduled</b> runs actually place (paper) orders:</p>
+        <div class="guide-pass">
+          <b>Repo → Settings → Secrets and variables → Actions → Variables → New variable:</b>
+          <pre style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:8px 0;font-family:var(--font-mono);font-size:0.85rem;color:var(--text)">AUTO_DRY_RUN = false</pre>
+          Leave it unset (or <code>true</code>) and every scheduled run stays a dry-run. A manual <b>Actions → Auto-trade (paper) → Run workflow</b> can always override via the <code>dry_run</code> input.
+        </div>
+        <p><b>Summary:</b> dry-run logs only; to trade paper for real you need <b>(A)</b> Enable + Mode + saved config <i>and</i> <b>(B)</b> <code>AUTO_DRY_RUN=false</code>. Watch every decision on <a href="#/auto-orders" style="color:var(--cyan)">Auto Orders</a>. Stop everything instantly with the kill switch (<code>kill_switch</code> input or <code>publicConfig/automation.paused=true</code>).</p>
       </section>
 
       <section class="guide-section" id="a-safety">

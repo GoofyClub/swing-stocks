@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.19.1 — 2026-06-26 (enable/dry-run docs + honest options framing)
+
+### Added/changed
+- **Automation Guide:** new "5b. Turning it on — two switches" section explaining
+  the two independent gates (per-account Enable + Mode in the app; the
+  `AUTO_DRY_RUN` repo variable for the scheduled worker), with exact steps.
+- **Options Playbook:** added an honest "Is this the right approach?" section (the
+  framework is what pros use; the exact strikes/DTE are conventions, not
+  backtested; OTM "2 strikes above ATM" is the speculative end; edge must exist
+  first) and an **Implied Volatility** section (buy low IV / sell high IV; the
+  earnings IV-crush trap) — the dimension the table previously ignored.
+
 ## v0.19.0 — 2026-06-26 (scheduled auto-trade + Options Playbook page)
 
 ### Added

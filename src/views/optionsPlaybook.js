@@ -25,6 +25,33 @@ export function renderOptionsPlaybook(root) {
       </section>
 
       <section class="guide-section">
+        <h2>Is this the "right" approach? (honest answer)</h2>
+        <p>The <b>framework</b> here is genuinely what experienced options traders use — and it's principled, not random:</p>
+        <ul>
+          <li><b>Match the structure to the edge:</b> sell premium on high-probability/small-move setups, buy directional on big-move setups. This is standard.</li>
+          <li><b>Premium selling</b> (cash-secured puts, the "wheel", credit spreads) is the statistically friendlier retail approach — most retail option <i>buyers</i> lose to theta + volatility crush. That's why the high-WR signals point to <i>selling</i>.</li>
+          <li><b>Standard best practices:</b> match DTE to the hold, prefer ATM/ITM for steadier delta, take ~50% profit on short premium, cut losers before theta accelerates.</li>
+        </ul>
+        <p>What it is <b>not</b>: the exact strikes/DTE are <b>sensible conventions, not backtested-optimal numbers for your specific signals.</b> Three honest caveats:</p>
+        <ul>
+          <li><b>"2 strikes above ATM" (OTM calls)</b> is the <i>speculative</i> end — cheap, but low win-rate lottery tickets that decay fast. For most people, <b>ATM/ITM is better risk-adjusted.</b> OTM only when you specifically want a small-cost home-run swing.</li>
+          <li><b>Edge must exist first.</b> Options amplify the underlying signal's edge — or lack of it. Until the (now-corrected) stock settlement shows a strategy is actually profitable, applying options to it just loses faster.</li>
+          <li><b>Implied volatility is the dimension this table ignores</b> — and it's arguably the biggest driver of options profit (see below).</li>
+        </ul>
+      </section>
+
+      <section class="guide-section">
+        <h2>Implied volatility — don't skip this</h2>
+        <p>Whether an options trade is profitable depends as much on <b>IV</b> as on direction:</p>
+        <ul>
+          <li><b>Buying</b> (calls): you want <b>low/normal IV</b>. Buying calls when IV is high (e.g. right before earnings) means overpaying — even a correct move can lose to "IV crush" afterward. Check <b>IV rank/percentile</b>; avoid buying when it's elevated.</li>
+          <li><b>Selling</b> (puts/spreads): you want <b>high IV</b> — you collect richer premium, and the edge improves when IV is elevated and likely to fall.</li>
+          <li><b>Earnings</b> (PEG/PEAD): IV is highest into the report and collapses after. Buying calls <i>before</i> earnings is the classic trap; the drift play is usually <i>after</i> the print.</li>
+        </ul>
+        <p class="muted">The app doesn't pull options/IV data, so these are checks to do in your broker before placing the trade.</p>
+      </section>
+
+      <section class="guide-section">
         <h2>Quick reference</h2>
         <div style="overflow-x:auto">
         <table class="data">
