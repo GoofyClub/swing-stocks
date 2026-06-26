@@ -24,6 +24,7 @@ import {
 } from '../data/markets.js';
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
+import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
 import { initFirebase } from '../data/firebase.js';
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
@@ -450,7 +451,7 @@ export async function renderSignals(root) {
             <button data-value="buy"  type="button">BUYS</button>
             <button data-value="sell" type="button">SELLS</button>
           </div>
-          <select id="f-strategy" class="btn-bare" title="Filter by strategy"><option value="">All strategies</option></select>
+          ${multiSelectHtml('f-strategy', 'All strategies')}
           <select id="f-sector" class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
           <input id="f-min" type="number" step="0.01" placeholder="min price" class="btn-bare" style="width:100px">
           <input id="f-max" type="number" step="0.01" placeholder="max price" class="btn-bare" style="width:100px">
@@ -569,21 +570,23 @@ export async function renderSignals(root) {
   }
   function refreshSectorOptions(rows) {
     refreshSelectOptions('f-sector', 'sector', rows);
-    refreshSelectOptions('f-strategy', 'short', rows);
+    // Strategy is a multi-select; fillMultiSelect preserves current selection.
+    const strats = [...new Set(rows.map(r => r.short).filter(Boolean))].sort();
+    fillMultiSelect('f-strategy', strats);
   }
 
   function applyFilters(rows) {
-    const tier     = getSeg('seg-tier');
-    const side     = getSeg('seg-side');
-    const strategy = $('f-strategy').value;
-    const sector   = $('f-sector').value;
+    const tier       = getSeg('seg-tier');
+    const side       = getSeg('seg-side');
+    const strategies = getMultiSelectValues('f-strategy');
+    const sector     = $('f-sector').value;
     const minP   = parseFloat($('f-min').value);
     const maxP   = parseFloat($('f-max').value);
     const q      = $('f-q').value.trim().toLowerCase();
     return rows.filter(r => {
       if (tier     && r.tier !== tier) return false;
       if (side     && r.side !== side) return false;
-      if (strategy && r.short !== strategy) return false;
+      if (strategies.length && !strategies.includes(r.short)) return false;
       if (sector   && r.sector !== sector) return false;
       if (Number.isFinite(minP) && r.entry < minP) return false;
       if (Number.isFinite(maxP) && r.entry > maxP) return false;
@@ -602,9 +605,14 @@ export async function renderSignals(root) {
     // be applied once its <option> exists — do it here, then stop trying.
     if (pendingSavedSelects) {
       const s = pendingSavedSelects;
-      if (s.strategy && [...$('f-strategy').options].some(o => o.value === s.strategy)) $('f-strategy').value = s.strategy;
-      if (s.sector   && [...$('f-sector').options].some(o => o.value === s.sector))     $('f-sector').value   = s.sector;
-      if ((!s.strategy || $('f-strategy').value === s.strategy) && (!s.sector || $('f-sector').value === s.sector)) pendingSavedSelects = null;
+      if (s.sector && [...$('f-sector').options].some(o => o.value === s.sector)) $('f-sector').value = s.sector;
+      const stratOpts = [...document.querySelectorAll('#f-strategy input')].map(i => i.value);
+      if (s.strategies?.length && stratOpts.length) {
+        setMultiSelectValues('f-strategy', s.strategies.filter(v => stratOpts.includes(v)));
+      }
+      const sectorDone = !s.sector || $('f-sector').value === s.sector;
+      const stratsDone = !s.strategies?.length || stratOpts.length > 0;
+      if (sectorDone && stratsDone) pendingSavedSelects = null;
     }
     if (!rows.length) {
       const mode = _viewMode[market];
@@ -756,7 +764,7 @@ export async function renderSignals(root) {
   $('btn-reset').addEventListener('click', () => {
     setSeg('seg-tier', '');
     setSeg('seg-side', '');
-    $('f-strategy').value = '';
+    setMultiSelectValues('f-strategy', []);
     $('f-sector').value = '';
     $('f-min').value = '';
     $('f-max').value = '';
@@ -772,7 +780,7 @@ export async function renderSignals(root) {
   });
   wireSeg('seg-tier', renderResults);
   wireSeg('seg-side', renderResults);
-  $('f-strategy').addEventListener('change', renderResults);
+  wireMultiSelect('f-strategy', renderResults);
   $('f-sector').addEventListener('change', renderResults);
   ['f-min', 'f-max', 'f-q'].forEach(id => $(id).addEventListener('input', renderResults));
 
@@ -781,7 +789,7 @@ export async function renderSignals(root) {
   $('btn-save-filters').addEventListener('click', () => {
     const payload = {
       tier: getSeg('seg-tier'), side: getSeg('seg-side'),
-      strategy: $('f-strategy').value, sector: $('f-sector').value,
+      strategies: getMultiSelectValues('f-strategy'), sector: $('f-sector').value,
       min: $('f-min').value, max: $('f-max').value, q: $('f-q').value.trim(),
     };
     try { localStorage.setItem(SIGNALS_FILTERS_KEY, JSON.stringify(payload)); } catch {}
@@ -799,7 +807,8 @@ export async function renderSignals(root) {
     if (saved.max != null) $('f-max').value = saved.max;
     if (saved.q   != null) $('f-q').value   = saved.q;
     // strategy/sector options aren't populated yet — apply once they are.
-    pendingSavedSelects = { strategy: saved.strategy || '', sector: saved.sector || '' };
+    const savedStrats = Array.isArray(saved.strategies) ? saved.strategies : (saved.strategy ? [saved.strategy] : []);
+    pendingSavedSelects = { strategies: savedStrats, sector: saved.sector || '' };
   })();
 
   // ---- Auto-load cron data on mount (always, in the background — cheap reads)

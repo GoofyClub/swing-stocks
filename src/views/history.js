@@ -13,6 +13,7 @@ import { openModal } from '../ui/modal.js';
 import { computeEntryStatus, entryStatusBadge, indexMultiSignal, multiSignalBadge } from '../ui/signal-status.js';
 import { sectorName } from '../data/markets.js';
 import { loadColumnPrefs, saveColumnPrefs, resetColumnPrefs, visibleColumns, openColumnConfig } from '../ui/column-prefs.js';
+import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
 
 const FILTERS_LS_KEY = 'swing.history.filters';
 const COLS_TABLE_KEY = 'history';
@@ -122,7 +123,7 @@ function applyFilters(rows, f) {
     if (f.market && r.market && r.market !== f.market) return false;
     if (f.side     && r.side     !== f.side)     return false;
     if (f.tier     && r.tier     !== f.tier)     return false;
-    if (f.strategy && r.strategy !== f.strategy) return false;
+    if (f.strategies?.length && !f.strategies.includes(r.strategy)) return false;
     if (f.sector   && r.sector   !== f.sector)   return false;
     if (f.entryStatus) {
       const es = computeEntryStatus(r);
@@ -293,7 +294,7 @@ export async function renderHistory(root) {
             <button data-value="win"    class="wl-win"  type="button">WIN</button>
             <button data-value="loss"   class="wl-loss" type="button">LOSS</button>
           </div>
-          <select id="f-strategy" class="btn-bare" title="Filter by strategy"><option value="">All strategies</option></select>
+          ${multiSelectHtml('f-strategy', 'All strategies')}
           <select id="f-sector"   class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
           <input  id="f-q"   class="search" type="search" placeholder="ticker / name" style="max-width:220px">
           <button id="btn-save-filters" class="btn-bare" type="button" title="Save these filters for next time (this browser)">★ SAVE FILTERS</button>
@@ -391,13 +392,13 @@ export async function renderHistory(root) {
   // Populate strategy/sector dropdowns from actual data (full set, not filtered).
   const strats  = [...new Set(rows.map(r => r.strategy).filter(Boolean))].sort();
   const sectors = [...new Set(rows.map(r => r.sector).filter(Boolean))].sort();
-  $('f-strategy').insertAdjacentHTML('beforeend', strats.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
+  fillMultiSelect('f-strategy', strats);
   $('f-sector').insertAdjacentHTML('beforeend', sectors.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''));
 
   // Pre-seed filters from URL query (Dashboard tiles can deep-link with ?side=buy or ?tier=A+).
   if (params.side) setSeg('seg-side', params.side);
   if (params.tier) setSeg('seg-tier', params.tier);
-  if (params.strategy) $('f-strategy').value = params.strategy;
+  if (params.strategy) setMultiSelectValues('f-strategy', [params.strategy]);
 
   // ---- Timeframe state ----
   let tfDays = 90;     // number of days, or 'all' for the entire loaded set
@@ -481,7 +482,7 @@ export async function renderHistory(root) {
       market:   state.market,          // ALWAYS scope to current market
       side:     getSeg('seg-side'),
       tier:     getSeg('seg-tier'),
-      strategy: $('f-strategy').value,
+      strategies: getMultiSelectValues('f-strategy'),
       sector:   $('f-sector').value,
       winLoss:  getSeg('seg-winloss'),
       q:        $('f-q').value.trim(),
@@ -583,7 +584,9 @@ export async function renderHistory(root) {
     $('summary-table').querySelectorAll('tr[data-strategy]').forEach(tr => {
       tr.addEventListener('click', () => {
         const s = tr.dataset.strategy;
-        $('f-strategy').value = $('f-strategy').value === s ? '' : s;
+        const cur = getMultiSelectValues('f-strategy');
+        // Click a row → focus just that strategy; click again (it's the only one) → clear.
+        setMultiSelectValues('f-strategy', (cur.length === 1 && cur[0] === s) ? [] : [s]);
         refresh();
       });
     });
@@ -683,7 +686,8 @@ export async function renderHistory(root) {
   wireSeg('seg-tier',    refresh);
   wireSeg('seg-side',    refresh);
   wireSeg('seg-winloss', refresh);
-  ['f-strategy', 'f-sector'].forEach(id => $(id).addEventListener('change', refresh));
+  wireMultiSelect('f-strategy', refresh);
+  $('f-sector').addEventListener('change', refresh);
   $('f-q').addEventListener('input', refresh);
 
   // ----- Saved filters (localStorage) --------------------------------------
@@ -694,7 +698,10 @@ export async function renderHistory(root) {
     setSeg('seg-side',    saved.side    || '');
     setSeg('seg-tier',    saved.tier    || '');
     setSeg('seg-winloss', saved.winLoss || '');
-    if (saved.strategy != null) $('f-strategy').value = saved.strategy;
+    // strategies: array (current) or legacy single string.
+    const savedStrats = Array.isArray(saved.strategies) ? saved.strategies
+      : (saved.strategy ? [saved.strategy] : []);
+    setMultiSelectValues('f-strategy', savedStrats);
     if (saved.sector   != null) $('f-sector').value   = saved.sector;
     if (saved.q        != null) $('f-q').value         = saved.q;
     if (saved.tfCustom) {
@@ -717,7 +724,7 @@ export async function renderHistory(root) {
       side:     getSeg('seg-side'),
       tier:     getSeg('seg-tier'),
       winLoss:  getSeg('seg-winloss'),
-      strategy: $('f-strategy').value,
+      strategies: getMultiSelectValues('f-strategy'),
       sector:   $('f-sector').value,
       q:        $('f-q').value.trim(),
       tfDays:   tfCustom ? null : tfDays,

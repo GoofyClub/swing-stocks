@@ -1195,3 +1195,25 @@ table.data .remove-btn {
   .btn-primary { padding: 6px 12px; font-size: 0.77rem; }
   .btn-bare { padding: 4px 8px; font-size: 0.77rem; }
 }
+
+/* Multi-select dropdown (strategy filter on History + Live Signals) */
+.ms { position: relative; display: inline-block; }
+.ms > summary {
+  list-style: none; cursor: pointer; white-space: nowrap;
+  min-width: 130px; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+}
+.ms > summary::-webkit-details-marker { display: none; }
+.ms > summary::after { content: '▾'; margin-left: 6px; color: var(--text-mute); }
+.ms[open] > summary::after { content: '▴'; }
+.ms-menu {
+  position: absolute; z-index: 50; top: calc(100% + 4px); left: 0;
+  min-width: 200px; max-height: 280px; overflow-y: auto;
+  background: var(--bg-elev); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); padding: 4px;
+}
+.ms-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 4px; cursor: pointer; font-size: 0.9rem; color: var(--text);
+}
+.ms-item:hover { background: var(--bg); }
+.ms-item input { margin: 0; }

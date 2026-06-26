@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.17.0 — 2026-06-26 (multi-select strategy filter)
+
+### Added
+- **Multi-strategy filter** on Signal History and Live Signals — the strategy
+  filter is now a checkbox dropdown so you can scope to several strategies at once
+  (empty = all). New reusable `src/ui/multiselect.js`. Saved filters store the
+  selection as an array (legacy single-value saves are migrated). Clicking a
+  Strategy-summary row still focuses that one strategy.
+
 ## v0.16.2 — 2026-06-26 (harden the settlement fallback query)
 
 ### Fixed
