@@ -63,7 +63,13 @@ export async function renderAutomation(root) {
     <div class="guide-warn" style="text-align:left">
       <b>Safety:</b> automation is <b>${cfg.enabled ? 'ENABLED' : 'disabled'}</b> in <b>${escapeHtml(cfg.mode)}</b> mode.
       Start in <b>paper</b> mode and forward-test for weeks before going live. Live trading uses real money and is irreversible.
-      Execution worker is <b>not yet deployed</b> — these settings are saved but no orders are placed until it ships.
+    </div>
+    <div class="guide-warn" style="text-align:left;border-color:var(--cyan)">
+      <b>Why no trades yet?</b> Enabling automation here only <b>saves your rules</b> — it does not run anything on its own.
+      The worker runs only when you trigger it: <b>GitHub → Actions → “Auto-trade (paper)” → Run workflow</b>.
+      It defaults to <b>dry-run</b> (logs intended orders, places nothing) — set <code>dry_run = false</code> to actually place paper orders,
+      and it only acts <b>during US market hours</b> for signals that pass your rules. Review results on the
+      <a href="#/auto-orders" style="color:var(--cyan)">Auto Orders</a> page. (No automatic schedule yet — that's deliberate until you've validated it.)
     </div>
 
     <div class="card">

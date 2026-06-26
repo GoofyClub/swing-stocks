@@ -201,6 +201,7 @@ function wlBadge(r) {
   const exitWhy = {
     tp: 'Hit take-profit', sl: 'Hit stop-loss',
     native: 'Indicator exit (close > 5-SMA)', time_stop: 'Time stop (max hold reached)',
+    trail: 'Trailing stop (breakeven at +1R, trail 2R below high)',
   }[r.exitReason] || '';
   const t = exitWhy ? ` title="${escapeHtml(exitWhy)}"` : '';
   const inner = r.status === 'open' ? '<span class="badge open">open</span>'

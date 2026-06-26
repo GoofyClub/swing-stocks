@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.18.0 — 2026-06-26 (trailing-stop settlement for trend strategies + automation banner fix)
+
+### Changed
+- **Trend/breakout strategies now settle on a TRAILING stop** instead of a fixed
+  far take-profit. The old model only had two good outcomes (hit a distant TP or
+  time-stop at the close), which systematically gave back open profit and booked
+  trend winners as losses — likely the main reason VCP/PEG/Pocket Pivot showed
+  losses. New `settleTrailing()`: initial stop, move to breakeven at +1R, trail
+  2R below the highest high, no fixed TP, time-stop backstop. Applies to
+  pullback, vcp, peg, pocket_pivot, htf, nr7, 52WH. Mean-reversion strategies
+  (rsi2 native exit, quality_dip, fvg, FMP drifts) keep the fixed-target model.
+  `SETTLEMENT_VERSION` → 4 re-grades the affected closed signals on the next cron.
+  New `trail` exit reason shown on the W/L badge. 6 new tests.
+
+### Fixed
+- **Automation page banner** no longer claims the worker "is not yet deployed."
+  It now explains that enabling automation only saves rules, and the worker runs
+  when you trigger the *Auto-trade (paper)* Action (dry-run by default, market
+  hours only) — answering "why no trades triggered?"
+
 ## v0.17.0 — 2026-06-26 (multi-select strategy filter)
 
 ### Added

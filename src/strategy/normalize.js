@@ -432,7 +432,9 @@ export { STRATEGY_TARGETS };
 //   1 — original: fixed TP/SL, first touch, held indefinitely.
 //   2 — entry-trigger gating + RSI(2) native exit + per-strategy time stop.
 //   3 — closed-signal pctChange frozen at exit (hitPrice), not latest close.
-export const SETTLEMENT_VERSION = 3;
+//   4 — trend/breakout strategies settle on a trailing stop (breakeven at +1R,
+//       trail 2R below the high, no fixed TP); mean-reversion keeps fixed targets.
+export const SETTLEMENT_VERSION = 4;
 
 // Documented max hold per strategy, in trading bars. After this many held bars
 // with no TP/SL/native exit, settle at that bar's close.
@@ -456,11 +458,68 @@ function buildNativeExit(strategyKey, bars) {
   return null;
 }
 
+// Trend/breakout strategies are managed with a TRAILING stop in real life, not a
+// fixed far take-profit. Settling them on "hit a distant TP or time-stop at the
+// close" systematically gives back open profit and books winners as losses — so
+// these use settleTrailing() instead. Mean-reversion / level strategies (rsi2,
+// quality_dip, fvg, the FMP drifts) keep the fixed-target model.
+const TRAILING_STRATEGIES = new Set(['pullback', 'vcp', 'peg', 'pocket_pivot', 'htf', 'nr7', 'fifty_two_wh']);
+// Trail the stop this many R below the highest high reached; breakeven at +1R.
+const TRAIL_GIVEBACK_R = 2;
+
+// Trailing-stop settlement. No fixed TP — let winners run; exit on the trailing
+// stop or the time stop. Rules per bar (evaluated pessimistically: the stop set
+// from PRIOR bars is checked against this bar's low BEFORE this bar's high raises
+// it, so a bar can't protect against its own low):
+//   • initial stop = sl
+//   • once the high is +1R above entry → move stop up to breakeven (entry)
+//   • stop also trails to (highestHigh − TRAIL_GIVEBACK_R × R)
+//   • exit when low ≤ current stop; else time-stop at the max-hold bar's close
+function settleTrailing(envelope, postSignalBars, opts = {}) {
+  const { sl, entry, pendingEntry, strategyKey } = envelope;
+  const R = entry - sl;
+  const maxHold = STRATEGY_HOLD[strategyKey];
+  const done = (winLoss, date, price, reason) =>
+    ({ status: 'closed', winLoss, settledAt: date, hitPrice: price, exitReason: reason });
+  if (!(R > 0)) return { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null };
+
+  let triggered = !(pendingEntry && Number.isFinite(entry));
+  let held = 0;
+  let stop = sl;
+  let maxHigh = -Infinity;
+
+  for (let k = 0; k < postSignalBars.length; k++) {
+    const bar = postSignalBars[k];
+    if (!triggered) {
+      if (bar.high >= entry) triggered = true;
+      else continue;
+    }
+    held++;
+
+    // Exit check against the stop carried in from prior bars.
+    if (bar.low <= stop) {
+      const win = stop > entry; // breakeven (stop === entry) books as a non-win
+      return done(win ? 'win' : 'loss', bar.date, stop, stop > sl ? 'trail' : 'sl');
+    }
+
+    // Raise the stop using this bar's high (applies to subsequent bars).
+    maxHigh = Math.max(maxHigh, bar.high);
+    if (maxHigh - entry >= R) stop = Math.max(stop, entry);          // breakeven at +1R
+    stop = Math.max(stop, maxHigh - TRAIL_GIVEBACK_R * R);            // trail
+
+    if (maxHold && held >= maxHold && Number.isFinite(bar.close)) {
+      return done(bar.close > entry ? 'win' : 'loss', bar.date, bar.close, 'time_stop');
+    }
+  }
+  return { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null };
+}
+
 export function settleSignal(envelope, postSignalBars, opts = {}) {
   if (!envelope || !postSignalBars || postSignalBars.length === 0) {
     return { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null };
   }
   const { tp, sl, entry, pendingEntry, strategyKey } = envelope;
+  if (TRAILING_STRATEGIES.has(strategyKey)) return settleTrailing(envelope, postSignalBars, opts);
   const maxHold = STRATEGY_HOLD[strategyKey]; // undefined => no time stop
   const fullBars = opts.bars || null;
   const entryIdx = opts.entryIdx;

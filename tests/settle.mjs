@@ -56,6 +56,32 @@ console.log('\n--- settleSignal: first-touch W/L ---');
     settleSignal(env, []).status === 'open');
 }
 
+console.log('\n--- settleSignal: trailing-stop model (trend strategies) ---');
+{
+  // entry 100, sl 95 → R = 5. Trailing strategy (vcp). No fixed TP.
+  const env = { entry: 100, sl: 95, tp: 130, strategyKey: 'vcp' };
+  // Runs to 112 (high), then a bar dips to 101: stop trailed to maxHigh-2R=112-10=102 → low 101 ≤ 102 → exit at 102 (win).
+  const v = settleSignal(env, [bar('d1', 108, 100), bar('d2', 112, 106), bar('d3', 104, 101)]);
+  t('trails and exits above entry as WIN', v.winLoss === 'win' && v.exitReason === 'trail' && v.hitPrice === 102);
+
+  // Immediate drop to initial stop → loss at sl.
+  t('initial stop hit -> loss at sl', settleSignal(env, [bar('d1', 101, 94)]).hitPrice === 95 &&
+     settleSignal(env, [bar('d1', 101, 94)]).winLoss === 'loss');
+
+  // Reaches +1R (105) then reverses through breakeven → exit at entry, booked non-win (loss).
+  const be = settleSignal(env, [bar('d1', 106, 100), bar('d2', 101, 99)]);
+  t('breakeven after +1R books as loss at entry', be.winLoss === 'loss' && be.hitPrice === 100 && be.exitReason === 'trail');
+
+  // No stop hit within hold → time stop at close (vcp maxHold 25). Slow climb, never dips.
+  const climb = Array.from({ length: 26 }, (_, i) => ({ date: 'd' + i, high: 100 + i * 0.1, low: 100 + i * 0.1 - 0.05, close: 100 + i * 0.1 - 0.02 }));
+  const ts = settleSignal(env, climb);
+  t('time-stop exit when never stopped out', ts.exitReason === 'time_stop' && ts.winLoss === 'win');
+
+  // Mean-reversion strategy still uses the FIXED-target model (TP touch = win).
+  t('rsi2 still settles on fixed TP (not trailing)',
+     settleSignal({ entry: 100, sl: 95, tp: 110, strategyKey: 'rsi2' }, [bar('d1', 111, 99)]).exitReason === 'tp');
+}
+
 console.log('\n--- settleSignal: settles once, ignores later bars ---');
 {
   const env = { entry: 100, tp: 110, sl: 95 };
