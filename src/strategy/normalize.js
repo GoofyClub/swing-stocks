@@ -504,6 +504,23 @@ export function settleSignal(envelope, postSignalBars, opts = {}) {
   return { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null };
 }
 
+// Index of the bar a signal/trade was based on: the last bar ON OR BEFORE the
+// signal date. A signal's stored date is the cron's wall-clock run time, which
+// can fall on a weekend or market holiday (e.g. Juneteenth) that has NO bar of
+// its own. Requiring an exact date→bar match and skipping when it fails leaves
+// such signals permanently "open", never checking TP/SL. Bars are ascending by
+// date, so we return the last bar whose date <= sigDate (-1 if none).
+export function entryIndexFor(bars, dateMap, sigDate) {
+  if (!sigDate || !bars?.length) return -1;
+  const exact = dateMap?.get(sigDate);
+  if (exact != null) return exact;
+  let idx = -1;
+  for (let i = 0; i < bars.length; i++) {
+    if (bars[i].date <= sigDate) idx = i; else break;
+  }
+  return idx;
+}
+
 // =============================================================================
 // Quality tier — A+ / Tier 1 / Tier 2
 //

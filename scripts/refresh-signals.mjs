@@ -23,7 +23,7 @@
 import admin from 'firebase-admin';
 import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
-import { STRATEGIES, settleSignal, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
+import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
@@ -289,8 +289,8 @@ async function resettleRecentSignals(db, market, ctxIn) {
     const lastClose = bars[bars.length - 1].close;
     for (const sig of signals) {
       const sigDate = (sig.signalTs || '').slice(0, 10);
-      const idx = dateMap.get(sigDate);
-      if (idx == null) continue;
+      const idx = entryIndexFor(bars, dateMap, sigDate);
+      if (idx < 0) continue;
       const wasClosed = sig.status === 'closed';
       const postBars = bars.slice(idx + 1);
       const verdict = settleSignal(
@@ -448,8 +448,8 @@ async function settleUserTrades(db, market, ctxIn) {
     const lastClose = bars[bars.length - 1]?.close;
 
     for (const t of trades) {
-      const idx = dateMap.get(t.signalDate);
-      if (idx == null) {
+      const idx = entryIndexFor(bars, dateMap, t.signalDate);
+      if (idx < 0) {
         // Refresh currentPrice even if we can't find the bar (rare).
         try {
           await t.ref.update({

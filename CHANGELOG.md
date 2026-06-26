@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.15.1 — 2026-06-25 (fix: signals on non-trading dates never settled)
+
+### Fixed
+- **Settlement skipped signals stamped with a non-trading date** — `signalTs` is
+  the cron's wall-clock run time, which can land on a weekend or market holiday
+  (e.g. **Juneteenth, 2026-06-19**) that has no price bar. Both settlement passes
+  (`resettleRecentSignals` and `settleUserTrades`) required an exact signal-date →
+  bar-date match and `continue`d when it failed, leaving those signals
+  permanently **open** — never checking whether TP/SL was hit. Now they resolve
+  the entry bar to the last trading bar **on or before** the signal date via a new
+  `entryIndexFor()` helper, so subsequent TP/SL touches settle normally.
+- 6 new tests in `tests/settle.mjs` covering holiday/weekend/exact/edge cases.
+
+The next cron run will settle the affected backlog (e.g. the stuck 6/19 Walmart).
+
 ## v0.15.0 — 2026-06-18 (broker test button, Telegram alerts, Cron Status page)
 
 ### Added

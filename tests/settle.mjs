@@ -13,7 +13,7 @@
 // Run with:  node tests/settle.mjs
 // =============================================================================
 
-import { settleSignal, tierReasons, computeTier } from '../src/strategy/normalize.js';
+import { settleSignal, entryIndexFor, tierReasons, computeTier } from '../src/strategy/normalize.js';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -21,6 +21,25 @@ function t(name, cond) {
   else      { fail++; console.error('  ✗', name); }
 }
 const bar = (date, high, low) => ({ date, high, low });
+
+console.log('\n--- entryIndexFor: tolerate non-trading signal dates ---');
+{
+  // Trading bars Thu 6/18 .. Wed 6/24 (no 6/19 Juneteenth, no weekend 6/20-21).
+  const bars = ['2026-06-18', '2026-06-22', '2026-06-23', '2026-06-24'].map(d => ({ date: d }));
+  const dm = new Map(bars.map((b, i) => [b.date, i]));
+  t('exact match returns that bar', entryIndexFor(bars, dm, '2026-06-22') === 1);
+  t('holiday date (6/19) falls back to last prior bar (6/18)', entryIndexFor(bars, dm, '2026-06-19') === 0);
+  t('weekend date (6/21) falls back to 6/18', entryIndexFor(bars, dm, '2026-06-21') === 0);
+  t('date before all bars -> -1', entryIndexFor(bars, dm, '2026-06-01') === -1);
+  t('future date -> last bar', entryIndexFor(bars, dm, '2026-06-30') === 3);
+
+  // Regression: a Friday-holiday signal must still settle off the following bars.
+  const env = { entry: 100, tp: 119, sl: 95 };
+  const idx = entryIndexFor(bars, dm, '2026-06-19'); // 6/18
+  const verdict = settleSignal(env, bars.slice(idx + 1).map((b, i) =>
+    ({ date: b.date, high: i === 0 ? 120 : 101, low: 99 })));
+  t('Juneteenth-stamped signal settles WIN when later bar hits TP', verdict.winLoss === 'win');
+}
 
 console.log('\n--- settleSignal: first-touch W/L ---');
 {
