@@ -66,6 +66,10 @@ function buildCtx(market) {
       alphavantage: process.env.ALPHAVANTAGE_KEY || '',
       finnhub:      process.env.FINNHUB_KEY     || '',
       fmp:          process.env.FMP_KEY         || '',
+      // Alpaca market data (US) — preferred cron source; reliable on CI runners.
+      ...(process.env.ALPACA_KEY && process.env.ALPACA_SECRET
+        ? { alpaca: { key: process.env.ALPACA_KEY, secret: process.env.ALPACA_SECRET } }
+        : {}),
     },
     market,
     enabledSources: new Set(DATA_SOURCE_ORDER),

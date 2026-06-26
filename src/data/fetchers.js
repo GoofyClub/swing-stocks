@@ -48,6 +48,34 @@ async function fetchWithTimeout(url, ctx, timeoutMs = 15000, init = {}) {
   }
 }
 
+// ---- Source: Alpaca Market Data (US equities, daily bars, key+secret) ----
+// Reliable from datacenter IPs (unlike Yahoo/Stooq which block CI), so it's the
+// preferred source for the GitHub Actions cron. US only; needs both key + secret
+// (free IEX feed is fine for EOD daily bars). ctx.apiKeys.alpaca = {key, secret}.
+async function fetchAlpaca(ticker, ctx) {
+  const creds = ctx.apiKeys?.alpaca;
+  const key = creds?.key, secret = creds?.secret;
+  if (!key || !secret) throw new Error('no Alpaca key/secret configured');
+  if (ctx.market === 'INDIA' || ticker.startsWith('^')) throw new Error('Alpaca data is US equities only');
+  const start = new Date(Date.now() - 5 * 365 * 86400_000).toISOString().slice(0, 10);
+  const base = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(ticker)}/bars?timeframe=1Day&start=${start}&limit=10000&adjustment=split&feed=iex`;
+  const headers = { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret };
+  const bars = [];
+  let pageToken = null;
+  do {
+    const url = pageToken ? `${base}&page_token=${encodeURIComponent(pageToken)}` : base;
+    const resp = await fetchWithTimeout(url, ctx, 15000, { headers });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim());
+    const j = await resp.json();
+    for (const b of (j.bars || [])) {
+      bars.push({ date: String(b.t).slice(0, 10), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v });
+    }
+    pageToken = j.next_page_token || null;
+  } while (pageToken);
+  if (bars.length < 30) throw new Error(`only ${bars.length} bars`);
+  return bars;
+}
+
 // ---- Source: Alpha Vantage (CSV daily, requires free API key, supports CORS) ----
 async function fetchAlphaVantage(ticker, ctx) {
   const key = ctx.apiKeys?.alphavantage;
@@ -241,6 +269,7 @@ async function fetchStooqCodetabs(ticker, ctx) {
 }
 
 export const DATA_SOURCES = {
+  alpaca:            { label: 'Alpaca Market Data (US, key+secret)',   needsKey: 'alpaca',       fetch: fetchAlpaca },
   alphavantage:      { label: 'Alpha Vantage (CSV, key required)',     needsKey: 'alphavantage', fetch: fetchAlphaVantage },
   finnhub:           { label: 'Finnhub (JSON, key required)',          needsKey: 'finnhub',      fetch: fetchFinnhub },
   yahoo_v7_direct:   { label: 'Yahoo Finance v7 CSV (direct)',         needsKey: null,           fetch: fetchYahooV7Csv },

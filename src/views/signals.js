@@ -455,6 +455,7 @@ export async function renderSignals(root) {
           <input id="f-min" type="number" step="0.01" placeholder="min price" class="btn-bare" style="width:100px">
           <input id="f-max" type="number" step="0.01" placeholder="max price" class="btn-bare" style="width:100px">
           <input id="f-q" type="search" placeholder="ticker / name" class="search" style="max-width:200px">
+          <button id="btn-save-filters" class="btn-bare" type="button" title="Save these filters for next time (this browser)">★ SAVE FILTERS</button>
           <button id="btn-reset" class="btn-bare" type="button">RESET</button>
           <span id="hit-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
         </div>
@@ -477,6 +478,9 @@ export async function renderSignals(root) {
   const $ = (id) => document.getElementById(id);
   const logEl = $('scan-log');
   let drawnLogIdx = 0;
+  // Saved-filter selection pending until its <option> populates (see renderResults).
+  let pendingSavedSelects = null;
+  const SIGNALS_FILTERS_KEY = 'swing.signals.filters';
 
   // ---- Helpers
   function getSeg(id) {
@@ -594,6 +598,14 @@ export async function renderSignals(root) {
   function renderResults() {
     const rows = activeRows();
     refreshSectorOptions(rows);
+    // Strategy/sector options populate from data, so a saved selection can only
+    // be applied once its <option> exists — do it here, then stop trying.
+    if (pendingSavedSelects) {
+      const s = pendingSavedSelects;
+      if (s.strategy && [...$('f-strategy').options].some(o => o.value === s.strategy)) $('f-strategy').value = s.strategy;
+      if (s.sector   && [...$('f-sector').options].some(o => o.value === s.sector))     $('f-sector').value   = s.sector;
+      if ((!s.strategy || $('f-strategy').value === s.strategy) && (!s.sector || $('f-sector').value === s.sector)) pendingSavedSelects = null;
+    }
     if (!rows.length) {
       const mode = _viewMode[market];
       $('hits-count').textContent = '';
@@ -749,6 +761,8 @@ export async function renderSignals(root) {
     $('f-min').value = '';
     $('f-max').value = '';
     $('f-q').value = '';
+    pendingSavedSelects = null;
+    try { localStorage.removeItem(SIGNALS_FILTERS_KEY); } catch {}
     renderResults();
   });
   wireSeg('seg-source', (v) => {
@@ -761,6 +775,32 @@ export async function renderSignals(root) {
   $('f-strategy').addEventListener('change', renderResults);
   $('f-sector').addEventListener('change', renderResults);
   ['f-min', 'f-max', 'f-q'].forEach(id => $(id).addEventListener('input', renderResults));
+
+  // ---- Saved filters (localStorage): persist + restore the filter set. The
+  // source toggle (cron/scan) and market are intentionally NOT saved here.
+  $('btn-save-filters').addEventListener('click', () => {
+    const payload = {
+      tier: getSeg('seg-tier'), side: getSeg('seg-side'),
+      strategy: $('f-strategy').value, sector: $('f-sector').value,
+      min: $('f-min').value, max: $('f-max').value, q: $('f-q').value.trim(),
+    };
+    try { localStorage.setItem(SIGNALS_FILTERS_KEY, JSON.stringify(payload)); } catch {}
+    const b = $('btn-save-filters'); const prev = b.textContent;
+    b.textContent = '✓ SAVED';
+    setTimeout(() => { b.textContent = prev; }, 1500);
+  });
+  (() => {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SIGNALS_FILTERS_KEY) || 'null'); } catch {}
+    if (!saved) return;
+    setSeg('seg-tier', saved.tier || '');
+    setSeg('seg-side', saved.side || '');
+    if (saved.min != null) $('f-min').value = saved.min;
+    if (saved.max != null) $('f-max').value = saved.max;
+    if (saved.q   != null) $('f-q').value   = saved.q;
+    // strategy/sector options aren't populated yet — apply once they are.
+    pendingSavedSelects = { strategy: saved.strategy || '', sector: saved.sector || '' };
+  })();
 
   // ---- Auto-load cron data on mount (always, in the background — cheap reads)
   // If we don't have cron data yet OR it's older than 2 min, refetch.

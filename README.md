@@ -80,6 +80,14 @@ Both workers run on `ubuntu-latest` and need these repo **Secrets**:
 `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` (data-source keys
 `ALPHAVANTAGE_KEY` / `FINNHUB_KEY` / `FMP_KEY` are optional — see `SETUP.md`).
 
+> **Data reliability (important):** Yahoo and Stooq block datacenter IPs and
+> AlphaVantage free is 25 calls/day, so on the GitHub runner the cron often
+> **can't fetch bars** — which means signals **don't settle** (they stay "open"
+> with a stale price). Fix: add repo secrets **`ALPACA_KEY`** + **`ALPACA_SECRET`**
+> (your Alpaca key/secret — paper keys work for data). Alpaca Market Data is now
+> the cron's first source and is reliable from CI. US equities only; India still
+> falls back to Yahoo/Stooq.
+
 ### 1. Refresh shared signals — `.github/workflows/refresh-signals.yml`
 Generates signals, settles open/closed trades, prunes old data.
 

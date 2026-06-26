@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.16.0 — 2026-06-25 (Alpaca data source for the cron + Live Signals saved filters)
+
+### Fixed
+- **Cron couldn't fetch bars on CI → signals never settled.** Yahoo/Stooq block
+  datacenter IPs (Stooq now serves an anti-bot JS challenge) and the AlphaVantage
+  free key is 25/day, so the refresh worker frequently failed to fetch a ticker's
+  bars and **skipped settlement**, leaving signals "open" with a stale current
+  price (e.g. the 6/19 Walmart whose TP was hit 6/23). Added **Alpaca Market Data**
+  as a data source — reliable from datacenter IPs — and made it the cron's first
+  source. Set repo secrets `ALPACA_KEY` + `ALPACA_SECRET` (paper keys work) and
+  re-run the refresh; the backlog settles. US equities only; India still uses
+  Yahoo/Stooq.
+
+### Added
+- **Live Signals saved filters** — a ★ SAVE FILTERS button persists the filter set
+  (tier/side/strategy/sector/price/search) to localStorage and restores it on the
+  next visit; RESET clears it. (Matches Signal History.)
+
 ## v0.15.1 — 2026-06-25 (fix: signals on non-trading dates never settled)
 
 ### Fixed

@@ -252,6 +252,7 @@ _popularName = _popularNameImpl;
 
 // Default data source priority order, top-down. Override per-deployment in fetchers config.
 export const DATA_SOURCE_ORDER = [
+  'alpaca',           // US: reliable from datacenter IPs (cron); needs key+secret
   'alphavantage',     // most reliable when a key is set (CSV, native CORS)
   'finnhub',          // also CORS-friendly; candle endpoint coverage varies
   'yahoo_v7_direct',  // Yahoo Finance v7 CSV — most stable free endpoint, no key
