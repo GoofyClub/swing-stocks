@@ -10,6 +10,7 @@ import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
 } from '../src/auto/engine.js';
+import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -120,6 +121,16 @@ console.log('\n--- regimeAllowsEntry ---');
   t('risk-on allows longs', regimeAllowsEntry({ go_to_cash: false }, 'buy').ok);
   t('missing regime fails open', regimeAllowsEntry(null, 'buy').ok);
   t('risk-off does not block sells', regimeAllowsEntry({ go_to_cash: true }, 'sell').ok);
+}
+
+console.log('\n--- paper/live URL resolution (real-money safety) ---');
+{
+  t('blank base -> paper host', resolveAlpacaBaseUrl({}) === 'https://paper-api.alpaca.markets');
+  t('configured url is used', resolveAlpacaBaseUrl({ restApiBase: 'https://api.alpaca.markets' }) === 'https://api.alpaca.markets');
+  t('paper host is NOT live', isLiveBaseUrl('https://paper-api.alpaca.markets') === false);
+  t('live host IS live', isLiveBaseUrl('https://api.alpaca.markets') === true);
+  t('blank resolves to paper (not live)', isLiveBaseUrl(resolveAlpacaBaseUrl({})) === false);
+  t('unknown url treated as live (fails safe)', isLiveBaseUrl('https://example.com') === true);
 }
 
 console.log('\n--- buildBracketOrder ---');

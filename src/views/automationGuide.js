@@ -132,7 +132,15 @@ export function renderAutomationGuide(root) {
           <pre style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:8px 0;font-family:var(--font-mono);font-size:0.85rem;color:var(--text)">AUTO_DRY_RUN = false</pre>
           Leave it unset (or <code>true</code>) and every scheduled run stays a dry-run. A manual <b>Actions → Auto-trade (paper) → Run workflow</b> can always override via the <code>dry_run</code> input.
         </div>
-        <p><b>Summary:</b> dry-run logs only; to trade paper for real you need <b>(A)</b> Enable + Mode + saved config <i>and</i> <b>(B)</b> <code>AUTO_DRY_RUN=false</code>. Watch every decision on <a href="#/auto-orders" style="color:var(--cyan)">Auto Orders</a>. Stop everything instantly with the kill switch (<code>kill_switch</code> input or <code>publicConfig/automation.paused=true</code>).</p>
+        <p><b>Summary (paper):</b> dry-run logs only; to trade paper for real you need <b>(A)</b> Enable + saved config with the <b>paper</b> URL <i>and</i> <b>(B)</b> <code>AUTO_DRY_RUN=false</code>. Watch every decision on <a href="#/auto-orders" style="color:var(--cyan)">Auto Orders</a>. Stop everything instantly with the kill switch (<code>kill_switch</code> input or <code>publicConfig/automation.paused=true</code>).</p>
+        <h3 style="color:var(--text-mute);font-size:0.8rem;letter-spacing:0.1em;text-transform:uppercase;margin:14px 0 6px">C · Going to REAL MONEY (live)</h3>
+        <p>The broker <b>URL</b> is the paper-vs-live switch. Going live takes <b>three deliberate flips</b>:</p>
+        <ol>
+          <li>Broker <b>URL</b> → <code>https://api.alpaca.markets</code> (in the app).</li>
+          <li>Your <b>live</b> Alpaca API key + secret (paper keys won't authenticate live).</li>
+          <li>Repo variable <code>ALLOW_LIVE = true</code>.</li>
+        </ol>
+        <p><b>Hard safety gate:</b> if a broker URL is live but <code>ALLOW_LIVE</code> isn't set, the worker <b>skips that account entirely</b> — the in-app setting alone can never place a real-money order. (And <code>AUTO_DRY_RUN=false</code> must still be set, as for paper.)</p>
       </section>
 
       <section class="guide-section" id="a-safety">

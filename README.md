@@ -111,8 +111,12 @@ demand. **Dry-run by default.** Script: [`scripts/auto-trade.mjs`](scripts/auto-
 - **Scheduled runs are dry-run** until you set the repo **variable**
   `AUTO_DRY_RUN = false` (Repo → Settings → Secrets and variables → Actions →
   **Variables**). A manual run can override via the `dry_run` input.
-- Per-user `enabled` + `mode` still gate everything; Alpaca **paper** is forced
-  unless a user set `mode='live'`.
+- **Paper vs live is the broker URL** (`paper-api.alpaca.markets` = paper,
+  `api.alpaca.markets` = live), set per-user in the app.
+- **Real money requires a hard gate:** a live broker URL is **skipped** unless the
+  repo variable `ALLOW_LIVE = true` is also set. So going live needs three
+  deliberate flips: the live **URL** + **live API keys** (in the app) and
+  `ALLOW_LIVE=true` (repo). The in-app setting alone can never trade real money.
 
 Workflow inputs:
 

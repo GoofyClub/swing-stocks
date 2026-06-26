@@ -6,7 +6,10 @@
 import { navigate } from '../core/router.js';
 import { STRATEGIES } from '../strategy/normalize.js';
 import { loadAutomationConfig, saveAutomationConfig, DEFAULT_AUTOMATION } from '../data/automation.js';
-import { createAlpacaClient, resolveAlpacaBaseUrl } from '../broker/alpaca.js';
+import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../broker/alpaca.js';
+
+const ALPACA_PAPER_URL = 'https://paper-api.alpaca.markets';
+const ALPACA_LIVE_URL  = 'https://api.alpaca.markets';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -68,9 +71,13 @@ export async function renderAutomation(root) {
       <b>How it runs:</b> the worker runs <b>automatically each trading day</b> (just after the US open, and near the close to reconcile)
       — plus you can trigger it any time via <b>GitHub → Actions → “Auto-trade (paper)”</b>. By default every run is <b>dry-run</b>
       (logs intended orders, places nothing). To make scheduled runs place real <b>paper</b> orders, set the repo variable
-      <code>AUTO_DRY_RUN = false</code> (Repo → Settings → Secrets and variables → Actions → Variables). Your per-account
-      <b>Enable</b> + <b>mode</b> still gate everything, and paper is forced unless mode is Live. Review every decision on the
+      <code>AUTO_DRY_RUN = false</code> (Repo → Settings → Secrets and variables → Actions → Variables). Review every decision on the
       <a href="#/auto-orders" style="color:var(--cyan)">Auto Orders</a> page.
+    </div>
+    <div class="guide-warn" style="text-align:left;border-color:var(--red)">
+      <b>Going to REAL MONEY (live):</b> the broker <b>URL</b> is the paper-vs-live switch. To trade live you flip exactly three things —
+      (1) the broker URL to <code>https://api.alpaca.markets</code>, (2) your <b>live</b> Alpaca API key + secret, and (3) the repo variable
+      <code>ALLOW_LIVE = true</code>. <b>Without ALLOW_LIVE the worker hard-skips any live URL</b>, so the in-app flag alone can never trade real money.
     </div>
 
     <div class="card">
@@ -190,11 +197,13 @@ export async function renderAutomation(root) {
   }
   function gather() {
     const excludeRaw = $('a-exclude').value || '';
+    const restApiBase = $('a-resturl').value.trim();
     return {
       enabled: $('a-enabled').checked,
-      mode: $('a-mode').value,
+      // mode is derived from the broker URL — the URL is the paper-vs-live switch.
+      mode: isLiveBaseUrl(restApiBase) ? 'live' : 'paper',
       broker: $('a-broker').value,
-      restApiBase: $('a-resturl').value.trim(),
+      restApiBase,
       apiKey: $('a-apikey').value.trim(),
       apiSecret: $('a-apisecret').value.trim(),
       markets: readChips('markets'),
@@ -227,11 +236,21 @@ export async function renderAutomation(root) {
     });
   });
 
+  // The broker URL is the real paper-vs-live switch. Keep the Mode dropdown in
+  // sync as a convenience: picking a mode fills the matching URL, and editing the
+  // URL updates the dropdown.
+  const syncModeFromUrl = () => { $('a-mode').value = isLiveBaseUrl($('a-resturl').value.trim()) ? 'live' : 'paper'; };
+  $('a-mode').addEventListener('change', () => {
+    $('a-resturl').value = $('a-mode').value === 'live' ? ALPACA_LIVE_URL : ALPACA_PAPER_URL;
+  });
+  $('a-resturl').addEventListener('input', syncModeFromUrl);
+  syncModeFromUrl();
+
   $('a-save').addEventListener('click', async () => {
     const status = $('a-status');
     const next = gather();
     if (next.enabled && next.mode === 'live') {
-      if (!confirm('Enable LIVE automation with real money? Orders will be placed by the worker once it is deployed.')) return;
+      if (!confirm('This sets a LIVE (real-money) broker URL. Real orders will be placed only if the repo variable ALLOW_LIVE=true is ALSO set. Continue?')) return;
     }
     $('a-save').disabled = true;
     status.textContent = 'Saving…';

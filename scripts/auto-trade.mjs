@@ -31,7 +31,7 @@ import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
 } from '../src/auto/engine.js';
-import { createAlpacaClient, resolveAlpacaBaseUrl } from '../src/broker/alpaca.js';
+import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
 
@@ -40,6 +40,8 @@ const ONLY_UID = process.env.ONLY_UID || null;
 // Operator kill switch via env (workflow input). A Firestore-based switch is
 // also honored (see isGloballyPaused) so it can be flipped without a re-run.
 const ENV_KILL = String(process.env.KILL_SWITCH ?? 'false').toLowerCase() === 'true';
+// Hard live gate: real-money orders are blocked unless this repo variable is set.
+const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === 'true';
 
 function todayKey(now = new Date()) { return now.toISOString().slice(0, 10); }
 
@@ -124,7 +126,14 @@ async function processUser(db, uid, cfg) {
   if (!cfg.apiKey || !cfg.apiSecret) { log('no broker API credentials — skipping'); return; }
 
   const baseUrl = resolveAlpacaBaseUrl(cfg);
-  const live = cfg.mode === 'live';
+  const live = isLiveBaseUrl(baseUrl); // paper-vs-live is decided by the broker URL
+  // HARD LIVE GATE: a live broker URL only places real-money orders when the
+  // operator has explicitly set the repo variable ALLOW_LIVE=true. Without it we
+  // skip the account entirely — the in-app flag alone can never trade real money.
+  if (live && !ALLOW_LIVE && !DRY_RUN) {
+    log(`LIVE broker URL (${baseUrl}) but ALLOW_LIVE is not set — skipping for real-money safety. Set repo variable ALLOW_LIVE=true to permit live orders.`);
+    return;
+  }
   const client = createAlpacaClient({ baseUrl, apiKey: cfg.apiKey, apiSecret: cfg.apiSecret });
 
   let account, positions, clock;
@@ -165,7 +174,8 @@ async function processUser(db, uid, cfg) {
   // Track remaining buying power so we never queue more than the account can fund.
   let availableBp = account.buyingPower;
 
-  log(`mode=${cfg.mode} equity=${equity.toFixed(0)} open=${openCount} dayP/L=${dayRealizedPct.toFixed(2)}% dryRun=${DRY_RUN}`);
+  const modeLabel = live ? 'live' : 'paper';
+  log(`mode=${modeLabel} equity=${equity.toFixed(0)} open=${openCount} dayP/L=${dayRealizedPct.toFixed(2)}% dryRun=${DRY_RUN}`);
 
   const markets = cfg.markets || ['US'];
   const signals = await loadTodaySignals(db, markets);
@@ -219,7 +229,7 @@ async function processUser(db, uid, cfg) {
       clientOrderId: coid, signalId: sig.id, ticker: sig.ticker, sector: sec,
       strategy: sig.strategy || null, strategyKey: sig.strategyKey || null, tier: sig.tier || null,
       side: intent.side, qty: size.shares, entry: sig.entryPrice, tp: sig.tpPrice, sl: sig.slPrice,
-      dollarRisk: size.dollarRisk, mode: cfg.mode, live, dryRun: DRY_RUN,
+      dollarRisk: size.dollarRisk, mode: modeLabel, live, dryRun: DRY_RUN,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
@@ -234,7 +244,7 @@ async function processUser(db, uid, cfg) {
         journal.brokerOrderId = order?.id || null;
         await journalRef.set(journal);
         log(`PLACED ${intent.side} ${size.shares} ${sig.ticker} (order ${order?.id})`);
-        await notify(db, uid, `🟢 <b>ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ${sig.entryPrice} · TP ${sig.tpPrice} / SL ${sig.slPrice} · ${cfg.mode}${live ? ' LIVE' : ''}`);
+        await notify(db, uid, `🟢 <b>ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ${sig.entryPrice} · TP ${sig.tpPrice} / SL ${sig.slPrice} · ${modeLabel.toUpperCase()}`);
       } catch (e) {
         journal.status = 'error';
         journal.error = e.message;

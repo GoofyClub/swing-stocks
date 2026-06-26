@@ -118,9 +118,17 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
   };
 }
 
-// Force the paper endpoint whenever mode !== 'live', so a misconfigured base URL
-// can never accidentally route a "paper" run to the live account.
+// The base URL the user configured IS the paper-vs-live switch (paper-api... for
+// paper, api.alpaca.markets for real money). Blank defaults to the paper host so
+// an unconfigured account can never touch live.
 export function resolveAlpacaBaseUrl(cfg) {
-  if (cfg.mode === 'live') return cfg.restApiBase || 'https://api.alpaca.markets';
-  return 'https://paper-api.alpaca.markets';
+  const url = (cfg.restApiBase || '').trim();
+  return url || 'https://paper-api.alpaca.markets';
+}
+
+// True unless the resolved base URL is the Alpaca PAPER host. The live host —
+// OR any unrecognized URL — is treated as live, so the worker can gate it behind
+// ALLOW_LIVE and a misconfigured URL fails safe (blocked, not silently live).
+export function isLiveBaseUrl(url) {
+  return !/paper-api\.alpaca\.markets/i.test(String(url || ''));
 }

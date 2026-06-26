@@ -51,4 +51,6 @@ jobs:
           DRY_RUN:     ${{ github.event.inputs.dry_run || vars.AUTO_DRY_RUN || 'true' }}
           ONLY_UID:    ${{ github.event.inputs.only_uid || '' }}
           KILL_SWITCH: ${{ github.event.inputs.kill_switch || 'false' }}
+          # Hard gate for REAL MONEY: live broker URLs are blocked unless this is 'true'.
+          ALLOW_LIVE:  ${{ vars.ALLOW_LIVE || 'false' }}
         run: node scripts/auto-trade.mjs

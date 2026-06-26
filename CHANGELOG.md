@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.20.0 — 2026-06-26 (ALLOW_LIVE hard gate; broker URL = paper/live switch)
+
+### Changed (real-money safety)
+- **Paper-vs-live is now decided by the broker URL** (`paper-api.alpaca.markets`
+  vs `api.alpaca.markets`), not a separate Mode flag. `resolveAlpacaBaseUrl` uses
+  the configured URL (blank → paper); new `isLiveBaseUrl()` flags any non-paper
+  host as live (unknown URLs fail safe → treated as live).
+- **Hard live gate:** the worker **skips any account on a live URL unless the repo
+  variable `ALLOW_LIVE=true` is set.** So going live takes three deliberate flips —
+  live **URL** + **live API keys** (in app) + `ALLOW_LIVE=true` (repo). The in-app
+  setting alone can never place a real-money order.
+- Automation UI: the Mode dropdown now just fills/reflects the broker URL (the URL
+  is the source of truth); the live-confirm dialog and red banner spell out the
+  three flips. Docs (README + Automation guide §5b) updated. 6 new safety tests.
+
 ## v0.19.2 — 2026-06-26 (Options Playbook: selling puts safely)
 
 ### Added
