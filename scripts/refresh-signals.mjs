@@ -282,8 +282,12 @@ async function resettleRecentSignals(db, market, ctxIn) {
   } catch (e) {
     if (e.code === 9 || /index/i.test(e.message || '')) {
       console.warn(`[resettle] composite (market, signalTs) index missing — falling back to signalTs-only query + in-memory market filter. Deploy firestore:indexes to make this efficient. (${e.message})`);
+      // Pin the ordering to DESCENDING so this uses the single-field signalTs
+      // collection-group index that the History view already relies on (proven
+      // deployed) — the ASCENDING-only variant of `>=` may not be enabled.
       cg = await db.collectionGroup('signals')
         .where('signalTs', '>=', cutoff + 'T00:00:00Z')
+        .orderBy('signalTs', 'desc')
         .get();
     } else {
       throw e;

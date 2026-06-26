@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.16.2 — 2026-06-26 (harden the settlement fallback query)
+
+### Fixed
+- The settlement fallback (added in 0.16.1) now pins `orderBy('signalTs','desc')`
+  so it uses the single-field `signalTs` collection-group index the History view
+  already relies on (known-deployed). The plain `where('signalTs','>=')` form
+  needs the ascending single-field index, which may not be enabled — this removes
+  any chance the fallback hits the same "requires an index" wall.
+
 ## v0.16.1 — 2026-06-26 (THE real settlement bug: missing Firestore index killed every settle)
 
 ### Fixed
