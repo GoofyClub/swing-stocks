@@ -142,8 +142,35 @@ export function renderOptionsPlaybook(root) {
           <li><b>ATM</b> (at-the-money) = strike closest to the current price. Balanced cost vs. sensitivity.</li>
           <li><b>ITM</b> (in-the-money) = strike below price (for calls). Costs more, but moves more like the stock and decays slower — steadier.</li>
           <li><b>OTM</b> (out-of-the-money) = strike above price (for calls). Cheaper, more leverage, but needs a bigger move and decays faster. "<b>Buy 2 strikes above ATM</b>" = a more aggressive, lower-cost/higher-risk bet.</li>
+          <li><b>⚠️ For PUTS it flips:</b> a put's <b>OTM</b> strike is <b>below</b> the price, and its <b>ITM</b> strike is <b>above</b> the price — the opposite of calls. So when <i>selling</i> a put "to be safe," you go <b>OTM = below the price</b> (see next section).</li>
           <li><b>DTE</b> = days to expiry. More DTE = less time-decay pressure (and more cost). Match DTE to the strategy's hold.</li>
         </ul>
+      </section>
+
+      <section class="guide-section">
+        <h2>Selling puts safely (cash-secured put / the "wheel")</h2>
+        <p>For the high win-rate mean-reversion signals (<b>RSI2, Quality Dip</b>), the conservative options play is to <b>sell an out-of-the-money put — a strike BELOW the current price</b>, near or below the signal's <b>SL</b>. You collect a premium and keep all of it as long as the stock stays above your strike.</p>
+        <div class="guide-warn" style="text-align:left">
+          <b>Common mistake:</b> selling an <b>ITM</b> put (strike <b>above</b> price) is <b>not</b> safe — it's already in-the-money, very likely to be assigned, and is the aggressive side. "Safe" = sell <b>OTM, below</b> the price.
+        </div>
+        <p>Strike ladder, stock at $100 (pick where on the dial you want to be):</p>
+        <div style="overflow-x:auto">
+        <table class="data">
+          <thead><tr><th>Put strike</th><th>vs price</th><th>Sell it?</th><th>Trade-off</th></tr></thead>
+          <tbody>
+            <tr><td>$106</td><td>ITM (above)</td><td style="color:var(--red)">✗ aggressive</td><td>Likely assigned; most premium, most risk</td></tr>
+            <tr><td>$100</td><td>ATM</td><td style="color:var(--amber)">~50/50</td><td>Rich premium, coin-flip on assignment</td></tr>
+            <tr><td>$95</td><td>OTM, near SL</td><td style="color:var(--green)">✓ typical "safe"</td><td>Good premium, high chance of keeping it</td></tr>
+            <tr><td>$92</td><td>further OTM</td><td style="color:var(--green)">✓ safest</td><td>Highest win rate, smallest premium</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p><b>How to choose the strike:</b> put it at a chart support / your signal's <b>SL</b> level, or around <b>0.30 delta</b> (≈70% chance of keeping the full premium). Further below price = safer but less income; closer to price = more income but more risk.</p>
+        <div class="guide-warn" style="text-align:left">
+          <b>"Safe" = high win rate, NOT small max loss.</b> A cash-secured put still has large downside — if the stock craters you're obligated to buy at the strike (same risk shape as being long the stock). You win often, but the rare loss is big.
+        </div>
+        <p><b>To actually cap the loss — sell a bull-put SPREAD:</b> sell the $95 put <b>and buy a $90 put below it</b>. You collect less, but your max loss is fixed at the strike width minus the credit ($5 − credit here). This is the genuinely defined-risk version. (Spreads need a higher Alpaca options level than a plain cash-secured put.)</p>
+        <p><b>Exit:</b> take profit early at ≈50% of the credit rather than holding to expiry; if the stock breaks your SL, close or roll — don't get assigned unintentionally.</p>
       </section>
 
       <section class="guide-section">

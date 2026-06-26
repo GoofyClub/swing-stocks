@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.19.2 — 2026-06-26 (Options Playbook: selling puts safely)
+
+### Added
+- **Options Playbook → "Selling puts safely"** section: for puts, OTM = *below*
+  the price (the opposite of calls), so a "safe" cash-secured put is sold OTM
+  below price / near the SL — not ITM. Includes a strike ladder, how to pick the
+  strike (support / SL / ~0.30 delta), the caveat that "safe" means high win rate
+  not small max loss, and the bull-put *spread* as the defined-risk version. Added
+  a put ITM/OTM-flip note to the "How to read a strike" section.
+
 ## v0.19.1 — 2026-06-26 (enable/dry-run docs + honest options framing)
 
 ### Added/changed
