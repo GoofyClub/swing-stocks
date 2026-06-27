@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.20.2 — 2026-06-26 (Options Playbook: option-chain visual + max-loss clarification)
+
+### Added
+- **Option-chain diagram** (inline SVG) on the bull-put-spread guide: CALLS / STRIKE
+  / PUTS columns on the example signal (price $100, SL $95), showing where ATM /
+  ITM / OTM are — and that ITM/OTM **flip** between calls and puts — with the
+  $95 (SELL) and $90 (BUY) spread legs highlighted.
+- **Max-loss clarification** callout: the "$500" is the gross strike width, not the
+  net loss (subtract the credit); you choose the width; and credit spreads
+  inherently risk more than they make per trade (the edge is the high win rate +
+  taking profit at ~50% + cutting losers early).
+
 ## v0.20.1 — 2026-06-26 (fix: auto-trade crashed on missing automation index; bull-put-spread guide)
 
 ### Fixed

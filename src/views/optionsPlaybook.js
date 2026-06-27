@@ -177,6 +177,64 @@ export function renderOptionsPlaybook(root) {
         <h2>Bull put spread — step-by-step execution guide</h2>
         <p>This is the <b>defined-risk</b> way to trade a bullish mean-reversion signal (RSI2, Quality Dip) with options: you <b>sell a put</b> (collect premium) and <b>buy a lower put</b> as a built-in stop-loss. Net <b>credit</b>; you win if the stock simply stays above your short strike; your max loss is capped no matter how far the stock falls.</p>
 
+        <h3 style="color:var(--text-mute);font-size:0.85rem;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px">The option chain, on the example signal (price $100, SL $95)</h3>
+        <p class="muted">A broker chain lists CALLS on the left, PUTS on the right, strikes down the middle. Notice ITM/OTM <b>flip</b> between calls and puts. The two highlighted put strikes are the bull-put spread.</p>
+        <div style="overflow-x:auto">
+        <svg viewBox="0 0 680 372" width="100%" style="max-width:680px;display:block;margin:6px auto;font-family:var(--font-sans)">
+          <text x="145" y="24" text-anchor="middle" fill="var(--text-mute)" font-size="13" letter-spacing="2">CALLS</text>
+          <text x="340" y="24" text-anchor="middle" fill="var(--text-mute)" font-size="13" letter-spacing="2">STRIKE</text>
+          <text x="535" y="24" text-anchor="middle" fill="var(--text-mute)" font-size="13" letter-spacing="2">PUTS</text>
+
+          <!-- 110 : call OTM / put ITM -->
+          <rect x="40" y="40" width="210" height="52" rx="5" fill="rgba(148,163,184,0.10)" stroke="var(--line-soft)"/>
+          <text x="145" y="71" text-anchor="middle" fill="var(--text-mute)" font-size="13">OTM (above price)</text>
+          <rect x="290" y="40" width="100" height="52" rx="5" fill="var(--bg-elev)" stroke="var(--line-soft)"/>
+          <text x="340" y="72" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">110</text>
+          <rect x="430" y="40" width="210" height="52" rx="5" fill="rgba(74,222,128,0.12)" stroke="var(--line-soft)"/>
+          <text x="535" y="71" text-anchor="middle" fill="var(--green)" font-size="13">ITM (above price)</text>
+
+          <!-- 105 -->
+          <rect x="40" y="98" width="210" height="52" rx="5" fill="rgba(148,163,184,0.10)" stroke="var(--line-soft)"/>
+          <text x="145" y="129" text-anchor="middle" fill="var(--text-mute)" font-size="13">OTM</text>
+          <rect x="290" y="98" width="100" height="52" rx="5" fill="var(--bg-elev)" stroke="var(--line-soft)"/>
+          <text x="340" y="130" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">105</text>
+          <rect x="430" y="98" width="210" height="52" rx="5" fill="rgba(74,222,128,0.12)" stroke="var(--line-soft)"/>
+          <text x="535" y="129" text-anchor="middle" fill="var(--green)" font-size="13">ITM</text>
+
+          <!-- 100 : ATM / current price -->
+          <rect x="40" y="156" width="210" height="52" rx="5" fill="rgba(34,211,238,0.10)" stroke="var(--cyan)"/>
+          <text x="145" y="187" text-anchor="middle" fill="var(--cyan)" font-size="13" font-weight="600">ATM</text>
+          <rect x="290" y="156" width="100" height="52" rx="5" fill="rgba(34,211,238,0.18)" stroke="var(--cyan)" stroke-width="2"/>
+          <text x="340" y="181" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">100</text>
+          <text x="340" y="198" text-anchor="middle" fill="var(--cyan)" font-size="10">price ≈ entry</text>
+          <rect x="430" y="156" width="210" height="52" rx="5" fill="rgba(34,211,238,0.10)" stroke="var(--cyan)"/>
+          <text x="535" y="187" text-anchor="middle" fill="var(--cyan)" font-size="13" font-weight="600">ATM</text>
+
+          <!-- 95 : call ITM / put OTM  → SELL (short leg) -->
+          <rect x="40" y="214" width="210" height="52" rx="5" fill="rgba(74,222,128,0.12)" stroke="var(--line-soft)"/>
+          <text x="145" y="245" text-anchor="middle" fill="var(--green)" font-size="13">ITM (below price)</text>
+          <rect x="290" y="214" width="100" height="52" rx="5" fill="var(--bg-elev)" stroke="var(--green)" stroke-width="2"/>
+          <text x="340" y="246" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">95</text>
+          <rect x="430" y="214" width="210" height="52" rx="5" fill="rgba(148,163,184,0.10)" stroke="var(--green)" stroke-width="2"/>
+          <text x="445" y="237" fill="var(--text-mute)" font-size="11">OTM (below price)</text>
+          <text x="445" y="256" fill="var(--green)" font-size="13" font-weight="700">▼ SELL $95 put (short)</text>
+
+          <!-- 90 : call ITM / put OTM  → BUY (long / protection) -->
+          <rect x="40" y="272" width="210" height="52" rx="5" fill="rgba(74,222,128,0.12)" stroke="var(--line-soft)"/>
+          <text x="145" y="303" text-anchor="middle" fill="var(--green)" font-size="13">ITM</text>
+          <rect x="290" y="272" width="100" height="52" rx="5" fill="var(--bg-elev)" stroke="var(--red)" stroke-width="2"/>
+          <text x="340" y="304" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">90</text>
+          <rect x="430" y="272" width="210" height="52" rx="5" fill="rgba(148,163,184,0.10)" stroke="var(--red)" stroke-width="2"/>
+          <text x="445" y="295" fill="var(--text-mute)" font-size="11">OTM</text>
+          <text x="445" y="314" fill="var(--red)" font-size="13" font-weight="700">▲ BUY $90 put (protection)</text>
+
+          <!-- spread bracket -->
+          <path d="M656 216 q8 0 8 8 v82 q0 8 -8 8" fill="none" stroke="var(--amber)" stroke-width="1.5"/>
+          <text x="668" y="268" fill="var(--amber)" font-size="11" transform="rotate(90 668 268)" text-anchor="middle">bull put spread</text>
+        </svg>
+        </div>
+        <p class="muted"><b>Reading it:</b> for <b>calls</b>, ITM is below the price and OTM is above. For <b>puts</b> it's the opposite — ITM above, OTM below. Selling the <b>$95</b> put (OTM, below price) is the "safe" short leg; buying the <b>$90</b> put below it is the protective long leg that caps your loss.</p>
+
         <h3 style="color:var(--text-mute);font-size:0.85rem;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px">Map the signal to two strikes</h3>
         <p>Take the signal's <b>entry</b> (≈ current price) and <b>SL</b>. Example: a signal with entry <b>$100</b>, SL <b>$95</b>.</p>
         <div style="overflow-x:auto">
@@ -198,6 +256,14 @@ export function renderOptionsPlaybook(root) {
           <li><b>Breakeven</b> = short strike − credit = $95 − credit.</li>
           <li><b>Size:</b> 1 contract = 100 shares of exposure. Risk only what the max loss is per contract × number of contracts.</li>
         </ul>
+        <div class="guide-warn" style="text-align:left">
+          <b>"Is $500 max loss too high vs. the profit?"</b> Two things:
+          <ul style="margin:6px 0 0">
+            <li>The <b>$500 is the gross width</b> ($95−$90 × 100), <b>not</b> the net loss. Subtract the credit: collect ~$150 → real max loss ≈ <b>$350</b> to make ~<b>$150</b>.</li>
+            <li><b>You choose the width.</b> A <b>$95/$94</b> spread risks ~$100 gross instead of $500 (smaller credit too). Narrower = less risk and less reward.</li>
+            <li><b>Yes, credit spreads risk more than they make per trade</b> — that's premium selling. The edge is the <b>high win rate</b> (~70%) plus <b>taking profit at ~50%</b> and <b>cutting losers early</b> (you rarely sit to full max loss). If risking-more-than-you-make bothers you, <b>buying a call</b> is the opposite shape: small defined cost, bigger upside, lower win rate.</li>
+          </ul>
+        </div>
 
         <h3 style="color:var(--text-mute);font-size:0.85rem;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px">How to place it (one combined order)</h3>
         <ol>
