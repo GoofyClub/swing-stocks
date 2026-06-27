@@ -256,6 +256,18 @@ export function renderOptionsPlaybook(root) {
           <li><b>Breakeven</b> = short strike − credit = $95 − credit.</li>
           <li><b>Size:</b> 1 contract = 100 shares of exposure. Risk only what the max loss is per contract × number of contracts.</li>
         </ul>
+        <div class="guide-pass" style="text-align:left">
+          <b>Worked example (the put you buy is already netted in):</b>
+          <pre style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:8px 0;font-family:var(--font-mono);font-size:0.85rem;color:var(--text);white-space:pre-wrap">SELL $95 put  → RECEIVE +$2.00/sh  (+$200)
+BUY  $90 put  → PAY     −$0.50/sh  ( −$50)   ← cost of the protective put
+─────────────────────────────────────────
+NET CREDIT    =         +$1.50/sh  (+$150)</pre>
+          <ul style="margin:6px 0 0">
+            <li><b>Max profit = the net credit = $150</b> — the $50 you spent on the $90 put is <i>already subtracted</i> here, so it's not an extra cost. Best case: stock above $95 → both puts expire worthless, you keep $150.</li>
+            <li><b>Max loss</b> = width − net credit = ($95−$90) − $1.50 = <b>$3.50/sh ($350)</b>.</li>
+            <li><b>Breakeven</b> = $95 − $1.50 = <b>$93.50</b>.</li>
+          </ul>
+        </div>
         <div class="guide-warn" style="text-align:left">
           <b>"Is $500 max loss too high vs. the profit?"</b> Two things:
           <ul style="margin:6px 0 0">
