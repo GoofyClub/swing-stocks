@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.21.0 — 2026-06-26 (switchable core/broad watchlists + Execution Status page)
+
+### Added
+- **Two switchable watchlists.** The curated blue-chip list is now the **core**
+  set; a new **broad** set appends ~55 US (and ~20 India) mid/large-cap growth &
+  momentum names so the breakout strategies (52WH, VCP, HTF, Pocket Pivot) get
+  real new-high candidates. The cron picks the set via the `WATCHLIST_SET`
+  input / `AUTO_WATCHLIST_SET` repo variable (`core` default | `broad`). New
+  `watchlistFor()` + `WATCHLIST_BROAD*` exports. (Broad list is a starter —
+  expand toward the full S&P 500 / NIFTY 200 from an official source.)
+- **Execution Status page** (was Cron Status) now shows **both** the refresh and
+  auto-trade workers: a per-job "last run" summary, run history with
+  result/duration/detail, and an **expandable log** of each run (workers capture
+  their console output into the run record).
+
+### Notes
+- Scanning the broad set makes many more data calls — pair it with the Alpaca data
+  source (`ALPACA_KEY`/`ALPACA_SECRET`) so the cron doesn't hit free-tier limits.
+- (0.20.3–0.20.5 were guide/options-playbook content updates.)
+
 ## v0.20.2 — 2026-06-26 (Options Playbook: option-chain visual + max-loss clarification)
 
 ### Added

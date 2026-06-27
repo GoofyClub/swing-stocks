@@ -43,6 +43,16 @@ const ENV_KILL = String(process.env.KILL_SWITCH ?? 'false').toLowerCase() === 't
 // Hard live gate: real-money orders are blocked unless this repo variable is set.
 const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === 'true';
 
+// Capture console output so the Execution Status page can show the last run's log.
+const RUN_LOG = [];
+{
+  const _log = console.log.bind(console), _warn = console.warn.bind(console), _err = console.error.bind(console);
+  const push = (s) => { RUN_LOG.push(s); if (RUN_LOG.length > 150) RUN_LOG.shift(); };
+  console.log = (...a) => { push(a.map(String).join(' ')); _log(...a); };
+  console.warn = (...a) => { push('WARN ' + a.map(String).join(' ')); _warn(...a); };
+  console.error = (...a) => { push('ERROR ' + a.map(String).join(' ')); _err(...a); };
+}
+
 function todayKey(now = new Date()) { return now.toISOString().slice(0, 10); }
 
 function initAdmin() {
@@ -295,23 +305,49 @@ async function processUser(db, uid, cfg) {
   }
 
   log(`done: placed=${placed} skipped=${skipped} of ${signals.length} signals`);
+  return { placed, skipped };
+}
+
+// Record this run to /cronRuns (job='auto-trade') so the app's Execution Status
+// page can show it alongside the refresh job. Best-effort.
+async function recordAutoRun(db, { startedAt, users, placed, skipped, errors, note, error }) {
+  try {
+    const finishedAt = Date.now();
+    await db.collection('cronRuns').add({
+      job: 'auto-trade',
+      dryRun: DRY_RUN,
+      startedAt: admin.firestore.Timestamp.fromMillis(startedAt),
+      finishedAt: admin.firestore.Timestamp.fromMillis(finishedAt),
+      durationMs: finishedAt - startedAt,
+      ok: !error,
+      trigger: process.env.GITHUB_EVENT_NAME || 'manual',
+      users: users ?? null, placed: placed ?? 0, skipped: skipped ?? 0, errors: errors ?? 0,
+      note: note ?? null,
+      error: error ? String(error) : null,
+      logs: RUN_LOG.slice(-90),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) { console.warn('[auto] recordAutoRun failed', e.message); }
 }
 
 async function main() {
   const db = initAdmin();
+  const startedAt = Date.now();
   console.log(`[auto] start dryRun=${DRY_RUN}${ONLY_UID ? ` onlyUid=${ONLY_UID}` : ''}`);
 
   // Global kill switch — env (this run) or Firestore (persisted operator pause).
-  if (ENV_KILL) { console.log('[auto] KILL_SWITCH env set — aborting, no orders.'); return; }
-  if (await isGloballyPaused(db)) { console.log('[auto] globally paused (publicConfig/automation.paused) — aborting.'); return; }
+  if (ENV_KILL) { console.log('[auto] KILL_SWITCH env set — aborting, no orders.'); await recordAutoRun(db, { startedAt, users: 0, note: 'kill switch (env)' }); return; }
+  if (await isGloballyPaused(db)) { console.log('[auto] globally paused (publicConfig/automation.paused) — aborting.'); await recordAutoRun(db, { startedAt, users: 0, note: 'globally paused' }); return; }
 
   const configs = await loadEnabledConfigs(db);
   console.log(`[auto] ${configs.length} user(s) with automation enabled`);
+  let placed = 0, skipped = 0, errors = 0;
   for (const { uid, cfg } of configs) {
-    try { await processUser(db, uid, cfg); }
-    catch (e) { console.error(`[auto][${uid.slice(0, 6)}] fatal: ${e.message}`); }
+    try { const r = await processUser(db, uid, cfg); placed += r?.placed || 0; skipped += r?.skipped || 0; }
+    catch (e) { errors++; console.error(`[auto][${uid.slice(0, 6)}] fatal: ${e.message}`); }
   }
   console.log('[auto] complete');
+  await recordAutoRun(db, { startedAt, users: configs.length, placed, skipped, errors });
 }
 
 main().catch(e => { console.error('[auto] fatal', e); process.exit(1); });

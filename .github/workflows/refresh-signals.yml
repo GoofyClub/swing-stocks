@@ -15,6 +15,10 @@ on:
         description: 'Comma-separated markets to refresh'
         required: false
         default: 'US,INDIA'
+      watchlist_set:
+        description: "Watchlist to scan: core | broad"
+        required: false
+        default: 'core'
 
 jobs:
   refresh:
@@ -41,4 +45,6 @@ jobs:
           ALPACA_KEY:                    ${{ secrets.ALPACA_KEY }}
           ALPACA_SECRET:                 ${{ secrets.ALPACA_SECRET }}
           MARKETS:                       ${{ github.event.inputs.markets || 'US,INDIA' }}
+          # Manual input wins; otherwise the AUTO_WATCHLIST_SET repo variable (default 'core').
+          WATCHLIST_SET:                 ${{ github.event.inputs.watchlist_set || vars.AUTO_WATCHLIST_SET || 'core' }}
         run: node scripts/refresh-signals.mjs

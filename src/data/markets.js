@@ -161,6 +161,89 @@ export const STARTER_WATCHLIST_INDIA = [
 
 export const SECTOR_ETFS_INDIA = ['^CNXIT', '^NSEBANK', '^CNXFMCG', '^CNXPHARMA', '^CNXAUTO', '^CNXENERGY', '^CNXMETAL', '^CNXINFRA'];
 
+// ----- Broader universe (opt-in) ------------------------------------------
+// The core lists above are tuned for MEAN-REVERSION (liquid blue chips). The
+// breakout/momentum strategies (52WH, VCP, HTF, Pocket Pivot) need a wider net
+// of mid/large-cap growth & momentum names to find real new-high leaders. These
+// EXTRA names are appended to the core list to form the "broad" set. Switch
+// which set the cron scans with the WATCHLIST_SET env/repo variable
+// ('core' | 'broad', default 'core'). This is a STARTER broad list — expand it
+// toward the full S&P 500 / NIFTY 200 from an official constituents source.
+const BROAD_EXTRA_US = [
+  // Tech / semis / software (XLK)
+  { t: 'PLTR', s: 'XLK', name: 'Palantir' }, { t: 'CRWD', s: 'XLK', name: 'CrowdStrike' },
+  { t: 'FTNT', s: 'XLK', name: 'Fortinet' }, { t: 'ANET', s: 'XLK', name: 'Arista Networks' },
+  { t: 'MRVL', s: 'XLK', name: 'Marvell' }, { t: 'MU', s: 'XLK', name: 'Micron' },
+  { t: 'AMAT', s: 'XLK', name: 'Applied Materials' }, { t: 'LRCX', s: 'XLK', name: 'Lam Research' },
+  { t: 'KLAC', s: 'XLK', name: 'KLA Corp' }, { t: 'SNPS', s: 'XLK', name: 'Synopsys' },
+  { t: 'CDNS', s: 'XLK', name: 'Cadence' }, { t: 'DELL', s: 'XLK', name: 'Dell' },
+  { t: 'SNOW', s: 'XLK', name: 'Snowflake' }, { t: 'DDOG', s: 'XLK', name: 'Datadog' },
+  { t: 'NET', s: 'XLK', name: 'Cloudflare' }, { t: 'ZS', s: 'XLK', name: 'Zscaler' },
+  { t: 'NXPI', s: 'XLK', name: 'NXP Semiconductors' }, { t: 'MCHP', s: 'XLK', name: 'Microchip' },
+  // Consumer discretionary (XLY)
+  { t: 'UBER', s: 'XLY', name: 'Uber' }, { t: 'ABNB', s: 'XLY', name: 'Airbnb' },
+  { t: 'SHOP', s: 'XLY', name: 'Shopify' }, { t: 'CMG', s: 'XLY', name: 'Chipotle' },
+  { t: 'LULU', s: 'XLY', name: 'Lululemon' }, { t: 'NKE', s: 'XLY', name: 'Nike' },
+  { t: 'SBUX', s: 'XLY', name: 'Starbucks' }, { t: 'MAR', s: 'XLY', name: 'Marriott' },
+  { t: 'ORLY', s: 'XLY', name: "O'Reilly Auto" }, { t: 'RCL', s: 'XLY', name: 'Royal Caribbean' },
+  // Communication (XLC)
+  { t: 'DIS', s: 'XLC', name: 'Disney' }, { t: 'SPOT', s: 'XLC', name: 'Spotify' },
+  { t: 'TTD', s: 'XLC', name: 'The Trade Desk' }, { t: 'PINS', s: 'XLC', name: 'Pinterest' },
+  // Health care (XLV)
+  { t: 'VRTX', s: 'XLV', name: 'Vertex Pharma' }, { t: 'GILD', s: 'XLV', name: 'Gilead' },
+  { t: 'DXCM', s: 'XLV', name: 'Dexcom' }, { t: 'ZTS', s: 'XLV', name: 'Zoetis' },
+  { t: 'IDXX', s: 'XLV', name: 'Idexx Labs' }, { t: 'HCA', s: 'XLV', name: 'HCA Healthcare' },
+  // Financials (XLF)
+  { t: 'SCHW', s: 'XLF', name: 'Charles Schwab' }, { t: 'MS', s: 'XLF', name: 'Morgan Stanley' },
+  { t: 'SPGI', s: 'XLF', name: 'S&P Global' }, { t: 'ICE', s: 'XLF', name: 'Intercontinental Exch' },
+  { t: 'CME', s: 'XLF', name: 'CME Group' }, { t: 'PGR', s: 'XLF', name: 'Progressive' },
+  // Industrials (XLI)
+  { t: 'DE', s: 'XLI', name: 'Deere' }, { t: 'ETN', s: 'XLI', name: 'Eaton' },
+  { t: 'UNP', s: 'XLI', name: 'Union Pacific' }, { t: 'UPS', s: 'XLI', name: 'UPS' },
+  { t: 'GD', s: 'XLI', name: 'General Dynamics' }, { t: 'NOC', s: 'XLI', name: 'Northrop Grumman' },
+  // Energy (XLE)
+  { t: 'SLB', s: 'XLE', name: 'Schlumberger' }, { t: 'EOG', s: 'XLE', name: 'EOG Resources' },
+  { t: 'COP', s: 'XLE', name: 'ConocoPhillips' }, { t: 'OXY', s: 'XLE', name: 'Occidental' },
+  // Materials (XLB)
+  { t: 'FCX', s: 'XLB', name: 'Freeport-McMoRan' }, { t: 'NUE', s: 'XLB', name: 'Nucor' },
+  { t: 'LIN', s: 'XLB', name: 'Linde' }, { t: 'SHW', s: 'XLB', name: 'Sherwin-Williams' },
+  // Staples / utilities / real estate
+  { t: 'PEP', s: 'XLP', name: 'PepsiCo' }, { t: 'MDLZ', s: 'XLP', name: 'Mondelez' },
+  { t: 'NEE', s: 'XLU', name: 'NextEra Energy' }, { t: 'PLD', s: 'XLRE', name: 'Prologis' },
+];
+const BROAD_EXTRA_INDIA = [
+  { t: 'COFORGE',    s: '^CNXIT',     name: 'Coforge' },
+  { t: 'PERSISTENT', s: '^CNXIT',     name: 'Persistent Systems' },
+  { t: 'BANKBARODA', s: '^NSEBANK',   name: 'Bank of Baroda' },
+  { t: 'PNB',        s: '^NSEBANK',   name: 'Punjab National Bank' },
+  { t: 'IDFCFIRSTB', s: '^NSEBANK',   name: 'IDFC First Bank' },
+  { t: 'LUPIN',      s: '^CNXPHARMA', name: 'Lupin' },
+  { t: 'AUROPHARMA', s: '^CNXPHARMA', name: 'Aurobindo Pharma' },
+  { t: 'BIOCON',     s: '^CNXPHARMA', name: 'Biocon' },
+  { t: 'TVSMOTOR',   s: '^CNXAUTO',   name: 'TVS Motor' },
+  { t: 'ASHOKLEY',   s: '^CNXAUTO',   name: 'Ashok Leyland' },
+  { t: 'GAIL',       s: '^CNXENERGY', name: 'GAIL' },
+  { t: 'IOC',        s: '^CNXENERGY', name: 'Indian Oil' },
+  { t: 'TATAPOWER',  s: '^CNXENERGY', name: 'Tata Power' },
+  { t: 'VEDL',       s: '^CNXMETAL',  name: 'Vedanta' },
+  { t: 'SAIL',       s: '^CNXMETAL',  name: 'SAIL' },
+  { t: 'DLF',        s: '^CNXINFRA',  name: 'DLF' },
+  { t: 'SIEMENS',    s: '^CNXINFRA',  name: 'Siemens India' },
+  { t: 'PIDILITIND', s: '^CNXINFRA',  name: 'Pidilite' },
+  { t: 'DABUR',      s: '^CNXFMCG',   name: 'Dabur' },
+  { t: 'MARICO',     s: '^CNXFMCG',   name: 'Marico' },
+];
+
+export const WATCHLIST_BROAD       = [...STARTER_WATCHLIST,       ...BROAD_EXTRA_US];
+export const WATCHLIST_BROAD_INDIA = [...STARTER_WATCHLIST_INDIA, ...BROAD_EXTRA_INDIA];
+
+// Pick the watchlist for a market + set. set: 'core' (default) | 'broad'.
+export function watchlistFor(market, set = 'core') {
+  const broad = String(set).toLowerCase() === 'broad';
+  if (market === 'INDIA') return broad ? WATCHLIST_BROAD_INDIA : STARTER_WATCHLIST_INDIA;
+  return broad ? WATCHLIST_BROAD : STARTER_WATCHLIST;
+}
+
 export const MARKET_CONFIGS = {
   US: {
     indexTicker:    'SPY',
@@ -217,7 +300,7 @@ export function companyName(item) {
 
 // Lookup map: ticker -> company name. Built once from the starter watchlists.
 const _nameByTicker = new Map();
-for (const item of [...STARTER_WATCHLIST, ...STARTER_WATCHLIST_INDIA]) {
+for (const item of [...WATCHLIST_BROAD, ...WATCHLIST_BROAD_INDIA]) {
   _nameByTicker.set(item.t, companyName(item));
 }
 

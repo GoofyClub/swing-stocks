@@ -25,7 +25,7 @@ import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
 import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
-import { MARKET_CONFIGS, STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
+import { MARKET_CONFIGS, watchlistFor, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
 
 // Signals are retained (and re-gradable) for this many days. Drives both the
@@ -34,6 +34,21 @@ import { sendTelegram } from '../src/data/telegram.js';
 // data captured from here on — anything already pruned is gone for good.
 const RETENTION_DAYS = 800;
 const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s.trim());
+// Which watchlist to scan: 'core' (curated blue-chips, default) | 'broad' (core
+// + a wider mid/large-cap growth set, better for the breakout strategies).
+const WATCHLIST_SET = (process.env.WATCHLIST_SET || 'core').trim();
+
+// Capture notable console output so the app's Cron Status page can show the last
+// run's log. We skip the chatty per-ticker [fetchBars] lines but keep summaries,
+// warnings and errors.
+const RUN_LOG = [];
+function pushLog(s) { RUN_LOG.push(s); if (RUN_LOG.length > 150) RUN_LOG.shift(); }
+{
+  const _log = console.log.bind(console), _warn = console.warn.bind(console), _err = console.error.bind(console);
+  console.log = (...a) => { const s = a.map(String).join(' '); if (!s.startsWith('[fetchBars]')) pushLog(s); _log(...a); };
+  console.warn = (...a) => { pushLog('WARN ' + a.map(String).join(' ')); _warn(...a); };
+  console.error = (...a) => { pushLog('ERROR ' + a.map(String).join(' ')); _err(...a); };
+}
 // Public site URL. Used as the click-through target in push notifications so
 // tapping the alert opens the deployed app at My Trades.
 const APP_URL = process.env.APP_URL || 'https://goofyclub.github.io/swing-stocks/';
@@ -86,8 +101,8 @@ function strategyKeyToShort(key) {
 async function scanMarket(db, market, ctxIn) {
   const cfg = MARKET_CONFIGS[market];
   const ctx = ctxIn || buildCtx(market);
-  const watchlist = market === 'INDIA' ? STARTER_WATCHLIST_INDIA : STARTER_WATCHLIST;
-  console.log(`\n[scan] market=${market} watchlist=${watchlist.length}`);
+  const watchlist = watchlistFor(market, WATCHLIST_SET);
+  console.log(`\n[scan] market=${market} watchlist=${watchlist.length} (set=${WATCHLIST_SET})`);
 
   // 1. Pull the index for relative-strength regime check.
   let spyBars = null;
@@ -567,6 +582,8 @@ async function recordRun(db, { startedAt, summary, error }) {
     }));
     const okCount = markets.filter(m => !m.error).length;
     await db.collection('cronRuns').add({
+      job: 'refresh',
+      watchlistSet: WATCHLIST_SET,
       startedAt: admin.firestore.Timestamp.fromMillis(startedAt),
       finishedAt: admin.firestore.Timestamp.fromMillis(finishedAt),
       durationMs: finishedAt - startedAt,
@@ -574,6 +591,7 @@ async function recordRun(db, { startedAt, summary, error }) {
       trigger: process.env.GITHUB_EVENT_NAME || 'manual',
       markets,
       error: error ? String(error) : null,
+      logs: RUN_LOG.slice(-90),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   } catch (e) {
