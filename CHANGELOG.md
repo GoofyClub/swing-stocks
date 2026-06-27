@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.22.2 — 2026-06-26 (User Guide — universe explainer + per-strategy "Best for" cap)
+
+### Added
+- **User Guide:** a "Which stocks does it scan? (core vs broad universe)" note —
+  core = large-cap blue chips (mean-reversion), broad = S&P 500/400/600 (momentum),
+  and how to use the Index filter. Plus a **"Best for"** row on every strategy card
+  naming the suitable cap range: RSI2/Quality Dip → large-cap (S&P 500); 52WH/VCP/
+  HTF/Pocket Pivot → mid/small-cap (MidCap 400 / SmallCap 600); PEG/PEAD/Insider →
+  any cap with the catalyst (often mid/small).
+
 ## v0.22.1 — 2026-06-26 (docs: consolidated secrets/variables reference)
 
 ### Added

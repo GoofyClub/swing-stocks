@@ -110,6 +110,7 @@ export function renderGuide(root) {
         <div class="strategy-card good">
           <div class="name">RSI(2) Mean Reversion — Connors &amp; Alvarez (2008) — 75–85% win rate</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>Large caps (S&amp;P 500 / core)</b>. Mean-reversion needs stable, liquid names that reliably bounce — not volatile small caps.</td></tr>
             <tr><th>What</th><td>Buy a quality stock (above 200-SMA) when 2-period RSI drops below 10. Snaps back within 2–7 days.</td></tr>
             <tr><th>Why it works</th><td>Short-term oversold on healthy stocks attracts mean-reversion buying.</td></tr>
             <tr><th>Entry</th><td>Market order at next open, or limit at today's close. No buy-stop.</td></tr>
@@ -123,6 +124,7 @@ export function renderGuide(root) {
         <div class="strategy-card good">
           <div class="name">PEAD — Post-Earnings Drift — Ball &amp; Brown (1968) — 75–80% — API required</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>Any cap with a real beat + liquidity</b>. The drift is strongest in <b>mid/small caps</b> (slower to be priced in), but large-cap beats are cleaner to trade.</td></tr>
             <tr><th>What</th><td>Stock beats earnings by &gt;5%, drifts upward for 60+ trading days.</td></tr>
             <tr><th>Why it works</th><td>Most-replicated anomaly in finance. Institutions can't rebalance instantly.</td></tr>
             <tr><th>Entry</th><td>Buy within 10 days of beat ("fresh"). Best on pullback to 20-EMA.</td></tr>
@@ -135,6 +137,7 @@ export function renderGuide(root) {
         <div class="strategy-card good">
           <div class="name">Gap-and-Go (PEG) — Minervini / Zanger — 65–72% win rate</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>Mid/small caps</b> with a catalyst (more explosive gaps), plus liquid large caps. The move is bigger the smaller the cap — so is the risk.</td></tr>
             <tr><th>What</th><td>Stock gaps up ≥4% on ≥2× volume, holds above gap-open for 3+ days.</td></tr>
             <tr><th>Why it works</th><td>Massive gap on volume = institutional vote. Gap-open becomes new support.</td></tr>
             <tr><th>Entry</th><td>Buy pullback to gap-open area (within 2% above), or buy-stop above post-gap high.</td></tr>
@@ -153,6 +156,7 @@ export function renderGuide(root) {
         <div class="strategy-card warn">
           <div class="name">VCP — Volatility Contraction (Minervini) — 55–68%, big winners</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>Mid-cap growth leaders (MidCap 400, some SmallCap 600)</b>. This is a classic growth-leader pattern — large caps rarely form clean VCPs or run far enough.</td></tr>
             <tr><th>What</th><td>Uptrend stock builds a base of 3+ progressively tighter contractions while volume dries up, then breaks out.</td></tr>
             <tr><th>Selection</th><td>Above the 150- &amp; 200-SMA, ≤25% off the 52-week high, 3 windows of contracting range (each ≥10% tighter than the prior), volume drying up (late-base &lt;65% of early-base), price within 8% of the pivot.</td></tr>
             <tr><th>Entry</th><td>Buy-stop just above the pivot (last contraction high) on the breakout, volume ≥ 1.5× average.</td></tr>
@@ -163,6 +167,7 @@ export function renderGuide(root) {
         <div class="strategy-card warn">
           <div class="name">High Tight Flag — O'Neil — 65–75%, 50–300% gains, extremely rare</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>Small/mid caps (SmallCap 600, MidCap 400)</b>. Doubling in 8 weeks basically never happens in large caps — this is a small-cap-rocket pattern.</td></tr>
             <tr><th>What</th><td>Stock doubles (+100%) in ≤ 8 weeks, then forms a tight (&lt;25% deep) flag for 5+ days.</td></tr>
             <tr><th>Selection</th><td>+100% move from base low to peak within ≤8 weeks, then a flag &lt;25% deep lasting ≥5 bars, price still in the flag zone.</td></tr>
             <tr><th>Entry</th><td>Buy-stop just above the flag/peak high.</td></tr>
@@ -174,6 +179,7 @@ export function renderGuide(root) {
         <div class="strategy-card warn">
           <div class="name">Pocket Pivot — Kacher &amp; Morales — 55–65% win rate</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>Mid-cap growth leaders (MidCap 400)</b>. It's an early-continuation signal for the same names that form VCPs.</td></tr>
             <tr><th>What</th><td>Up-day where volume exceeds the highest down-day volume of the prior 10 sessions. Stock near 10/50-SMA.</td></tr>
             <tr><th>Selection</th><td>Close &gt; open (up day); within 3% of the 10- or 50-SMA; above the 50-SMA; today's volume &gt; the highest down-day volume of the last 10 sessions.</td></tr>
             <tr><th>Entry</th><td>Buy at the close of the pocket-pivot day (or next open).</td></tr>
@@ -185,6 +191,7 @@ export function renderGuide(root) {
         <div class="strategy-card warn">
           <div class="name">52-Week High Breakout — Jegadeesh &amp; Titman (1993) — 60–65%, medium-term</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>MidCap 400 / SmallCap 600</b> (and S&amp;P 500). Mid/small caps make far more frequent and explosive new highs — filter the Index to mid/small for this one.</td></tr>
             <tr><th>What</th><td>New 52-week high on above-average volume, above the 200-SMA.</td></tr>
             <tr><th>Selection</th><td>Today's high prints a fresh 52-week high; today's volume &gt; the 20-day average volume; close above the 200-SMA. <b>STRONG</b> when volume &gt; 1.5× average. <b>No RSI</b> — momentum breakouts filter on trend + volume (RSI is the separate mean-reversion strategy).</td></tr>
             <tr><th>Entry</th><td>At the close — but only if today's high ≥ 1.005× the prior 52-week high AND the close holds above it (rejects bare-margin fake-outs / bad data).</td></tr>
@@ -195,6 +202,7 @@ export function renderGuide(root) {
         <div class="strategy-card warn">
           <div class="name">Insider Cluster — Lakonishok &amp; Lee (2001) — 65–75% — API required</div>
           <table class="kv">
+            <tr><th>Best for</th><td><b>Small/mid caps (SmallCap 600, MidCap 400)</b>. Insider buying is a stronger signal in smaller companies (insiders have a real information edge there).</td></tr>
             <tr><th>What</th><td>≥ 2 unique corporate insiders bought their own stock within 30 days. ≥ 3 = STRONG cluster.</td></tr>
             <tr><th>Selection</th><td>≥ 2 unique insiders with open-market purchases in 30 days (≥ 3 = STRONG); quality/trend filter (above 200-SMA).</td></tr>
             <tr><th>Entry</th><td>At the close once the cluster is detected.</td></tr>
@@ -245,6 +253,14 @@ export function renderGuide(root) {
         </ul>
         <p><b>If a better momentum strategy is ever added, it won't be another lookback</b> — it'll be a different <i>kind</i> of momentum: a <b>relative-strength / 12-1 month ranking</b> (Jegadeesh-Titman — buy the strongest names vs. peers, excluding the last month). That's the most-documented momentum effect and it's <i>cross-sectional</i>, so it complements the breakout signals instead of duplicating them.</p>
         <div class="guide-warn"><b>Sequencing:</b> don't add new strategies until the corrected settlement (trailing-stop exits for trend strategies) shows which of the <i>existing</i> ones are actually profitable. More unproven signals = harder to find the edge, not easier.</div>
+
+        <h3>Which stocks does it scan? (core vs broad universe)</h3>
+        <p>The cron scans two universes, and <b>which one fits depends on the strategy</b>:</p>
+        <ul>
+          <li><b>Core</b> — ~50 curated liquid <b>large-cap blue chips</b>. Scanned frequently. Ideal for <b>mean-reversion</b> (RSI2, Quality Dip), which needs stable, liquid names that reliably bounce.</li>
+          <li><b>Broad</b> — the full <b>S&amp;P universe: S&amp;P 500 (large) + MidCap 400 + SmallCap 600</b> (~1,500 names), scanned once daily after the close. This is where the <b>breakout/momentum</b> strategies (52WH, VCP, HTF, Pocket Pivot) find real new-high leaders — large caps rarely break out hard.</li>
+        </ul>
+        <p>Every signal is tagged with its index (S&amp;P 500 / MidCap 400 / SmallCap 600), so on <b>Live Signals</b> and <b>Signal History</b> you can use the <b>Index filter</b> to scope to a cap range — e.g. filter to <b>MidCap 400 / SmallCap 600</b> when hunting momentum, or <b>S&amp;P 500</b> for mean-reversion. The "Best for" row on each strategy below says which cap suits it.</p>
       </section>
 
       <section class="guide-section" id="g-mistakes">
