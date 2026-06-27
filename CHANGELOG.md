@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.20.1 — 2026-06-26 (fix: auto-trade crashed on missing automation index; bull-put-spread guide)
+
+### Fixed
+- **Auto-trade workflow crashed** with `FAILED_PRECONDITION: requires a
+  COLLECTION_GROUP_ASC index for collection automation and field enabled` — the
+  `collectionGroup('automation').where('enabled','==',true)` query needs an index
+  that wasn't deployed, and the call wasn't guarded, so the whole run exited 1.
+  `loadEnabledConfigs` now falls back to an unfiltered collection-group scan +
+  in-memory filter when the index is missing, so the worker runs regardless. Added
+  the `automation.enabled` collection-group index to the manifest for the efficient
+  path after `firebase deploy --only firestore:indexes`.
+
+### Added
+- **Options Playbook → "Bull put spread — step-by-step execution guide"**: maps the
+  signal's entry/SL to the short + long put strikes (sell near SL, buy one rung
+  lower as the stop-loss), with the credit/max-loss/breakeven formulas, how to
+  place it as one vertical-credit order, and entry/exit rules.
+
 ## v0.20.0 — 2026-06-26 (ALLOW_LIVE hard gate; broker URL = paper/live switch)
 
 ### Changed (real-money safety)

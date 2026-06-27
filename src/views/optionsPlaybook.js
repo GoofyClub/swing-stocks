@@ -174,6 +174,52 @@ export function renderOptionsPlaybook(root) {
       </section>
 
       <section class="guide-section">
+        <h2>Bull put spread — step-by-step execution guide</h2>
+        <p>This is the <b>defined-risk</b> way to trade a bullish mean-reversion signal (RSI2, Quality Dip) with options: you <b>sell a put</b> (collect premium) and <b>buy a lower put</b> as a built-in stop-loss. Net <b>credit</b>; you win if the stock simply stays above your short strike; your max loss is capped no matter how far the stock falls.</p>
+
+        <h3 style="color:var(--text-mute);font-size:0.85rem;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px">Map the signal to two strikes</h3>
+        <p>Take the signal's <b>entry</b> (≈ current price) and <b>SL</b>. Example: a signal with entry <b>$100</b>, SL <b>$95</b>.</p>
+        <div style="overflow-x:auto">
+        <table class="data">
+          <thead><tr><th>Leg</th><th>Action</th><th>Strike (from the signal)</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td><b>Short put</b></td><td style="color:var(--green)">SELL to open</td><td>At/just below the <b>SL</b> ($95) — the level you believe holds (≈0.30 delta)</td><td>Collects the premium; your win line</td></tr>
+            <tr><td><b>Long put</b></td><td style="color:var(--red)">BUY to open</td><td>One rung lower (e.g. <b>$90</b>)</td><td>Your stop-loss / max-loss floor</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p><b>Expiry (DTE):</b> 1–3 weeks for RSI2 (short hold), 2–4 weeks for Quality Dip. Both legs share the same expiry.</p>
+
+        <h3 style="color:var(--text-mute);font-size:0.85rem;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px">The numbers (formulas, fill in at the broker)</h3>
+        <ul>
+          <li><b>Net credit</b> = (premium from the $95 put you sold) − (premium for the $90 put you bought). You keep this if it expires worthless.</li>
+          <li><b>Max profit</b> = the net credit (best case: stock stays above $95).</li>
+          <li><b>Max loss</b> = (width between strikes) − credit = ($95 − $90) − credit = <b>$5 − credit per share</b> ($500 − credit per contract). This is your worst case, even if the stock craters.</li>
+          <li><b>Breakeven</b> = short strike − credit = $95 − credit.</li>
+          <li><b>Size:</b> 1 contract = 100 shares of exposure. Risk only what the max loss is per contract × number of contracts.</li>
+        </ul>
+
+        <h3 style="color:var(--text-mute);font-size:0.85rem;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px">How to place it (one combined order)</h3>
+        <ol>
+          <li>In your broker, open the option chain for the ticker and pick the expiry (DTE above).</li>
+          <li>Choose a <b>vertical / "bull put" spread</b> order (one ticket, not two separate orders).</li>
+          <li><b>Sell to open</b> the <b>$95</b> put and <b>Buy to open</b> the <b>$90</b> put.</li>
+          <li>Set it as a <b>net credit</b> limit order; submit at or near the mid price. Time-in-force GTC.</li>
+        </ol>
+
+        <h3 style="color:var(--text-mute);font-size:0.85rem;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 6px">When to enter &amp; exit</h3>
+        <ul>
+          <li><b>Enter</b> on the bullish signal. Prefer <b>elevated IV</b> (you collect more premium); skip if IV is unusually low.</li>
+          <li><b>Take profit</b> by closing the whole spread at ≈<b>50% of the credit</b> — don't be greedy holding to expiry for the last few cents.</li>
+          <li><b>Cut it</b> if the stock breaks the signal's <b>SL</b> ($95) decisively — close the spread rather than risk assignment. (Your long $90 put already caps the loss, but closing early usually loses less than the max.)</li>
+          <li>If it's near expiry and the stock is safely above $95, let it expire or close for a few cents.</li>
+        </ul>
+        <div class="guide-warn" style="text-align:left">
+          <b>Needs spread-level options approval</b> (a higher tier than a plain cash-secured put). And remember: <b>this is the structure; the edge comes from the signal.</b> Trade it on the high-win-rate mean-reversion signals, not the losing strategies.
+        </div>
+      </section>
+
+      <section class="guide-section">
         <h2>Universal exit rules</h2>
         <ul>
           <li><b>Buying calls:</b> sell when the stock hits the signal's <b>TP</b>, or when your trailing stop on the stock triggers. Cut the call if the stock hits the <b>SL</b>. Don't hold a losing call into expiry hoping — theta accelerates in the last 1–2 weeks.</li>

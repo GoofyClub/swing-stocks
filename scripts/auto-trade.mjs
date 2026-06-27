@@ -94,15 +94,31 @@ async function isGloballyPaused(db) {
 }
 
 // Users with automation enabled. Each config doc lives at users/{uid}/automation/config.
+// The filtered query needs a collection-group index on `automation.enabled`; if it
+// isn't deployed Firestore throws FAILED_PRECONDITION, which would crash the whole
+// run. Fall back to an unfiltered collection-group scan (no index needed) and
+// filter `enabled` in memory, so the worker runs with or without the index.
 async function loadEnabledConfigs(db) {
-  const snap = await db.collectionGroup('automation').where('enabled', '==', true).get();
+  let snap;
+  try {
+    snap = await db.collectionGroup('automation').where('enabled', '==', true).get();
+  } catch (e) {
+    if (e.code === 9 || /index/i.test(e.message || '')) {
+      console.warn(`[auto] automation.enabled index missing — scanning all automation docs + filtering in memory. Deploy firestore:indexes to make this efficient. (${e.message})`);
+      snap = await db.collectionGroup('automation').get();
+    } else {
+      throw e;
+    }
+  }
   const out = [];
   snap.forEach(doc => {
     if (doc.id !== 'config') return;
+    const cfg = doc.data();
+    if (cfg.enabled !== true) return; // in-memory filter (no-op on the indexed path)
     const uid = doc.ref.parent.parent?.id;
     if (!uid) return;
     if (ONLY_UID && uid !== ONLY_UID) return;
-    out.push({ uid, cfg: doc.data() });
+    out.push({ uid, cfg });
   });
   return out;
 }
