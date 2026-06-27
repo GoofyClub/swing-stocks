@@ -148,20 +148,26 @@ export function renderGuide(root) {
       <section class="guide-section" id="g-tier2">
         <h2>5 — Tier 2 strategies <span style="color:var(--amber)">(55–75% win rate)</span></h2>
         <p>Solid edges but require more discretion or specific conditions. Best used as supplements to Tier 1.</p>
+        <div class="guide-warn" style="text-align:left"><b>About the Exit rows:</b> they describe how the app's <b>automated settlement</b> grades each signal — trend/breakout strategies use a <b>trailing stop</b> (breakeven at +1R, trail 2R below the high, per-strategy max hold); mean-reversion uses its native exit (e.g. RSI2's close&gt;5-SMA). When you trade <b>manually</b> you can use the discretionary version (sell half at +2R, trail the rest — see §6 Position sizing). Selection/Entry/Stop rows are the exact engine rules.</div>
 
         <div class="strategy-card warn">
           <div class="name">VCP — Volatility Contraction (Minervini) — 55–68%, big winners</div>
           <table class="kv">
             <tr><th>What</th><td>Uptrend stock builds a base of 3+ progressively tighter contractions while volume dries up, then breaks out.</td></tr>
-            <tr><th>Entry</th><td>Buy-stop above the pivot (last contraction high) on breakout day with volume ≥ 1.5× avg.</td></tr>
-            <tr><th>Stop</th><td>Below pivot − 1.5 × ATR(14). Tight stops, big targets.</td></tr>
+            <tr><th>Selection</th><td>Above the 150- &amp; 200-SMA, ≤25% off the 52-week high, 3 windows of contracting range (each ≥10% tighter than the prior), volume drying up (late-base &lt;65% of early-base), price within 8% of the pivot.</td></tr>
+            <tr><th>Entry</th><td>Buy-stop just above the pivot (last contraction high) on the breakout, volume ≥ 1.5× average.</td></tr>
+            <tr><th>Stop</th><td>Pivot − 1.5 × ATR(14).</td></tr>
+            <tr><th>Exit</th><td>Trailing stop (breakeven at +1R, trail 2R below the high); max hold 25 days. No fixed target — let the breakout run.</td></tr>
           </table>
         </div>
         <div class="strategy-card warn">
           <div class="name">High Tight Flag — O'Neil — 65–75%, 50–300% gains, extremely rare</div>
           <table class="kv">
             <tr><th>What</th><td>Stock doubles (+100%) in ≤ 8 weeks, then forms a tight (&lt;25% deep) flag for 5+ days.</td></tr>
-            <tr><th>Entry</th><td>Buy-stop above the flag high. Stop below flag low.</td></tr>
+            <tr><th>Selection</th><td>+100% move from base low to peak within ≤8 weeks, then a flag &lt;25% deep lasting ≥5 bars, price still in the flag zone.</td></tr>
+            <tr><th>Entry</th><td>Buy-stop just above the flag/peak high.</td></tr>
+            <tr><th>Stop</th><td>Flag low × 0.99.</td></tr>
+            <tr><th>Exit</th><td>Trailing stop (breakeven at +1R, trail 2R below the high); max hold 40 days.</td></tr>
             <tr><th>Frequency</th><td>0–3 per year. Worth knowing about, never the bulk of your activity.</td></tr>
           </table>
         </div>
@@ -169,22 +175,32 @@ export function renderGuide(root) {
           <div class="name">Pocket Pivot — Kacher &amp; Morales — 55–65% win rate</div>
           <table class="kv">
             <tr><th>What</th><td>Up-day where volume exceeds the highest down-day volume of the prior 10 sessions. Stock near 10/50-SMA.</td></tr>
-            <tr><th>Entry</th><td>Buy at close of pocket pivot day, or next open.</td></tr>
+            <tr><th>Selection</th><td>Close &gt; open (up day); within 3% of the 10- or 50-SMA; above the 50-SMA; today's volume &gt; the highest down-day volume of the last 10 sessions.</td></tr>
+            <tr><th>Entry</th><td>Buy at the close of the pocket-pivot day (or next open).</td></tr>
+            <tr><th>Stop</th><td>The 10-SMA (if it's below price), else close − 1.5 × ATR(14).</td></tr>
+            <tr><th>Exit</th><td>Trailing stop (breakeven at +1R, trail 2R below the high); max hold 15 days.</td></tr>
             <tr><th>Stacks</th><td>Pocket pivot inside a VCP base = very high probability.</td></tr>
           </table>
         </div>
         <div class="strategy-card warn">
           <div class="name">52-Week High Breakout — Jegadeesh &amp; Titman (1993) — 60–65%, medium-term</div>
           <table class="kv">
-            <tr><th>What</th><td>New 52-week high on above-average volume, above 200-SMA.</td></tr>
-            <tr><th>Hold</th><td>60–120 days. Not a swing trade — position-trade horizon.</td></tr>
+            <tr><th>What</th><td>New 52-week high on above-average volume, above the 200-SMA.</td></tr>
+            <tr><th>Selection</th><td>Today's high prints a fresh 52-week high; today's volume &gt; the 20-day average volume; close above the 200-SMA. <b>STRONG</b> when volume &gt; 1.5× average. <b>No RSI</b> — momentum breakouts filter on trend + volume (RSI is the separate mean-reversion strategy).</td></tr>
+            <tr><th>Entry</th><td>At the close — but only if today's high ≥ 1.005× the prior 52-week high AND the close holds above it (rejects bare-margin fake-outs / bad data).</td></tr>
+            <tr><th>Stop</th><td>Close − 2 × ATR(14).</td></tr>
+            <tr><th>Exit</th><td>Trailing stop — breakeven at +1R, then trail 2R below the highest high; no fixed target; max hold 30 days. (Documented horizon 60–120 days — a position-trade, not a swing.)</td></tr>
           </table>
         </div>
         <div class="strategy-card warn">
           <div class="name">Insider Cluster — Lakonishok &amp; Lee (2001) — 65–75% — API required</div>
           <table class="kv">
             <tr><th>What</th><td>≥ 2 unique corporate insiders bought their own stock within 30 days. ≥ 3 = STRONG cluster.</td></tr>
-            <tr><th>Why</th><td>Strongest information signal in financial economics. Patient hold: 30–90 days.</td></tr>
+            <tr><th>Selection</th><td>≥ 2 unique insiders with open-market purchases in 30 days (≥ 3 = STRONG); quality/trend filter (above 200-SMA).</td></tr>
+            <tr><th>Entry</th><td>At the close once the cluster is detected.</td></tr>
+            <tr><th>Stop</th><td>Close − 1.5 × ATR(14).</td></tr>
+            <tr><th>Exit</th><td>Fixed +15% target or 60-day time stop (slow drift, not a trailing breakout). Patient hold: 30–90 days.</td></tr>
+            <tr><th>Why</th><td>Strongest information signal in financial economics.</td></tr>
           </table>
         </div>
       </section>
