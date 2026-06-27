@@ -18,6 +18,7 @@ export function renderGuide(root) {
           <a href="#g-tier2">5. Tier 2 strategies</a>
           <a href="#g-sizing">6. Position sizing &amp; risk</a>
           <a href="#g-regime">7. Market regime</a>
+          <a href="#g-design">◆ Strategy design notes (FAQ)</a>
           <a href="#g-mistakes">8. Common mistakes</a>
           <a href="#g-paper">9. Paper trade first</a>
           <a href="#g-glossary">10. Glossary</a>
@@ -213,6 +214,21 @@ export function renderGuide(root) {
         <p><b>TRADEABLE</b> = at least 3 pass AND both trend gates pass. Trade normally.<br>
         <b>CAUTION</b> = mixed. Smaller size, A+ only.<br>
         <b>GO TO CASH</b> = 200-SMA fails, or VIX panic, or 2+ checks fail. Don't open new longs.</p>
+      </section>
+
+      <section class="guide-section" id="g-design">
+        <h2>◆ Strategy design notes (FAQ)</h2>
+
+        <h3>Why is the momentum breakout a 52-week high — not a 20- or 50-day high?</h3>
+        <p>Because the <b>52-week high is the best-supported breakout lookback</b>, and shorter ones mostly add noise, not edge:</p>
+        <ul>
+          <li><b>Strongest evidence.</b> George &amp; Hwang (2004), <i>"The 52-Week High and Momentum Investing"</i> — nearness to the 52-week high is one of the best momentum predictors there is.</li>
+          <li><b>Real structural meaning.</b> A new 52-week high clears <b>all overhead supply</b> — nobody who bought earlier is underwater waiting to sell. A 20-day high doesn't carry that.</li>
+          <li><b>Shorter breakouts are noisier, not better.</b> The 20-day high is the classic Turtle/Donchian entry — famously a <b>~30–40% win rate</b> that only worked via trailing stops and a few huge winners. Mechanized without that, short breakouts get chopped up in range-bound markets. A 50-day high is a middle ground, but…</li>
+          <li><b>…the roster is already momentum-heavy.</b> 52WH, VCP, Pocket Pivot, Gap/PEG, Pullback and HTF are all momentum/breakout flavors. The system is <b>not short on momentum signals — it's short on momentum signals with proven edge.</b> Adding 20/50-day highs just piles on more correlated, unproven signals and makes it harder to tell what actually works.</li>
+        </ul>
+        <p><b>If a better momentum strategy is ever added, it won't be another lookback</b> — it'll be a different <i>kind</i> of momentum: a <b>relative-strength / 12-1 month ranking</b> (Jegadeesh-Titman — buy the strongest names vs. peers, excluding the last month). That's the most-documented momentum effect and it's <i>cross-sectional</i>, so it complements the breakout signals instead of duplicating them.</p>
+        <div class="guide-warn"><b>Sequencing:</b> don't add new strategies until the corrected settlement (trailing-stop exits for trend strategies) shows which of the <i>existing</i> ones are actually profitable. More unproven signals = harder to find the edge, not easier.</div>
       </section>
 
       <section class="guide-section" id="g-mistakes">

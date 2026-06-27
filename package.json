@@ -1,6 +1,6 @@
 {
   "name": "swing-stocks",
-  "version": "0.20.2",
+  "version": "0.20.3",
   "private": true,
   "type": "module",
   "description": "Swing Terminal — cloud-backed multi-strategy swing-trading console. GitHub Pages SPA + Firebase Auth/Firestore.",
