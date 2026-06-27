@@ -120,6 +120,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // S&P universe (500/400/600), published by the weekly universe cron.
+    match /universe/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     // -----------------------------------------------------------------------
     // Publicly-readable, server-written config (optional)
     // -----------------------------------------------------------------------

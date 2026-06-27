@@ -21,6 +21,9 @@
 // =============================================================================
 
 import admin from 'firebase-admin';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
 import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
@@ -37,6 +40,13 @@ const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s
 // Which watchlist to scan: 'core' (curated blue-chips, default) | 'broad' (core
 // + a wider mid/large-cap growth set, better for the breakout strategies).
 const WATCHLIST_SET = (process.env.WATCHLIST_SET || 'core').trim();
+
+// S&P universe (500 large + 400 mid + 600 small) — for the US 'broad' scan and
+// for tagging every signal with its index membership (sp500 | sp400 | sp600 | null).
+const __dir = path.dirname(fileURLToPath(import.meta.url));
+const UNIVERSE = JSON.parse(readFileSync(path.join(__dir, '../src/data/universe.json'), 'utf8'));
+const UNIVERSE_INDEX = new Map(Object.entries(UNIVERSE).map(([sym, v]) => [sym, v.index]));
+const UNIVERSE_LIST_US = Object.entries(UNIVERSE).map(([t, v]) => ({ t, s: v.sector, name: v.name }));
 
 // Capture notable console output so the app's Cron Status page can show the last
 // run's log. We skip the chatty per-ticker [fetchBars] lines but keep summaries,
@@ -101,7 +111,24 @@ function strategyKeyToShort(key) {
 async function scanMarket(db, market, ctxIn) {
   const cfg = MARKET_CONFIGS[market];
   const ctx = ctxIn || buildCtx(market);
-  const watchlist = watchlistFor(market, WATCHLIST_SET);
+  // Resolve the US S&P universe: prefer the weekly-validated copy in Firestore
+  // (/universe/config), else the committed universe.json snapshot.
+  let universeListUS = UNIVERSE_LIST_US, universeIndex = UNIVERSE_INDEX;
+  if (market === 'US') {
+    try {
+      const snap = await db.collection('universe').doc('config').get();
+      const t = snap.exists ? snap.data().tickers : null;
+      if (t && Object.keys(t).length) {
+        universeListUS = Object.entries(t).map(([tk, v]) => ({ t: tk, s: v.sector, name: v.name }));
+        universeIndex = new Map(Object.entries(t).map(([s, v]) => [s, v.index]));
+      }
+    } catch (e) { console.warn(`[scan] universe read failed, using committed file: ${e.message}`); }
+  }
+  // US 'broad' scans the full S&P universe (~1500 names); everything else uses the
+  // curated core/broad lists from markets.js.
+  const watchlist = (market === 'US' && WATCHLIST_SET === 'broad')
+    ? universeListUS
+    : watchlistFor(market, WATCHLIST_SET);
   console.log(`\n[scan] market=${market} watchlist=${watchlist.length} (set=${WATCHLIST_SET})`);
 
   // 1. Pull the index for relative-strength regime check.
@@ -183,6 +210,8 @@ async function scanMarket(db, market, ctxIn) {
         ticker,
         name:         companyName(item),
         sector:       item.s,
+        // Index membership (sp500 | sp400 | sp600 | null) for the universe filter.
+        index:        universeIndex.get(ticker) || null,
         market,
         strategy:     def.short,
         strategyKey:  stratKey,

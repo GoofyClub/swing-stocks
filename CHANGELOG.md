@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.22.0 — 2026-06-26 (S&P 500/400/600 universe + index filter)
+
+### Added
+- **S&P universe (1,503 names): S&P 500 (503) + MidCap 400 + SmallCap 600**,
+  committed as `src/data/universe.json` (cron-only — not in the browser bundle).
+  The US **broad** scan now uses this full universe so the breakout strategies get
+  real candidates. Every signal is **tagged with its index membership**
+  (`sp500` | `sp400` | `sp600` | null).
+- **Index filter** (All / S&P 500 / MidCap 400 / SmallCap 600) on **Live Signals**
+  and **Signal History**, plus an **INDEX** column in History — so you can scope to
+  mid/small caps for momentum.
+- **Daily broad scan** workflow (`refresh-broad.yml`, ~17:30 ET once/day — the
+  strategies are EOD, so no intraday re-scan) for the full S&P universe.
+- **Weekly universe cron** (`refresh-universe.mjs` / `refresh-universe.yml`):
+  refreshes S&P 500 from the live constituents list, validates the whole universe
+  against Alpaca's tradable assets (drops delisted names), and publishes to
+  Firestore `/universe/config`; the daily scan reads that (falling back to the
+  committed file). New owner-/signed-in read rule for `/universe`.
+
+### Notes
+- Scanning ~1,500 names is heavy — **set `ALPACA_KEY`/`ALPACA_SECRET`** (data
+  throughput) and **deploy the Firestore indexes** (`firebase deploy --only
+  firestore:indexes`) so settlement's fallback scans don't run you out of
+  free-tier reads. MidCap 400 / SmallCap 600 update when `universe.json` is
+  regenerated (S&P 500 auto-refreshes weekly).
+
 ## v0.21.0 — 2026-06-26 (switchable core/broad watchlists + Execution Status page)
 
 ### Added

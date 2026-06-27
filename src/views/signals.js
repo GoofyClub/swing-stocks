@@ -453,6 +453,12 @@ export async function renderSignals(root) {
           </div>
           ${multiSelectHtml('f-strategy', 'All strategies')}
           <select id="f-sector" class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
+          <select id="f-index" class="btn-bare" title="Filter by index membership">
+            <option value="">All indices</option>
+            <option value="sp500">S&amp;P 500</option>
+            <option value="sp400">MidCap 400</option>
+            <option value="sp600">SmallCap 600</option>
+          </select>
           <input id="f-min" type="number" step="0.01" placeholder="min price" class="btn-bare" style="width:100px">
           <input id="f-max" type="number" step="0.01" placeholder="max price" class="btn-bare" style="width:100px">
           <input id="f-q" type="search" placeholder="ticker / name" class="search" style="max-width:200px">
@@ -580,6 +586,7 @@ export async function renderSignals(root) {
     const side       = getSeg('seg-side');
     const strategies = getMultiSelectValues('f-strategy');
     const sector     = $('f-sector').value;
+    const indexSet   = $('f-index').value;
     const minP   = parseFloat($('f-min').value);
     const maxP   = parseFloat($('f-max').value);
     const q      = $('f-q').value.trim().toLowerCase();
@@ -588,6 +595,7 @@ export async function renderSignals(root) {
       if (side     && r.side !== side) return false;
       if (strategies.length && !strategies.includes(r.short)) return false;
       if (sector   && r.sector !== sector) return false;
+      if (indexSet && r.index !== indexSet) return false;
       if (Number.isFinite(minP) && r.entry < minP) return false;
       if (Number.isFinite(maxP) && r.entry > maxP) return false;
       if (q) {
@@ -766,6 +774,7 @@ export async function renderSignals(root) {
     setSeg('seg-side', '');
     setMultiSelectValues('f-strategy', []);
     $('f-sector').value = '';
+    $('f-index').value = '';
     $('f-min').value = '';
     $('f-max').value = '';
     $('f-q').value = '';
@@ -782,6 +791,7 @@ export async function renderSignals(root) {
   wireSeg('seg-side', renderResults);
   wireMultiSelect('f-strategy', renderResults);
   $('f-sector').addEventListener('change', renderResults);
+  $('f-index').addEventListener('change', renderResults);
   ['f-min', 'f-max', 'f-q'].forEach(id => $(id).addEventListener('input', renderResults));
 
   // ---- Saved filters (localStorage): persist + restore the filter set. The

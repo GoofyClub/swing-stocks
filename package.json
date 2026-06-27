@@ -1,6 +1,6 @@
 {
   "name": "swing-stocks",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "type": "module",
   "description": "Swing Terminal — cloud-backed multi-strategy swing-trading console. GitHub Pages SPA + Firebase Auth/Firestore.",
@@ -14,6 +14,7 @@
     "test:auto": "node tests/auto.mjs",
     "test": "node tests/engine-parity.mjs && node tests/settle.mjs && node tests/auto.mjs",
     "refresh:signals": "node scripts/refresh-signals.mjs",
+    "refresh:universe": "node scripts/refresh-universe.mjs",
     "auto:trade": "node scripts/auto-trade.mjs",
     "auto:smoketest": "node scripts/alpaca-smoketest.mjs"
   },

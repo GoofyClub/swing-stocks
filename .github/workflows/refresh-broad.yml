@@ -1,0 +1,35 @@
+name: Refresh broad universe (S&P 1500)
+
+# Scans the full US S&P universe (500 large + 400 mid + 600 small) ONCE daily
+# after the close — the strategies are EOD-based, so intraday re-scans add
+# nothing. Heavy (~1500 names): keep it to once/day and use the Alpaca data
+# source (ALPACA_KEY/SECRET) so it doesn't hit free-tier rate limits.
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"   # ~17:30 ET, after the US close
+  workflow_dispatch:
+
+jobs:
+  refresh-broad:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install
+        run: npm ci
+      - name: Scan broad universe (US)
+        env:
+          FIREBASE_PROJECT_ID:           ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          ALPHAVANTAGE_KEY:              ${{ secrets.ALPHAVANTAGE_KEY }}
+          FINNHUB_KEY:                   ${{ secrets.FINNHUB_KEY }}
+          FMP_KEY:                       ${{ secrets.FMP_KEY }}
+          ALPACA_KEY:                    ${{ secrets.ALPACA_KEY }}
+          ALPACA_SECRET:                 ${{ secrets.ALPACA_SECRET }}
+          MARKETS:                       'US'
+          WATCHLIST_SET:                 'broad'
+        run: node scripts/refresh-signals.mjs

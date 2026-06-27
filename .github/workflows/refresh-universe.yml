@@ -1,0 +1,29 @@
+name: Refresh S&P universe
+
+# Weekly: refresh S&P 500 from the live list, validate the whole 500/400/600
+# universe against Alpaca's tradable assets, and publish to Firestore so the
+# daily broad scan always uses a current, tradable list.
+on:
+  schedule:
+    - cron: "0 8 * * 6"   # Saturdays 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  refresh-universe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install
+        run: npm ci
+      - name: Refresh + publish universe
+        env:
+          FIREBASE_PROJECT_ID:           ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          ALPACA_KEY:                    ${{ secrets.ALPACA_KEY }}
+          ALPACA_SECRET:                 ${{ secrets.ALPACA_SECRET }}
+        run: node scripts/refresh-universe.mjs

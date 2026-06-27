@@ -125,6 +125,7 @@ function applyFilters(rows, f) {
     if (f.tier     && r.tier     !== f.tier)     return false;
     if (f.strategies?.length && !f.strategies.includes(r.strategy)) return false;
     if (f.sector   && r.sector   !== f.sector)   return false;
+    if (f.index    && r.index    !== f.index)    return false;
     if (f.entryStatus) {
       const es = computeEntryStatus(r);
       if (es !== f.entryStatus) return false;
@@ -237,13 +238,15 @@ const SIGNAL_COLUMNS = {
                const c = rr >= 0 ? 'var(--green)' : 'var(--red)'; return `<td class="num" style="color:${c}" title="Realized R once closed: return ÷ risk taken. +2R = made twice the risk; −1R = lost the full risk.">${(rr >= 0 ? '+' : '') + rr.toFixed(2)}R</td>`; } },
   current: { label: 'Current price', header: '<th class="num">CURRENT</th>', render: r => `<td class="num">${r.currentPrice != null ? r.currentPrice.toFixed(2) : '—'}</td>` },
   sector:  { label: 'Sector',        header: '<th>SECTOR</th>', render: r => `<td title="${escapeHtml(r.sector || '')}">${escapeHtml(sectorName(r.sector) || '—')}</td>` },
+  index:   { label: 'Index',         header: '<th>INDEX</th>',
+             render: r => { const m = { sp500: 'S&P 500', sp400: 'Mid 400', sp600: 'Small 600' }[r.index]; return `<td>${m ? `<span class="badge">${m}</span>` : '<span style="color:var(--text-dim)">—</span>'}</td>`; } },
   tier:    { label: 'Tier',          header: '<th>TIER</th>', render: r => `<td>${tierBadge(r.tier, r.tierReasons)}</td>` },
   estatus: { label: 'Entry status',  header: '<th>ENTRY STATUS</th>',
              render: r => { const es = r.status === 'open' ? computeEntryStatus(r) : null; return `<td>${es ? entryStatusBadge(es) : '<span class="badge">—</span>'}</td>`; } },
 };
 // User-requested default order: date, name, ticker, strategy, status, %, entry,
 // TP, SL, then the remaining columns. 'star' is the fixed action column.
-const DEFAULT_SIGNAL_COL_ORDER = ['star', 'date', 'name', 'ticker', 'strategy', 'wl', 'pct', 'entry', 'tp', 'sl', 'rr', 'resultr', 'current', 'sector', 'tier', 'estatus'];
+const DEFAULT_SIGNAL_COL_ORDER = ['star', 'date', 'name', 'ticker', 'strategy', 'wl', 'pct', 'entry', 'tp', 'sl', 'rr', 'resultr', 'current', 'sector', 'index', 'tier', 'estatus'];
 const FIXED_SIGNAL_COLS = ['star'];
 
 export async function renderHistory(root) {
@@ -297,6 +300,12 @@ export async function renderHistory(root) {
           </div>
           ${multiSelectHtml('f-strategy', 'All strategies')}
           <select id="f-sector"   class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
+          <select id="f-index" class="btn-bare" title="Filter by index membership">
+            <option value="">All indices</option>
+            <option value="sp500">S&amp;P 500</option>
+            <option value="sp400">MidCap 400</option>
+            <option value="sp600">SmallCap 600</option>
+          </select>
           <input  id="f-q"   class="search" type="search" placeholder="ticker / name" style="max-width:220px">
           <button id="btn-save-filters" class="btn-bare" type="button" title="Save these filters for next time (this browser)">★ SAVE FILTERS</button>
           <button id="btn-columns" class="btn-bare" type="button" title="Reorder / show / hide table columns">⚙ COLUMNS</button>
@@ -485,6 +494,7 @@ export async function renderHistory(root) {
       tier:     getSeg('seg-tier'),
       strategies: getMultiSelectValues('f-strategy'),
       sector:   $('f-sector').value,
+      index:    $('f-index').value,
       winLoss:  getSeg('seg-winloss'),
       q:        $('f-q').value.trim(),
     };
@@ -689,6 +699,7 @@ export async function renderHistory(root) {
   wireSeg('seg-winloss', refresh);
   wireMultiSelect('f-strategy', refresh);
   $('f-sector').addEventListener('change', refresh);
+  $('f-index').addEventListener('change', refresh);
   $('f-q').addEventListener('input', refresh);
 
   // ----- Saved filters (localStorage) --------------------------------------
@@ -704,6 +715,7 @@ export async function renderHistory(root) {
       : (saved.strategy ? [saved.strategy] : []);
     setMultiSelectValues('f-strategy', savedStrats);
     if (saved.sector   != null) $('f-sector').value   = saved.sector;
+    if (saved.index    != null) $('f-index').value    = saved.index;
     if (saved.q        != null) $('f-q').value         = saved.q;
     if (saved.tfCustom) {
       tfCustom = saved.tfCustom;
@@ -727,6 +739,7 @@ export async function renderHistory(root) {
       winLoss:  getSeg('seg-winloss'),
       strategies: getMultiSelectValues('f-strategy'),
       sector:   $('f-sector').value,
+      index:    $('f-index').value,
       q:        $('f-q').value.trim(),
       tfDays:   tfCustom ? null : tfDays,
       tfCustom: tfCustom || null,
@@ -764,11 +777,11 @@ export async function renderHistory(root) {
 
   $('btn-csv').addEventListener('click', () => {
     const filtered = applyFilters(rows, currentFilters());
-    const header = ['date','market','tier','tierReasons','name','ticker','sector','sectorName','strategy','side','entry','tp','sl','slPct','plannedRR','outcomeR','current','realizedOrLivePct','status','winLoss','exitReason','entryStatus'];
+    const header = ['date','market','index','tier','tierReasons','name','ticker','sector','sectorName','strategy','side','entry','tp','sl','slPct','plannedRR','outcomeR','current','realizedOrLivePct','status','winLoss','exitReason','entryStatus'];
     const csvRows = filtered.map(r => {
       const p = pctFor(r); const rr = rrFor(r); const outR = resultRFor(r);
       return [
-        (r.signalTs || '').slice(0, 10), r.market || '', r.tier || '', (r.tierReasons || []).join(' | '), r.name || '', r.ticker || '', r.sector || '', sectorName(r.sector) || '', r.strategy || '', r.side || '',
+        (r.signalTs || '').slice(0, 10), r.market || '', r.index || '', r.tier || '', (r.tierReasons || []).join(' | '), r.name || '', r.ticker || '', r.sector || '', sectorName(r.sector) || '', r.strategy || '', r.side || '',
         r.entryPrice ?? '', r.tpPrice ?? '', r.slPrice ?? '',
         slPctFor(r) != null ? slPctFor(r).toFixed(3) : '', rr != null ? rr.toFixed(2) : '', outR != null ? outR.toFixed(3) : '',
         r.currentPrice ?? '', p != null ? p.toFixed(3) : '',
