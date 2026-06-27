@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.22.3 — 2026-06-26 (User Guide — PEG catalyst clarified)
+
+### Added
+- **PEG strategy card:** a "Catalyst" row spelling out what counts (earnings beat +
+  raised guidance is the archetype; also analyst upgrade, FDA approval, contract/
+  M&A, index inclusion) and the key caveat that **the scanner only detects the
+  gap + volume, not the news** — verify why it gapped; skip gaps with no real
+  catalyst.
+
 ## v0.22.2 — 2026-06-26 (User Guide — universe explainer + per-strategy "Best for" cap)
 
 ### Added

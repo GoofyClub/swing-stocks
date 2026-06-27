@@ -137,8 +137,9 @@ export function renderGuide(root) {
         <div class="strategy-card good">
           <div class="name">Gap-and-Go (PEG) — Minervini / Zanger — 65–72% win rate</div>
           <table class="kv">
-            <tr><th>Best for</th><td><b>Mid/small caps</b> with a catalyst (more explosive gaps), plus liquid large caps. The move is bigger the smaller the cap — so is the risk.</td></tr>
+            <tr><th>Best for</th><td><b>Mid/small caps</b> with a real catalyst (more explosive gaps), plus liquid large caps. The move is bigger the smaller the cap — so is the risk.</td></tr>
             <tr><th>What</th><td>Stock gaps up ≥4% on ≥2× volume, holds above gap-open for 3+ days.</td></tr>
+            <tr><th>Catalyst</th><td>The archetype is an <b>earnings beat + raised guidance</b> (hence "Power Earnings Gap"). Also: a major <b>analyst upgrade/initiation</b>, <b>FDA approval / trial data</b>, a big <b>contract / M&amp;A / product launch</b>, or index inclusion — anything that gaps the stock up on heavy volume. <b>⚠️ The scanner only sees the gap + volume, not the news.</b> Always look up <i>why</i> it gapped: a real earnings/fundamental catalyst = trade it; no clear news / a thin pump / a rumor = skip. A gap without a genuine catalyst tends to fade.</td></tr>
             <tr><th>Why it works</th><td>Massive gap on volume = institutional vote. Gap-open becomes new support.</td></tr>
             <tr><th>Entry</th><td>Buy pullback to gap-open area (within 2% above), or buy-stop above post-gap high.</td></tr>
             <tr><th>Stop</th><td><b>Gap-open × 0.98</b> — hard stop. If the gap fills, exit immediately.</td></tr>
