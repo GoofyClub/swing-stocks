@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.22.1 — 2026-06-26 (docs: consolidated secrets/variables reference)
+
+### Added
+- **README "Configuration reference — secrets & variables"** table documenting
+  every secret (`FIREBASE_*`, `ALPACA_*`, data-source keys), repo variable
+  (`AUTO_WATCHLIST_SET`, `AUTO_DRY_RUN`, `ALLOW_LIVE`) and each workflow's manual
+  inputs — so they're discoverable in one place for future reference.
+
 ## v0.22.0 — 2026-06-26 (S&P 500/400/600 universe + index filter)
 
 ### Added

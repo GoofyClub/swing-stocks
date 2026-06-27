@@ -74,11 +74,48 @@ the per-user `automation/*` config and the read-only `autoOrders/*` journal.
 
 ---
 
+## Configuration reference — secrets & variables
+
+All set under **Repo → Settings → Secrets and variables → Actions**. *Secrets* are
+encrypted (keys/credentials); *Variables* are plain config you can read back.
+
+### Secrets
+
+| Secret | Used by | Purpose |
+|---|---|---|
+| `FIREBASE_PROJECT_ID` | all workers | Firebase project id |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | all workers | Admin SDK service-account JSON |
+| `ALPACA_KEY` / `ALPACA_SECRET` | refresh, broad, universe, auto-trade | Alpaca data (reliable bars on CI) + per-validation; trading uses each user's own keys |
+| `ALPHAVANTAGE_KEY` / `FINNHUB_KEY` | refresh | optional extra data sources |
+| `FMP_KEY` | refresh | optional — enables PEAD / Insider / Analyst strategies |
+
+### Repo Variables
+
+| Variable | Default | Effect |
+|---|---|---|
+| `AUTO_WATCHLIST_SET` | `core` | Watchlist the **every-30-min refresh** scans: `core` (curated ~50) or `broad`. *(The daily `refresh-broad` workflow always scans the full S&P universe regardless.)* |
+| `AUTO_DRY_RUN` | `true` | `false` lets **scheduled auto-trade** runs actually place (paper) orders. |
+| `ALLOW_LIVE` | `false` | `true` permits **real-money** orders on a live broker URL. Without it, live URLs are hard-skipped. |
+
+### Workflow inputs (manual `Run workflow`, override the variables for one run)
+
+| Workflow | Inputs |
+|---|---|
+| Refresh shared signals | `markets` (US,INDIA), `watchlist_set` (core/broad) |
+| Refresh broad universe | — (always US + broad) |
+| Refresh S&P universe | — |
+| Auto-trade (paper) | `dry_run`, `only_uid`, `kill_switch` |
+
+---
+
 ## Workers (GitHub Actions)
 
-Both workers run on `ubuntu-latest` and need these repo **Secrets**:
-`FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` (data-source keys
-`ALPHAVANTAGE_KEY` / `FINNHUB_KEY` / `FMP_KEY` are optional — see `SETUP.md`).
+All workers run on `ubuntu-latest` and need the Firebase secrets above
+(`ALPACA_KEY`/`ALPACA_SECRET` strongly recommended; `ALPHAVANTAGE_KEY` /
+`FINNHUB_KEY` / `FMP_KEY` optional — see `SETUP.md`). There are four:
+**Refresh shared signals** (core, frequent), **Refresh broad universe** (S&P
+1500, daily), **Refresh S&P universe** (weekly list validation), and
+**Auto-trade (paper)**.
 
 > **Data reliability (important):** Yahoo and Stooq block datacenter IPs and
 > AlphaVantage free is 25 calls/day, so on the GitHub runner the cron often
