@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Simulate only (true) or actually place orders (false)'
+        description: 'Simulate only (true) / place orders (false). Blank = use the AUTO_DRY_RUN repo variable.'
         required: false
-        default: 'true'
+        default: ''
       only_uid:
         description: 'Restrict to a single user uid (optional)'
         required: false

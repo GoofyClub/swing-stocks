@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.22.4 — 2026-06-29 (fix: manual auto-trade run ignored AUTO_DRY_RUN)
+
+### Fixed
+- The Auto-trade `dry_run` workflow input defaulted to `true`, so a **manual**
+  "Run workflow" overrode the `AUTO_DRY_RUN` repo variable and always simulated.
+  The input now defaults to **blank**, so it falls through to `AUTO_DRY_RUN`
+  (scheduled runs already used the variable). Note: `AUTO_DRY_RUN` must be a repo
+  **Variable**, not a Secret.
+
 ## v0.22.3 — 2026-06-26 (User Guide — PEG catalyst clarified)
 
 ### Added
