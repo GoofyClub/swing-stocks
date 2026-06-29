@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.22.5 — 2026-06-29 (auto-trade schedule made DST-robust)
+
+### Changed
+- The auto-trade morning run now fires at **both 13:40 and 14:40 UTC** so it lands
+  ~09:40 ET just after the open in **both** EDT (summer) and EST (winter) — GitHub
+  cron is fixed UTC and doesn't follow daylight saving. The "wrong" one for the
+  season either skips (market closed) or runs harmlessly later (placement is
+  idempotent). Reconcile run stays at 19:45 UTC (in-session year-round).
+
 ## v0.22.4 — 2026-06-29 (fix: manual auto-trade run ignored AUTO_DRY_RUN)
 
 ### Fixed
