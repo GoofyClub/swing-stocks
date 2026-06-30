@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.22.7 — 2026-06-29 (Live Signals date column + schedules in UI)
+
+### Added
+- **DATE column on Live Signals** — shows each signal's date so it's clear the
+  list reflects the last EOD close (signals are entered the next session), not a
+  live "now" snapshot. Browser-scan rows show "now".
+- **Schedules table on the Execution Status page** — every worker's cron time
+  (UTC + approximate US Eastern) and what it does, with a note that fixed-UTC cron
+  drifts ±1h across daylight saving.
+
 ## v0.22.6 — 2026-06-29 (fix: index column/values not showing)
 
 ### Fixed

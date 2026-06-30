@@ -644,7 +644,7 @@ export async function renderSignals(root) {
     $('signal-results').innerHTML = `
       <table class="data">
         <thead><tr>
-          <th></th><th>TIER</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>INDEX</th><th>STRATEGY</th><th>SIDE</th>
+          <th></th><th>DATE</th><th>TIER</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>INDEX</th><th>STRATEGY</th><th>SIDE</th>
           <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th><th class="num">R:R</th>
           ${isCron ? '<th class="num">CURRENT</th><th class="num">%Δ</th><th>W/L</th>' : '<th>REASON</th>'}
         </tr></thead>
@@ -662,6 +662,7 @@ export async function renderSignals(root) {
               <td>
                 <button class="star-btn" data-action="${already ? 'remove' : 'enter'}" data-idx="${idx}" title="${already ? 'Already tracked' : 'Track on My Trades'}">${already ? '★' : '☆'}</button>
               </td>
+              <td title="Signal date (based on this trading day's EOD close)">${s.signalTs ? escapeHtml(s.signalTs.slice(0, 10)) : (s.source === 'scan' ? 'now' : '—')}</td>
               <td>${tierBadge(s.tier, s.tierReasons)}</td>
               <td>${escapeHtml(s.name || s.ticker)}</td>
               <td>${escapeHtml(s.ticker)}</td>

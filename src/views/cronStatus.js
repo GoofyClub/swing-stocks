@@ -36,6 +36,25 @@ export async function renderCronStatus(root) {
     <div class="view">
       <h1>Execution Status</h1>
       <p class="subtitle">Execution history of the scheduled workers — <b>Refresh shared signals</b> and <b>Auto-trade</b>. Each run shows what it did and an expandable log. If signals look stale, check the newest refresh run.</p>
+
+      <div class="card">
+        <h2>Schedules <span class="count">(GitHub Actions cron, fixed UTC)</span></h2>
+        <div style="overflow-x:auto">
+        <table class="data">
+          <thead><tr><th>Worker</th><th>When (UTC)</th><th>≈ US Eastern</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><b>Refresh shared signals</b></td><td>Every 30 min, 13:30–21:00 · Mon–Fri</td><td>~09:30–17:00 ET</td><td>Core (~50 blue-chips) scan + settle</td></tr>
+            <tr><td>Refresh shared signals</td><td>11:00 · Mon–Fri</td><td>~06:30 ET</td><td>India NSE end-of-day pass</td></tr>
+            <tr><td><b>Refresh broad universe</b></td><td>21:30 · Mon–Fri</td><td>~17:30 ET (after close)</td><td>Full S&amp;P 500/400/600 scan (once daily)</td></tr>
+            <tr><td><b>Refresh S&amp;P universe</b></td><td>08:00 · Saturday</td><td>~04:00 ET Sat</td><td>Refresh + validate the S&amp;P constituent lists</td></tr>
+            <tr><td><b>Auto-trade</b></td><td>13:40 &amp; 14:40 · Mon–Fri</td><td>~09:40 ET (just after open)</td><td>Place orders from matching signals</td></tr>
+            <tr><td>Auto-trade</td><td>19:45 · Mon–Fri</td><td>~15:45 ET (before close)</td><td>Reconcile fills / exits</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p class="muted" style="margin-top:8px">Cron is fixed UTC and doesn't shift for daylight saving, so the Eastern times drift ±1h between summer (EDT) and winter (EST). Trigger any worker on demand: GitHub → Actions → pick the workflow → Run workflow.</p>
+      </div>
+
       <div class="card"><div id="cron-table"><div class="empty">Loading…</div></div></div>
     </div>
   `;
