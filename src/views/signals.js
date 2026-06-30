@@ -215,6 +215,7 @@ function unify(row, source) {
       ticker: row.ticker,
       name:   row.name || nameForTicker(row.ticker) || row.ticker,
       sector: row.sector,
+      index:  row.index || null,
       tier:   row.tier || 'Tier 1',
       tierReasons: row.tierReasons || [],
       pendingEntry: row.pendingEntry ?? false,
@@ -643,7 +644,7 @@ export async function renderSignals(root) {
     $('signal-results').innerHTML = `
       <table class="data">
         <thead><tr>
-          <th></th><th>TIER</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>STRATEGY</th><th>SIDE</th>
+          <th></th><th>TIER</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>INDEX</th><th>STRATEGY</th><th>SIDE</th>
           <th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th><th class="num">R:R</th>
           ${isCron ? '<th class="num">CURRENT</th><th class="num">%Δ</th><th>W/L</th>' : '<th>REASON</th>'}
         </tr></thead>
@@ -665,6 +666,7 @@ export async function renderSignals(root) {
               <td>${escapeHtml(s.name || s.ticker)}</td>
               <td>${escapeHtml(s.ticker)}</td>
               <td title="${escapeHtml(s.sector || '')}">${escapeHtml(sectorName(s.sector) || '—')}</td>
+              <td>${(() => { const m = { sp500: 'S&P 500', sp400: 'Mid 400', sp600: 'Small 600' }[s.index]; return m ? `<span class="badge">${m}</span>` : '<span style="color:var(--text-dim)">—</span>'; })()}</td>
               <td>${escapeHtml(s.short)}</td>
               <td>${escapeHtml(s.side)}</td>
               <td class="num">${(s.entry ?? 0).toFixed(2)}</td>

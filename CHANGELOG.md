@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.22.6 — 2026-06-29 (fix: index column/values not showing)
+
+### Fixed
+- **Live Signals had no INDEX column** (only the filter was added) — added the
+  column, and fixed the `unify()` mapper which was **dropping the `index` field**
+  for cron rows, so the index filter never worked there either.
+- **Signal History INDEX column was empty** because existing signals predate the
+  universe tagging and never got an `index`. The re-settle pass now **backfills
+  the index** onto historical signals (processes docs missing the field, sets
+  membership from the committed universe), so the column fills in after the next
+  refresh cron run.
+
 ## v0.22.5 — 2026-06-29 (auto-trade schedule made DST-robust)
 
 ### Changed

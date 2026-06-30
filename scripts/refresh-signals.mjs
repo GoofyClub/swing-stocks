@@ -345,8 +345,10 @@ async function resettleRecentSignals(db, market, ctxIn) {
     // the fallback path). Docs missing `market` are treated as belonging to the
     // active market, matching the History view's lenient handling of legacy docs.
     if (d.market && d.market !== market) return;
-    const needs = d.status === 'open' || d.settlementVersion !== SETTLEMENT_VERSION;
-    if (!needs) return; // already settled at the current model version — leave it
+    // Also process docs missing the `index` tag so the universe membership gets
+    // backfilled onto historical signals (one-time, then `index` is set).
+    const needs = d.status === 'open' || d.settlementVersion !== SETTLEMENT_VERSION || d.index === undefined;
+    if (!needs) return; // already settled + tagged — leave it
     if (!byTicker.has(d.ticker)) byTicker.set(d.ticker, []);
     byTicker.get(d.ticker).push({ ref: s.ref, ...d });
   });
@@ -387,6 +389,7 @@ async function resettleRecentSignals(db, market, ctxIn) {
           settlementVersion: SETTLEMENT_VERSION,
           currentPrice: lastClose,
           pctChange,
+          index:       UNIVERSE_INDEX.get(sig.ticker) || null,
         });
         if (wasClosed) regraded++; else settled++;
       } else {
@@ -398,6 +401,7 @@ async function resettleRecentSignals(db, market, ctxIn) {
           currentPrice: lastClose,
           currentPriceTs: new Date().toISOString(),
           pctChange,
+          index: UNIVERSE_INDEX.get(sig.ticker) || null,
         };
         if (wasClosed) {
           Object.assign(update, { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null });
