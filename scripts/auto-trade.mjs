@@ -217,11 +217,14 @@ async function processUser(db, uid, cfg) {
     const coid = clientOrderId(uid, sig.id);
     const journalRef = db.collection('users').doc(uid).collection('autoOrders').doc(coid);
 
-    // Idempotency: already acted on this user+signal.
-    if ((await journalRef.get()).exists) { skipped++; continue; }
+    // Idempotency: already acted on this user+signal — but a prior DRY-RUN intent
+    // must NOT block a real order. Only a real (submitted/filled/error) journal
+    // entry counts; a real placement below overwrites any dry-run doc.
+    const existing = await journalRef.get();
+    if (existing.exists && existing.data().status !== 'dryrun') { skipped++; continue; }
 
     const match = signalMatchesRules(sig, cfg);
-    if (!match.ok) { skipped++; continue; }
+    if (!match.ok) { log(`skip ${sig.ticker}: ${match.reasons[0] || 'rule filter'}`); skipped++; continue; }
 
     if (cfg.respectRegime !== false) {
       const reg = regimeAllowsEntry(regimes[sig.market || markets[0]], sig.side || 'buy');

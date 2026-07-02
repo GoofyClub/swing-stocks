@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.22.8 — 2026-07-01 (auto-trade: dry-run no longer blocks real orders; log skip reasons)
+
+### Fixed
+- **A prior DRY-RUN intent blocked the real order.** The idempotency check skipped
+  any signal that already had a journal doc — including `dryrun` docs written by
+  earlier simulated runs. It now ignores `dryrun` docs (a real placement overwrites
+  them), so switching `AUTO_DRY_RUN=false` actually places orders.
+- **Rule-filtered signals are now logged** with the reason (tier/strategy/price/
+  liquidity/exclusion), so the run log shows *why* each signal was skipped instead
+  of silently dropping it.
+
 ## v0.22.7 — 2026-06-29 (Live Signals date column + schedules in UI)
 
 ### Added
