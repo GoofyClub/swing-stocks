@@ -55,7 +55,11 @@ export function signalMatchesRules(signal, cfg) {
   if (cfg.tiers?.length && !cfg.tiers.includes(signal.tier)) reasons.push(`tier ${signal.tier} not selected`);
   if (cfg.sides?.length && !cfg.sides.includes(signal.side || 'buy')) reasons.push(`side ${signal.side} not selected`);
   if (cfg.strategies?.length && !cfg.strategies.includes(signal.strategyKey)) reasons.push(`strategy ${signal.strategyKey} not in allow-list`);
-  if (cfg.indexes?.length && !cfg.indexes.includes(signal.index)) reasons.push(`index ${signal.index || 'none'} not selected`);
+  // Index filter: a per-strategy override (cfg.strategyIndexes[key]) takes
+  // precedence; otherwise the global cfg.indexes applies. Empty = all indices.
+  const perStrat = cfg.strategyIndexes?.[signal.strategyKey];
+  const idxAllow = (Array.isArray(perStrat) && perStrat.length) ? perStrat : (cfg.indexes || []);
+  if (idxAllow.length && !idxAllow.includes(signal.index)) reasons.push(`index ${signal.index || 'none'} not allowed for ${signal.strategyKey}`);
   if (Array.isArray(cfg.excludeTickers) && cfg.excludeTickers.includes(ticker)) reasons.push(`${ticker} on exclusion list`);
   if (entry != null) {
     if (cfg.minPrice != null && entry < cfg.minPrice) reasons.push(`price ${entry} < min ${cfg.minPrice}`);

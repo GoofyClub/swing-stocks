@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.23.0 — 2026-07-01 (automation: per-strategy index override)
+
+### Added
+- **Per-strategy index override** on the Automation page (advanced, collapsible
+  matrix): restrict each strategy to specific indices independently — e.g. RSI2 →
+  S&P 500, VCP → SmallCap 600, in the same config. A strategy row left blank uses
+  the global Indices setting. Stored as `strategyIndexes` and applied by
+  `signalMatchesRules` (per-strategy takes precedence over the global list). +3 tests.
+
 ## v0.22.9 — 2026-07-01 (automation: per-index filter)
 
 ### Added

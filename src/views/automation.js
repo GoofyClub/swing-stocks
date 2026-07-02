@@ -129,6 +129,25 @@ export async function renderAutomation(root) {
           ${chips('strategies', Object.entries(STRATEGIES).map(([k, v]) => ({ v: k, label: v.short || v.name || k })), cfg.strategies)}
         </div>
       </div>
+
+      <details class="collapsible" style="margin-top:14px">
+        <summary>Per-strategy index override (advanced)</summary>
+        <div class="body">
+          <p style="color:var(--text-dim);font-size:0.9rem;margin-top:0">Restrict a specific strategy to specific indices — e.g. RSI2 → S&amp;P 500, VCP → SmallCap 600. <b>A row with nothing checked uses the global Indices setting above.</b></p>
+          <div style="overflow-x:auto">
+          <table class="data">
+            <thead><tr><th>Strategy</th><th class="num">S&amp;P 500</th><th class="num">MidCap 400</th><th class="num">SmallCap 600</th></tr></thead>
+            <tbody>
+              ${Object.entries(STRATEGIES).map(([k, v]) => {
+                const sel = new Set((cfg.strategyIndexes && cfg.strategyIndexes[k]) || []);
+                const cell = (ix) => `<td class="num"><input type="checkbox" data-si-strat="${k}" data-si-index="${ix}" ${sel.has(ix) ? 'checked' : ''}></td>`;
+                return `<tr><td>${escapeHtml(v.short || k)}</td>${cell('sp500')}${cell('sp400')}${cell('sp600')}</tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="card">
@@ -193,6 +212,13 @@ export async function renderAutomation(root) {
   function readChips(group) {
     return Array.from(document.querySelectorAll(`input[type=checkbox][data-group="${group}"]:checked`)).map(i => i.value);
   }
+  function readStrategyIndexes() {
+    const out = {};
+    document.querySelectorAll('input[data-si-strat]:checked').forEach(cb => {
+      (out[cb.dataset.siStrat] ||= []).push(cb.dataset.siIndex);
+    });
+    return out;
+  }
   function num(id, fallback) {
     const v = Number($(id).value);
     return Number.isFinite(v) ? v : fallback;
@@ -211,6 +237,7 @@ export async function renderAutomation(root) {
       markets: readChips('markets'),
       tiers: readChips('tiers'),
       indexes: readChips('indexes'),
+      strategyIndexes: readStrategyIndexes(),
       sides: readChips('sides'),
       strategies: readChips('strategies'),
       tradeDays: readChips('tradeDays'),

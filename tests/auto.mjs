@@ -78,6 +78,13 @@ console.log('\n--- signalMatchesRules ---');
   t('index not selected fails', !signalMatchesRules(sig({ index: 'sp600' }), { ...baseCfg, indexes: ['sp500'] }).ok);
   t('index selected passes', signalMatchesRules(sig({ index: 'sp500' }), { ...baseCfg, indexes: ['sp500'] }).ok);
   t('empty index allow-list = all allowed', signalMatchesRules(sig({ index: 'sp600' }), baseCfg).ok);
+  // Per-strategy index override takes precedence over the global list.
+  t('per-strategy override: rsi2 allowed on sp500',
+    signalMatchesRules(sig({ strategyKey: 'rsi2', index: 'sp500' }), { ...baseCfg, strategyIndexes: { rsi2: ['sp500'] } }).ok);
+  t('per-strategy override: rsi2 blocked on sp600',
+    !signalMatchesRules(sig({ strategyKey: 'rsi2', index: 'sp600' }), { ...baseCfg, strategyIndexes: { rsi2: ['sp500'] } }).ok);
+  t('per-strategy override falls back to global when strategy has no entry',
+    signalMatchesRules(sig({ strategyKey: 'vcp', index: 'sp600' }), { ...baseCfg, strategyIndexes: { rsi2: ['sp500'] } }).ok);
   t('empty strategy allow-list = all allowed', signalMatchesRules(sig({ strategyKey: 'vcp' }), baseCfg).ok);
   t('strategy allow-list excludes others', !signalMatchesRules(sig({ strategyKey: 'vcp' }), { ...baseCfg, strategies: ['rsi2'] }).ok);
   t('reasons listed on failure', signalMatchesRules(sig({ tier: 'Tier 2', ticker: 'TSLA' }), baseCfg).reasons.length === 2);
