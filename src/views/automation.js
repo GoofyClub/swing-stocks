@@ -16,6 +16,7 @@ function escapeHtml(s) {
 }
 
 const TIERS = ['A+', 'Tier 1', 'Tier 2'];
+const INDEXES = [{ v: 'sp500', label: 'S&P 500' }, { v: 'sp400', label: 'MidCap 400' }, { v: 'sp600', label: 'SmallCap 600' }];
 const MARKETS = ['US', 'INDIA'];
 const SIDES = ['buy', 'sell'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -121,6 +122,7 @@ export async function renderAutomation(root) {
       <div style="display:flex;flex-direction:column;gap:16px">
         <div><div class="seg-label" style="margin-bottom:6px">Markets</div>${chips('markets', MARKETS, cfg.markets)}</div>
         <div><div class="seg-label" style="margin-bottom:6px">Tiers</div>${chips('tiers', TIERS, cfg.tiers)}</div>
+        <div><div class="seg-label" style="margin-bottom:6px">Indices <span style="text-transform:none;color:var(--text-dim)">(none checked = all)</span></div>${chips('indexes', INDEXES, cfg.indexes)}</div>
         <div><div class="seg-label" style="margin-bottom:6px">Sides</div>${chips('sides', SIDES, cfg.sides)}</div>
         <div>
           <div class="seg-label" style="margin-bottom:6px">Strategies <span style="text-transform:none;color:var(--text-dim)">(none checked = all)</span></div>
@@ -208,6 +210,7 @@ export async function renderAutomation(root) {
       apiSecret: $('a-apisecret').value.trim(),
       markets: readChips('markets'),
       tiers: readChips('tiers'),
+      indexes: readChips('indexes'),
       sides: readChips('sides'),
       strategies: readChips('strategies'),
       tradeDays: readChips('tradeDays'),

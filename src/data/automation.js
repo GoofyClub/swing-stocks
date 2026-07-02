@@ -27,6 +27,7 @@ export const DEFAULT_AUTOMATION = {
   markets: ['US'],           // which markets to auto-trade
   tiers: ['A+'],             // A+ / Tier 1 / Tier 2
   strategies: [],            // strategyKey allow-list; [] = all strategies
+  indexes: [],               // index membership allow-list (sp500/sp400/sp600); [] = all
   sides: ['buy'],
 
   // --- Scheduling ---

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.22.9 — 2026-07-01 (automation: per-index filter)
+
+### Added
+- **Auto-trade index filter.** The Automation config now has an **Indices** allow-list
+  (S&P 500 / MidCap 400 / SmallCap 600); empty = all. Combine it with the strategy
+  allow-list to scope auto-trading precisely — e.g. RSI2 on **S&P 500 only**. Signals
+  whose index isn't selected are skipped (logged with the reason).
+
 ## v0.22.8 — 2026-07-01 (auto-trade: dry-run no longer blocks real orders; log skip reasons)
 
 ### Fixed
