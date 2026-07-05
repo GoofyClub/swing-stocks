@@ -28,7 +28,7 @@ import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
 import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
-import { MARKET_CONFIGS, watchlistFor, DATA_SOURCE_ORDER, companyName } from '../src/data/markets.js';
+import { MARKET_CONFIGS, watchlistFor, DATA_SOURCE_ORDER, companyName, LARGE_CAP_TICKERS } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
 
 // Signals are retained (and re-gradable) for this many days. Drives both the
@@ -212,6 +212,8 @@ async function scanMarket(db, market, ctxIn) {
         sector:       item.s,
         // Index membership (sp500 | sp400 | sp600 | null) for the universe filter.
         index:        universeIndex.get(ticker) || null,
+        // Curated large-cap membership — overlaps sp500, so a separate flag.
+        largeCap:     LARGE_CAP_TICKERS.has(ticker),
         market,
         strategy:     def.short,
         strategyKey:  stratKey,
@@ -347,7 +349,7 @@ async function resettleRecentSignals(db, market, ctxIn) {
     if (d.market && d.market !== market) return;
     // Also process docs missing the `index` tag so the universe membership gets
     // backfilled onto historical signals (one-time, then `index` is set).
-    const needs = d.status === 'open' || d.settlementVersion !== SETTLEMENT_VERSION || d.index === undefined;
+    const needs = d.status === 'open' || d.settlementVersion !== SETTLEMENT_VERSION || d.index === undefined || d.largeCap === undefined;
     if (!needs) return; // already settled + tagged — leave it
     if (!byTicker.has(d.ticker)) byTicker.set(d.ticker, []);
     byTicker.get(d.ticker).push({ ref: s.ref, ...d });
@@ -390,6 +392,7 @@ async function resettleRecentSignals(db, market, ctxIn) {
           currentPrice: lastClose,
           pctChange,
           index:       UNIVERSE_INDEX.get(sig.ticker) || null,
+          largeCap:    LARGE_CAP_TICKERS.has(sig.ticker),
         });
         if (wasClosed) regraded++; else settled++;
       } else {
@@ -402,6 +405,7 @@ async function resettleRecentSignals(db, market, ctxIn) {
           currentPriceTs: new Date().toISOString(),
           pctChange,
           index: UNIVERSE_INDEX.get(sig.ticker) || null,
+          largeCap: LARGE_CAP_TICKERS.has(sig.ticker),
         };
         if (wasClosed) {
           Object.assign(update, { status: 'open', winLoss: null, settledAt: null, hitPrice: null, exitReason: null });

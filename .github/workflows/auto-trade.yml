@@ -23,15 +23,18 @@ on:
         description: 'Global kill switch — abort without placing any orders'
         required: false
         default: 'false'
-  # GitHub cron is fixed UTC (no daylight saving). To hit ~09:40 ET just after the
-  # open year-round we fire at BOTH 13:40 UTC (=09:40 EDT, summer) and 14:40 UTC
-  # (=09:40 EST, winter). Whichever one isn't "just after the open" on a given day
-  # either skips (market closed before 09:30 ET) or runs harmlessly later — order
-  # placement is idempotent (deterministic client order id), so no double orders.
+  # GitHub cron is fixed UTC (no DST) AND best-effort — scheduled runs routinely
+  # land 10-40 min late. So we fire SEVERAL times across the morning; the worker
+  # gates new entries to the 09:30-11:00 ET window (src/auto/engine.js inEntryWindow)
+  # and is idempotent (deterministic client order id), so early/late/duplicate
+  # runs are harmless — the first one inside the window that finds the previous
+  # session's signals places the (limit) orders; the rest just reconcile. The
+  # UTC slots below cover the ET window in both EDT (summer) and EST (winter).
   schedule:
-    - cron: "40 13 * * 1-5"   # 09:40 ET during EDT (summer) — enter new signals
-    - cron: "40 14 * * 1-5"   # 09:40 ET during EST (winter) — enter new signals
-    - cron: "45 19 * * 1-5"   # ~15:45 ET (both DST regimes) — reconcile fills/exits
+    - cron: "35,55 13 * * 1-5"     # EDT 09:35, 09:55 ET
+    - cron: "15,35,55 14 * * 1-5"  # EDT 10:15/10:35/10:55 · EST 09:15/09:35/09:55 ET
+    - cron: "15 15 * * 1-5"        # EST 10:15 ET
+    - cron: "45 19 * * 1-5"        # ~15:45 ET (both regimes) — reconcile fills/exits
 
 jobs:
   auto-trade:

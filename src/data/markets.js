@@ -79,6 +79,13 @@ export const STARTER_WATCHLIST = [
 
 export const SECTOR_ETFS = ['XLK', 'XLV', 'XLF', 'XLY', 'XLC', 'XLI', 'XLP', 'XLE', 'XLU', 'XLB', 'XLRE'];
 
+// Curated large-cap universe — the hand-picked US starter names. A signal on any
+// of these tickers is tagged `largeCap:true`, powering the "Large Cap" filter on
+// Live Signals / History / Automation (independent of, and overlapping with, the
+// sp500 index tag). Sourced from STARTER_WATCHLIST so the curated set stays in
+// one place.
+export const LARGE_CAP_TICKERS = new Set(STARTER_WATCHLIST.map(x => x.t));
+
 // Human-readable names for the sector codes stored on each signal (US SPDR
 // sector ETFs + the NSE sector indices used for India). Used wherever we show
 // a SECTOR column so users see "Technology" instead of the raw "XLK" tag.

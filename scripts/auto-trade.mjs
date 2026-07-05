@@ -30,6 +30,7 @@ import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
+  marketClock, inEntryWindow,
 } from '../src/auto/engine.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
@@ -72,18 +73,35 @@ const SECTOR_BY_TICKER = (() => {
   return m;
 })();
 
-// Today's open signals for the given markets.
-async function loadTodaySignals(db, markets) {
-  const bucket = todayKey();
+// Open signals from a specific date bucket for the given markets. We read the
+// PREVIOUS trading session's bucket (not today's), so the morning run acts on
+// signals finalised the evening before — no dependency on today's (possibly
+// delayed) refresh cron — and strict one-session freshness falls out naturally:
+// each session's bucket is read on exactly one morning and never again.
+async function loadSignalsForBucket(db, bucket, markets) {
+  if (!bucket) return [];
   const snap = await db.collection('marketData').doc(bucket).collection('signals').get();
   const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   return rows.filter(r => r.status === 'open' && (!r.market || markets.includes(r.market)));
 }
 
-// Latest regime snapshot per market (/marketData/{today}/regime/{market}).
-async function loadRegimes(db, markets) {
-  const bucket = todayKey();
+// Most recent real trading session strictly before today (ET), via the broker's
+// market calendar — so it skips weekends AND holidays. Returns a 'YYYY-MM-DD'
+// bucket key, or null if none found in the lookback window.
+async function previousSessionDate(client, now = new Date()) {
+  const { date: todayET } = marketClock(now);
+  const start = new Date(now.getTime() - 12 * 86400_000).toISOString().slice(0, 10);
+  let cal;
+  try { cal = await client.getCalendar(start, todayET); }
+  catch (e) { console.warn(`[auto] calendar fetch failed: ${e.message}`); return null; }
+  const prior = cal.filter(d => d.date && d.date < todayET);
+  return prior.length ? prior[prior.length - 1].date : null;
+}
+
+// Regime snapshot per market from a specific date bucket (/marketData/{bucket}/regime/{market}).
+async function loadRegimes(db, bucket, markets) {
   const out = {};
+  if (!bucket) return out;
   for (const m of markets) {
     try {
       const snap = await db.collection('marketData').doc(bucket).collection('regime').doc(m).get();
@@ -204,8 +222,20 @@ async function processUser(db, uid, cfg) {
   log(`mode=${modeLabel} equity=${equity.toFixed(0)} open=${openCount} dayP/L=${dayRealizedPct.toFixed(2)}% dryRun=${DRY_RUN}`);
 
   const markets = cfg.markets || ['US'];
-  const signals = await loadTodaySignals(db, markets);
-  const regimes = cfg.respectRegime !== false ? await loadRegimes(db, markets) : {};
+  const now = new Date();
+  // Enter only from the previous trading session's finalised bucket, and only
+  // inside the morning window. Outside the window (e.g. the afternoon reconcile
+  // run) we place nothing new but still reconcile below. Dry-run always evaluates
+  // so it can be tested at any hour.
+  const entryOpen = inEntryWindow(now);
+  const bucket = await previousSessionDate(client, now);
+  const canEnter = (entryOpen || DRY_RUN) && !!bucket;
+  if (!bucket) log('no prior trading session in calendar — reconcile only');
+  else if (!entryOpen && !DRY_RUN) log(`outside morning entry window (now ${marketClock(now).minutes} ET-min) — reconcile only`);
+  else log(`entry session=${bucket} window=${entryOpen ? 'open' : 'closed'}`);
+
+  const signals = canEnter ? await loadSignalsForBucket(db, bucket, markets) : [];
+  const regimes = (canEnter && cfg.respectRegime !== false) ? await loadRegimes(db, bucket, markets) : {};
   // Best signals first so limited slots go to the highest-conviction names.
   const tierRank = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
   signals.sort((a, b) => (tierRank[a.tier] ?? 9) - (tierRank[b.tier] ?? 9));
@@ -253,11 +283,15 @@ async function processUser(db, uid, cfg) {
     if (size.shares < 1) { log(`skip ${sig.ticker}: size < 1 share (budget too small for price ${sig.entryPrice})`); skipped++; continue; }
     if (size.notional > availableBp + 1e-6) { log(`skip ${sig.ticker}: notional $${size.notional.toFixed(0)} > buying power $${availableBp.toFixed(0)}`); skipped++; continue; }
 
-    const intent = buildBracketOrder({ signal: sig, shares: size.shares, clientOrderId: coid });
+    const intent = buildBracketOrder({ signal: sig, shares: size.shares, clientOrderId: coid, slippageBudgetPct: cfg.slippageBudgetPct });
     const journal = {
       clientOrderId: coid, signalId: sig.id, ticker: sig.ticker, sector: sec,
       strategy: sig.strategy || null, strategyKey: sig.strategyKey || null, tier: sig.tier || null,
-      side: intent.side, qty: size.shares, entry: sig.entryPrice, tp: sig.tpPrice, sl: sig.slPrice,
+      side: intent.side, qty: size.shares, entry: sig.entryPrice, limitPrice: intent.limitPrice ?? null,
+      tp: sig.tpPrice, sl: sig.slPrice,
+      // Session bucket this entry came from — the stale-entry sweep cancels an
+      // unfilled entry once its session is no longer the current one.
+      sessionDate: bucket,
       dollarRisk: size.dollarRisk, mode: modeLabel, live, dryRun: DRY_RUN,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -265,7 +299,7 @@ async function processUser(db, uid, cfg) {
     if (DRY_RUN) {
       journal.status = 'dryrun';
       await journalRef.set(journal);
-      log(`DRYRUN would ${intent.side} ${size.shares} ${sig.ticker} @ ${sig.entryPrice} (TP ${sig.tpPrice}/SL ${sig.slPrice}, risk $${size.dollarRisk.toFixed(0)})`);
+      log(`DRYRUN would ${intent.side} ${size.shares} ${sig.ticker} limit ${intent.limitPrice} (entry ${sig.entryPrice}, TP ${sig.tpPrice}/SL ${sig.slPrice}, risk $${size.dollarRisk.toFixed(0)})`);
     } else {
       try {
         const order = await client.submitBracketOrder(intent);
@@ -297,8 +331,22 @@ async function processUser(db, uid, cfg) {
       if (!data.brokerOrderId) continue;
       try {
         const o = await client.getOrder(data.brokerOrderId);
-        if (o?.status && o.status !== 'new') {
-          await d.ref.update({ status: o.status, filledQty: Number(o.filled_qty || 0), filledAvgPrice: o.filled_avg_price ? Number(o.filled_avg_price) : null, reconciledAt: admin.firestore.FieldValue.serverTimestamp() });
+        if (!o?.status) continue;
+        const filledQty = Number(o.filled_qty || 0);
+        const terminal = ['filled', 'canceled', 'expired', 'rejected', 'done_for_day'].includes(o.status);
+        // Strict one-session freshness: a GTC entry limit still unfilled after its
+        // session has passed must not fill late — cancel it. (Only fully-unfilled
+        // entries from an earlier session; a partial fill means we're in a position.)
+        if (!terminal && filledQty === 0 && data.sessionDate && bucket && data.sessionDate !== bucket) {
+          try {
+            await client.cancelOrder(data.brokerOrderId);
+            await d.ref.update({ status: 'expired', expiredAt: admin.firestore.FieldValue.serverTimestamp() });
+            log(`EXPIRED stale unfilled entry ${data.ticker} (session ${data.sessionDate})`);
+          } catch (e) { log(`cancel stale ${data.ticker} failed: ${e.message}`); }
+          continue;
+        }
+        if (o.status !== 'new') {
+          await d.ref.update({ status: o.status, filledQty, filledAvgPrice: o.filled_avg_price ? Number(o.filled_avg_price) : null, reconciledAt: admin.firestore.FieldValue.serverTimestamp() });
           if (o.status === 'filled') {
             await notify(db, uid, `🔵 <b>FILLED</b> ${data.ticker} ${data.qty} @ ${o.filled_avg_price || data.entry}`);
           }

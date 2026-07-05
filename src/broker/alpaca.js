@@ -74,18 +74,23 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
       }
     },
 
-    // Submit a bracket order from the engine's broker-agnostic intent.
+    // Submit a bracket order from the engine's broker-agnostic intent. The entry
+    // leg is a limit (bounded by the slippage budget) unless it's a buy-stop
+    // strategy; the bracket stays GTC so the TP/SL protect the position across
+    // days. An unfilled entry limit is cancelled later by the stale-entry sweep.
     async submitBracketOrder(intent) {
+      const type = intent.type === 'stop' ? 'stop' : intent.type === 'limit' ? 'limit' : 'market';
       const body = {
         symbol: intent.symbol,
         qty: String(intent.qty),
         side: intent.side,
-        type: intent.type === 'stop' ? 'stop' : 'market',
+        type,
         time_in_force: intent.timeInForce || 'gtc',
         client_order_id: intent.clientOrderId,
         order_class: 'bracket',
       };
-      if (intent.type === 'stop' && intent.stopPrice != null) body.stop_price = String(intent.stopPrice);
+      if (type === 'stop'  && intent.stopPrice  != null) body.stop_price  = String(intent.stopPrice);
+      if (type === 'limit' && intent.limitPrice != null) body.limit_price = String(intent.limitPrice);
       if (intent.takeProfit?.limitPrice != null) body.take_profit = { limit_price: String(intent.takeProfit.limitPrice) };
       if (intent.stopLoss?.stopPrice != null) body.stop_loss = { stop_price: String(intent.stopLoss.stopPrice) };
       return req('POST', '/v2/orders', body);
@@ -94,6 +99,21 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
     // Order status by Alpaca order id (reconciliation).
     async getOrder(orderId) {
       return req('GET', `/v2/orders/${encodeURIComponent(orderId)}`);
+    },
+
+    // Cancel an order by Alpaca id. Used by the stale-entry sweep to kill a
+    // prior session's unfilled entry limit so it can't fill late (strict
+    // one-session freshness). Returns 204 no-content on success.
+    async cancelOrder(orderId) {
+      return req('DELETE', `/v2/orders/${encodeURIComponent(orderId)}`);
+    },
+
+    // Trading calendar between two ET dates (inclusive). Each row is
+    // { date:'YYYY-MM-DD', open:'HH:MM', close:'HH:MM' } and only real sessions
+    // appear — so the previous-session lookup skips weekends AND holidays.
+    async getCalendar(start, end) {
+      const c = await req('GET', `/v2/calendar?start=${start}&end=${end}`);
+      return Array.isArray(c) ? c : [];
     },
 
     // Market clock — is the (US) market open right now, and when does it next

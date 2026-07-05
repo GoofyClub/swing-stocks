@@ -14,6 +14,7 @@ import { computeEntryStatus, entryStatusBadge, indexMultiSignal, multiSignalBadg
 import { sectorName } from '../data/markets.js';
 import { loadColumnPrefs, saveColumnPrefs, resetColumnPrefs, visibleColumns, openColumnConfig } from '../ui/column-prefs.js';
 import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
+import { INDEX_OPTIONS, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
 
 const FILTERS_LS_KEY = 'swing.history.filters';
 const COLS_TABLE_KEY = 'history';
@@ -122,10 +123,10 @@ function applyFilters(rows, f) {
     // legacy signals written before the market field existed.
     if (f.market && r.market && r.market !== f.market) return false;
     if (f.side     && r.side     !== f.side)     return false;
-    if (f.tier     && r.tier     !== f.tier)     return false;
+    if (f.tiers?.length && !f.tiers.includes(r.tier)) return false;
     if (f.strategies?.length && !f.strategies.includes(r.strategy)) return false;
     if (f.sector   && r.sector   !== f.sector)   return false;
-    if (f.index    && r.index    !== f.index)    return false;
+    if (f.indexes?.length && !indexMemberships(r).some(m => f.indexes.includes(m))) return false;
     if (f.entryStatus) {
       const es = computeEntryStatus(r);
       if (es !== f.entryStatus) return false;
@@ -239,7 +240,7 @@ const SIGNAL_COLUMNS = {
   current: { label: 'Current price', header: '<th class="num">CURRENT</th>', render: r => `<td class="num">${r.currentPrice != null ? r.currentPrice.toFixed(2) : '—'}</td>` },
   sector:  { label: 'Sector',        header: '<th>SECTOR</th>', render: r => `<td title="${escapeHtml(r.sector || '')}">${escapeHtml(sectorName(r.sector) || '—')}</td>` },
   index:   { label: 'Index',         header: '<th>INDEX</th>',
-             render: r => { const m = { sp500: 'S&P 500', sp400: 'Mid 400', sp600: 'Small 600' }[r.index]; return `<td>${m ? `<span class="badge">${m}</span>` : '<span style="color:var(--text-dim)">—</span>'}</td>`; } },
+             render: r => { const m = indexBadgeLabel(r); return `<td>${m ? `<span class="badge">${m}</span>` : '<span style="color:var(--text-dim)">—</span>'}</td>`; } },
   tier:    { label: 'Tier',          header: '<th>TIER</th>', render: r => `<td>${tierBadge(r.tier, r.tierReasons)}</td>` },
   estatus: { label: 'Entry status',  header: '<th>ENTRY STATUS</th>',
              render: r => { const es = r.status === 'open' ? computeEntryStatus(r) : null; return `<td>${es ? entryStatusBadge(es) : '<span class="badge">—</span>'}</td>`; } },
@@ -277,13 +278,7 @@ export async function renderHistory(root) {
         </div>
         <!-- Filter row -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <div class="seg-group" id="seg-tier" role="group" aria-label="Tier filter">
-            <span class="seg-label">Tier</span>
-            <button data-value=""       class="active" type="button">ALL</button>
-            <button data-value="A+"     class="tier-aplus" type="button">A+</button>
-            <button data-value="Tier 1" class="tier-t1"    type="button">T1</button>
-            <button data-value="Tier 2" class="tier-t2"    type="button">T2</button>
-          </div>
+          ${multiSelectHtml('f-tier', 'All tiers')}
           <div class="seg-group" id="seg-side" role="group" aria-label="Side filter">
             <span class="seg-label">Side</span>
             <button data-value=""     class="active" type="button">ALL</button>
@@ -300,12 +295,7 @@ export async function renderHistory(root) {
           </div>
           ${multiSelectHtml('f-strategy', 'All strategies')}
           <select id="f-sector"   class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
-          <select id="f-index" class="btn-bare" title="Filter by index membership">
-            <option value="">All indices</option>
-            <option value="sp500">S&amp;P 500</option>
-            <option value="sp400">MidCap 400</option>
-            <option value="sp600">SmallCap 600</option>
-          </select>
+          ${multiSelectHtml('f-index', 'All indices')}
           <input  id="f-q"   class="search" type="search" placeholder="ticker / name" style="max-width:220px">
           <button id="btn-save-filters" class="btn-bare" type="button" title="Save these filters for next time (this browser)">★ SAVE FILTERS</button>
           <button id="btn-columns" class="btn-bare" type="button" title="Reorder / show / hide table columns">⚙ COLUMNS</button>
@@ -336,6 +326,10 @@ export async function renderHistory(root) {
   let colPrefs = loadColumnPrefs(COLS_TABLE_KEY, DEFAULT_SIGNAL_COL_ORDER);
 
   const $ = (id) => document.getElementById(id);
+  // Static multi-selects (index + tier) — fixed options, filled once. Must run
+  // before deep-link params + saved filters apply their selections below.
+  fillMultiSelect('f-index', INDEX_OPTIONS);
+  fillMultiSelect('f-tier', TIER_OPTIONS);
 
   if (err) {
     const isPermission = /permission|insufficient/i.test(err);
@@ -407,7 +401,7 @@ export async function renderHistory(root) {
 
   // Pre-seed filters from URL query (Dashboard tiles can deep-link with ?side=buy or ?tier=A+).
   if (params.side) setSeg('seg-side', params.side);
-  if (params.tier) setSeg('seg-tier', params.tier);
+  if (params.tier) setMultiSelectValues('f-tier', [params.tier]);
   if (params.strategy) setMultiSelectValues('f-strategy', [params.strategy]);
 
   // ---- Timeframe state ----
@@ -491,10 +485,10 @@ export async function renderHistory(root) {
       from: r.from, to: r.to,
       market:   state.market,          // ALWAYS scope to current market
       side:     getSeg('seg-side'),
-      tier:     getSeg('seg-tier'),
+      tiers:    getMultiSelectValues('f-tier'),
       strategies: getMultiSelectValues('f-strategy'),
       sector:   $('f-sector').value,
-      index:    $('f-index').value,
+      indexes:  getMultiSelectValues('f-index'),
       winLoss:  getSeg('seg-winloss'),
       q:        $('f-q').value.trim(),
     };
@@ -694,12 +688,12 @@ export async function renderHistory(root) {
     });
   }
 
-  wireSeg('seg-tier',    refresh);
+  wireMultiSelect('f-tier', refresh);
   wireSeg('seg-side',    refresh);
   wireSeg('seg-winloss', refresh);
   wireMultiSelect('f-strategy', refresh);
   $('f-sector').addEventListener('change', refresh);
-  $('f-index').addEventListener('change', refresh);
+  wireMultiSelect('f-index', refresh);
   $('f-q').addEventListener('input', refresh);
 
   // ----- Saved filters (localStorage) --------------------------------------
@@ -708,14 +702,14 @@ export async function renderHistory(root) {
   function applySavedFilters(saved) {
     if (!saved) return;
     setSeg('seg-side',    saved.side    || '');
-    setSeg('seg-tier',    saved.tier    || '');
     setSeg('seg-winloss', saved.winLoss || '');
-    // strategies: array (current) or legacy single string.
+    // tiers/indexes/strategies: arrays (current) or legacy single strings.
+    setMultiSelectValues('f-tier', Array.isArray(saved.tiers) ? saved.tiers : (saved.tier ? [saved.tier] : []));
+    setMultiSelectValues('f-index', Array.isArray(saved.indexes) ? saved.indexes : (saved.index ? [saved.index] : []));
     const savedStrats = Array.isArray(saved.strategies) ? saved.strategies
       : (saved.strategy ? [saved.strategy] : []);
     setMultiSelectValues('f-strategy', savedStrats);
     if (saved.sector   != null) $('f-sector').value   = saved.sector;
-    if (saved.index    != null) $('f-index').value    = saved.index;
     if (saved.q        != null) $('f-q').value         = saved.q;
     if (saved.tfCustom) {
       tfCustom = saved.tfCustom;
@@ -735,11 +729,11 @@ export async function renderHistory(root) {
   $('btn-save-filters').addEventListener('click', () => {
     const payload = {
       side:     getSeg('seg-side'),
-      tier:     getSeg('seg-tier'),
+      tiers:    getMultiSelectValues('f-tier'),
       winLoss:  getSeg('seg-winloss'),
       strategies: getMultiSelectValues('f-strategy'),
       sector:   $('f-sector').value,
-      index:    $('f-index').value,
+      indexes:  getMultiSelectValues('f-index'),
       q:        $('f-q').value.trim(),
       tfDays:   tfCustom ? null : tfDays,
       tfCustom: tfCustom || null,

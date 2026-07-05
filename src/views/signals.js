@@ -25,6 +25,7 @@ import {
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
 import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
+import { INDEX_OPTIONS, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
 import { initFirebase } from '../data/firebase.js';
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
@@ -439,13 +440,7 @@ export async function renderSignals(root) {
 
       <div class="card" id="filter-card">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <div class="seg-group" id="seg-tier" role="group" aria-label="Tier filter">
-            <span class="seg-label">Tier</span>
-            <button data-value=""       class="active" type="button">ALL</button>
-            <button data-value="A+"     class="tier-aplus" type="button">A+</button>
-            <button data-value="Tier 1" class="tier-t1"    type="button">T1</button>
-            <button data-value="Tier 2" class="tier-t2"    type="button">T2</button>
-          </div>
+          ${multiSelectHtml('f-tier', 'All tiers')}
           <div class="seg-group" id="seg-side" role="group" aria-label="Side filter">
             <span class="seg-label">Side</span>
             <button data-value=""     class="active" type="button">ALL</button>
@@ -454,12 +449,7 @@ export async function renderSignals(root) {
           </div>
           ${multiSelectHtml('f-strategy', 'All strategies')}
           <select id="f-sector" class="btn-bare" title="Filter by sector"><option value="">All sectors</option></select>
-          <select id="f-index" class="btn-bare" title="Filter by index membership">
-            <option value="">All indices</option>
-            <option value="sp500">S&amp;P 500</option>
-            <option value="sp400">MidCap 400</option>
-            <option value="sp600">SmallCap 600</option>
-          </select>
+          ${multiSelectHtml('f-index', 'All indices')}
           <input id="f-min" type="number" step="0.01" placeholder="min price" class="btn-bare" style="width:100px">
           <input id="f-max" type="number" step="0.01" placeholder="max price" class="btn-bare" style="width:100px">
           <input id="f-q" type="search" placeholder="ticker / name" class="search" style="max-width:200px">
@@ -484,6 +474,10 @@ export async function renderSignals(root) {
   `;
 
   const $ = (id) => document.getElementById(id);
+  // Static multi-selects (index + tier). Options are fixed, so fill once here —
+  // strategy/sector are data-driven and filled in renderResults instead.
+  fillMultiSelect('f-index', INDEX_OPTIONS);
+  fillMultiSelect('f-tier', TIER_OPTIONS);
   const logEl = $('scan-log');
   let drawnLogIdx = 0;
   // Saved-filter selection pending until its <option> populates (see renderResults).
@@ -583,20 +577,20 @@ export async function renderSignals(root) {
   }
 
   function applyFilters(rows) {
-    const tier       = getSeg('seg-tier');
+    const tiers      = getMultiSelectValues('f-tier');
     const side       = getSeg('seg-side');
     const strategies = getMultiSelectValues('f-strategy');
     const sector     = $('f-sector').value;
-    const indexSet   = $('f-index').value;
+    const indexes    = getMultiSelectValues('f-index');
     const minP   = parseFloat($('f-min').value);
     const maxP   = parseFloat($('f-max').value);
     const q      = $('f-q').value.trim().toLowerCase();
     return rows.filter(r => {
-      if (tier     && r.tier !== tier) return false;
+      if (tiers.length && !tiers.includes(r.tier)) return false;
       if (side     && r.side !== side) return false;
       if (strategies.length && !strategies.includes(r.short)) return false;
       if (sector   && r.sector !== sector) return false;
-      if (indexSet && r.index !== indexSet) return false;
+      if (indexes.length && !indexMemberships(r).some(m => indexes.includes(m))) return false;
       if (Number.isFinite(minP) && r.entry < minP) return false;
       if (Number.isFinite(maxP) && r.entry > maxP) return false;
       if (q) {
@@ -667,7 +661,7 @@ export async function renderSignals(root) {
               <td>${escapeHtml(s.name || s.ticker)}</td>
               <td>${escapeHtml(s.ticker)}</td>
               <td title="${escapeHtml(s.sector || '')}">${escapeHtml(sectorName(s.sector) || '—')}</td>
-              <td>${(() => { const m = { sp500: 'S&P 500', sp400: 'Mid 400', sp600: 'Small 600' }[s.index]; return m ? `<span class="badge">${m}</span>` : '<span style="color:var(--text-dim)">—</span>'; })()}</td>
+              <td>${(() => { const m = indexBadgeLabel(s); return m ? `<span class="badge">${m}</span>` : '<span style="color:var(--text-dim)">—</span>'; })()}</td>
               <td>${escapeHtml(s.short)}</td>
               <td>${escapeHtml(s.side)}</td>
               <td class="num">${(s.entry ?? 0).toFixed(2)}</td>
@@ -773,11 +767,11 @@ export async function renderSignals(root) {
   });
   $('btn-refresh-cron').addEventListener('click', () => loadLatestCron(market));
   $('btn-reset').addEventListener('click', () => {
-    setSeg('seg-tier', '');
+    setMultiSelectValues('f-tier', []);
     setSeg('seg-side', '');
     setMultiSelectValues('f-strategy', []);
     $('f-sector').value = '';
-    $('f-index').value = '';
+    setMultiSelectValues('f-index', []);
     $('f-min').value = '';
     $('f-max').value = '';
     $('f-q').value = '';
@@ -790,19 +784,20 @@ export async function renderSignals(root) {
     saveModePref(market, v);
     renderTick();
   });
-  wireSeg('seg-tier', renderResults);
+  wireMultiSelect('f-tier', renderResults);
   wireSeg('seg-side', renderResults);
   wireMultiSelect('f-strategy', renderResults);
   $('f-sector').addEventListener('change', renderResults);
-  $('f-index').addEventListener('change', renderResults);
+  wireMultiSelect('f-index', renderResults);
   ['f-min', 'f-max', 'f-q'].forEach(id => $(id).addEventListener('input', renderResults));
 
   // ---- Saved filters (localStorage): persist + restore the filter set. The
   // source toggle (cron/scan) and market are intentionally NOT saved here.
   $('btn-save-filters').addEventListener('click', () => {
     const payload = {
-      tier: getSeg('seg-tier'), side: getSeg('seg-side'),
+      tiers: getMultiSelectValues('f-tier'), side: getSeg('seg-side'),
       strategies: getMultiSelectValues('f-strategy'), sector: $('f-sector').value,
+      indexes: getMultiSelectValues('f-index'),
       min: $('f-min').value, max: $('f-max').value, q: $('f-q').value.trim(),
     };
     try { localStorage.setItem(SIGNALS_FILTERS_KEY, JSON.stringify(payload)); } catch {}
@@ -814,7 +809,9 @@ export async function renderSignals(root) {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SIGNALS_FILTERS_KEY) || 'null'); } catch {}
     if (!saved) return;
-    setSeg('seg-tier', saved.tier || '');
+    // tiers/indexes: arrays (current) or legacy single string.
+    setMultiSelectValues('f-tier', Array.isArray(saved.tiers) ? saved.tiers : (saved.tier ? [saved.tier] : []));
+    setMultiSelectValues('f-index', Array.isArray(saved.indexes) ? saved.indexes : (saved.index ? [saved.index] : []));
     setSeg('seg-side', saved.side || '');
     if (saved.min != null) $('f-min').value = saved.min;
     if (saved.max != null) $('f-max').value = saved.max;

@@ -6,6 +6,7 @@
 import { navigate } from '../core/router.js';
 import { STRATEGIES } from '../strategy/normalize.js';
 import { loadAutomationConfig, saveAutomationConfig, DEFAULT_AUTOMATION } from '../data/automation.js';
+import { INDEX_OPTIONS } from '../data/indexes.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../broker/alpaca.js';
 
 const ALPACA_PAPER_URL = 'https://paper-api.alpaca.markets';
@@ -16,7 +17,7 @@ function escapeHtml(s) {
 }
 
 const TIERS = ['A+', 'Tier 1', 'Tier 2'];
-const INDEXES = [{ v: 'sp500', label: 'S&P 500' }, { v: 'sp400', label: 'MidCap 400' }, { v: 'sp600', label: 'SmallCap 600' }];
+const INDEXES = INDEX_OPTIONS;
 const MARKETS = ['US', 'INDIA'];
 const SIDES = ['buy', 'sell'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -136,12 +137,12 @@ export async function renderAutomation(root) {
           <p style="color:var(--text-dim);font-size:0.9rem;margin-top:0">Restrict a specific strategy to specific indices — e.g. RSI2 → S&amp;P 500, VCP → SmallCap 600. <b>A row with nothing checked uses the global Indices setting above.</b></p>
           <div style="overflow-x:auto">
           <table class="data">
-            <thead><tr><th>Strategy</th><th class="num">S&amp;P 500</th><th class="num">MidCap 400</th><th class="num">SmallCap 600</th></tr></thead>
+            <thead><tr><th>Strategy</th>${INDEXES.map(ix => `<th class="num">${escapeHtml(ix.label)}</th>`).join('')}</tr></thead>
             <tbody>
               ${Object.entries(STRATEGIES).map(([k, v]) => {
                 const sel = new Set((cfg.strategyIndexes && cfg.strategyIndexes[k]) || []);
                 const cell = (ix) => `<td class="num"><input type="checkbox" data-si-strat="${k}" data-si-index="${ix}" ${sel.has(ix) ? 'checked' : ''}></td>`;
-                return `<tr><td>${escapeHtml(v.short || k)}</td>${cell('sp500')}${cell('sp400')}${cell('sp600')}</tr>`;
+                return `<tr><td>${escapeHtml(v.short || k)}</td>${INDEXES.map(ix => cell(ix.v)).join('')}</tr>`;
               }).join('')}
             </tbody>
           </table>

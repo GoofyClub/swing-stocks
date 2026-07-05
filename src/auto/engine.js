@@ -7,6 +7,8 @@
 // safe way to build something that places real orders.
 // =============================================================================
 
+import { indexMemberships, indexAllowed } from '../data/indexes.js';
+
 // Deterministic client order id → idempotency key. Re-running the worker for the
 // same user+signal yields the same id, so the broker (and our journal) dedupe a
 // double-submit. Sanitized to the charset brokers accept for client_order_id.
@@ -57,9 +59,11 @@ export function signalMatchesRules(signal, cfg) {
   if (cfg.strategies?.length && !cfg.strategies.includes(signal.strategyKey)) reasons.push(`strategy ${signal.strategyKey} not in allow-list`);
   // Index filter: a per-strategy override (cfg.strategyIndexes[key]) takes
   // precedence; otherwise the global cfg.indexes applies. Empty = all indices.
+  // Membership is OR — a large-cap S&P-500 name matches either 'largecap' or
+  // 'sp500' in the allow-list.
   const perStrat = cfg.strategyIndexes?.[signal.strategyKey];
   const idxAllow = (Array.isArray(perStrat) && perStrat.length) ? perStrat : (cfg.indexes || []);
-  if (idxAllow.length && !idxAllow.includes(signal.index)) reasons.push(`index ${signal.index || 'none'} not allowed for ${signal.strategyKey}`);
+  if (!indexAllowed(signal, idxAllow)) reasons.push(`index ${indexMemberships(signal).join('/') || 'none'} not allowed for ${signal.strategyKey}`);
   if (Array.isArray(cfg.excludeTickers) && cfg.excludeTickers.includes(ticker)) reasons.push(`${ticker} on exclusion list`);
   if (entry != null) {
     if (cfg.minPrice != null && entry < cfg.minPrice) reasons.push(`price ${entry} < min ${cfg.minPrice}`);
@@ -109,6 +113,33 @@ export function isTradeDayAllowed(cfg, date = new Date()) {
   return cfg.tradeDays.includes(DAY_NAMES[date.getUTCDay()]);
 }
 
+// US-market wall clock (DST-aware, no dependency). Returns the ET calendar date
+// and minutes-since-midnight ET for `now`. Used to (a) find the previous trading
+// session's signal bucket and (b) gate new entries to the morning window, so the
+// worker never depends on GitHub Actions' UTC cron landing at an exact ET time.
+export function marketClock(now = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    }).formatToParts(now).filter(p => p.type !== 'literal').map(p => [p.type, p.value]),
+  );
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute),
+  };
+}
+
+// Regular US session opens 09:30 ET (570 min). New entries are only placed inside
+// [open, open + windowMinutes] ET — early enough that a limit at the signal price
+// still fills near the open, and closed off before the afternoon so a late/laggy
+// cron run can't enter at a drifted price. Reconciliation runs regardless.
+export const MARKET_OPEN_ET_MIN = 9 * 60 + 30;
+export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = 90 } = {}) {
+  const { minutes } = marketClock(now);
+  return minutes >= openMinuteET && minutes <= openMinuteET + windowMinutes;
+}
+
 // Market-regime gate. When the latest regime snapshot says "go to cash" (index
 // broke its 200-DMA / volatility spike), block NEW long entries. Fails OPEN when
 // no regime data is available, so a missing snapshot doesn't halt everything.
@@ -129,18 +160,36 @@ export function slippageOk(cfg, entry, livePrice, side = 'buy') {
   return livePrice <= entry * (1 + budget);
 }
 
+// Entry limit price, bounded by the slippage budget so a fill can never be worse
+// than entry ± budget%. A buy tolerates paying up to entry*(1+budget); a sell
+// accepts down to entry*(1-budget). With no budget it's just the signal price.
+const round2 = (x) => Math.round(x * 100) / 100;
+export function entryLimitPrice(entry, side = 'buy', slippageBudgetPct = null) {
+  if (entry == null || entry <= 0) return null;
+  if (slippageBudgetPct == null) return round2(entry);
+  const b = slippageBudgetPct / 100;
+  return round2((side === 'sell') ? entry * (1 - b) : entry * (1 + b));
+}
+
 // Broker-agnostic bracket-order intent. The adapter translates this to its own
 // API shape. We always attach the stop + target so a fill is protected.
-export function buildBracketOrder({ signal, shares, clientOrderId }) {
+//
+// Entries are LIMIT orders bounded by the slippage budget (not market) so a run
+// that fires late — after GitHub Actions lag — can't chase a moved price: it
+// either fills near the signal price or doesn't fill. Buy-stop strategies keep
+// their stop-entry trigger.
+export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudgetPct = null }) {
   const isBuy = (signal.side || 'buy') === 'buy';
+  const pending = !!signal.pendingEntry;
+  const limitPrice = pending ? null : entryLimitPrice(signal.entryPrice, signal.side, slippageBudgetPct);
   return {
     clientOrderId,
     symbol: signal.ticker,
     side: isBuy ? 'buy' : 'sell',
     qty: shares,
-    // Buy-stop strategies trigger on a stop-entry; others enter at market open.
-    type: signal.pendingEntry ? 'stop' : 'market',
-    stopPrice: signal.pendingEntry ? signal.entryPrice : null,
+    type: pending ? 'stop' : 'limit',
+    stopPrice: pending ? signal.entryPrice : null,
+    limitPrice,
     timeInForce: 'gtc',
     takeProfit: signal.tpPrice != null ? { limitPrice: signal.tpPrice } : null,
     stopLoss: signal.slPrice != null ? { stopPrice: signal.slPrice } : null,

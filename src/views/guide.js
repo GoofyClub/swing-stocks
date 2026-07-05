@@ -261,7 +261,7 @@ export function renderGuide(root) {
           <li><b>Core</b> — ~50 curated liquid <b>large-cap blue chips</b>. Scanned frequently. Ideal for <b>mean-reversion</b> (RSI2, Quality Dip), which needs stable, liquid names that reliably bounce.</li>
           <li><b>Broad</b> — the full <b>S&amp;P universe: S&amp;P 500 (large) + MidCap 400 + SmallCap 600</b> (~1,500 names), scanned once daily after the close. This is where the <b>breakout/momentum</b> strategies (52WH, VCP, HTF, Pocket Pivot) find real new-high leaders — large caps rarely break out hard.</li>
         </ul>
-        <p>Every signal is tagged with its index (S&amp;P 500 / MidCap 400 / SmallCap 600), so on <b>Live Signals</b> and <b>Signal History</b> you can use the <b>Index filter</b> to scope to a cap range — e.g. filter to <b>MidCap 400 / SmallCap 600</b> when hunting momentum, or <b>S&amp;P 500</b> for mean-reversion. The "Best for" row on each strategy below says which cap suits it.</p>
+        <p>Every signal is tagged with its index (S&amp;P 500 / MidCap 400 / SmallCap 600) plus a <b>Large Cap</b> flag for the curated large-cap watchlist, so on <b>Live Signals</b> and <b>Signal History</b> you can use the <b>Index filter</b> (multi-select) to scope to a cap range — e.g. filter to <b>MidCap 400 / SmallCap 600</b> when hunting momentum, or <b>Large Cap / S&amp;P 500</b> for mean-reversion. The "Best for" row on each strategy below says which cap suits it.</p>
       </section>
 
       <section class="guide-section" id="g-mistakes">

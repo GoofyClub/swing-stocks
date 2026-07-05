@@ -9,6 +9,7 @@
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
+  marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 
@@ -85,6 +86,17 @@ console.log('\n--- signalMatchesRules ---');
     !signalMatchesRules(sig({ strategyKey: 'rsi2', index: 'sp600' }), { ...baseCfg, strategyIndexes: { rsi2: ['sp500'] } }).ok);
   t('per-strategy override falls back to global when strategy has no entry',
     signalMatchesRules(sig({ strategyKey: 'vcp', index: 'sp600' }), { ...baseCfg, strategyIndexes: { rsi2: ['sp500'] } }).ok);
+  // Large-cap is a separate membership dimension that overlaps sp500.
+  t('largecap filter matches large-cap sp500 name',
+    signalMatchesRules(sig({ index: 'sp500', largeCap: true }), { ...baseCfg, indexes: ['largecap'] }).ok);
+  t('largecap filter matches large-cap name with no S&P index',
+    signalMatchesRules(sig({ index: null, largeCap: true }), { ...baseCfg, indexes: ['largecap'] }).ok);
+  t('sp500 filter still matches a large-cap sp500 name (OR membership)',
+    signalMatchesRules(sig({ index: 'sp500', largeCap: true }), { ...baseCfg, indexes: ['sp500'] }).ok);
+  t('largecap filter blocks a non-large-cap name',
+    !signalMatchesRules(sig({ index: 'sp600', largeCap: false }), { ...baseCfg, indexes: ['largecap'] }).ok);
+  t('per-strategy largecap override blocks non-large-cap rsi2',
+    !signalMatchesRules(sig({ strategyKey: 'rsi2', index: 'sp600', largeCap: false }), { ...baseCfg, strategyIndexes: { rsi2: ['largecap'] } }).ok);
   t('empty strategy allow-list = all allowed', signalMatchesRules(sig({ strategyKey: 'vcp' }), baseCfg).ok);
   t('strategy allow-list excludes others', !signalMatchesRules(sig({ strategyKey: 'vcp' }), { ...baseCfg, strategies: ['rsi2'] }).ok);
   t('reasons listed on failure', signalMatchesRules(sig({ tier: 'Tier 2', ticker: 'TSLA' }), baseCfg).reasons.length === 2);
@@ -146,10 +158,37 @@ console.log('\n--- paper/live URL resolution (real-money safety) ---');
 console.log('\n--- buildBracketOrder ---');
 {
   const mkt = buildBracketOrder({ signal: sig(), shares: 100, clientOrderId: 'x' });
-  t('market entry when not pendingEntry', mkt.type === 'market' && mkt.stopPrice === null);
+  t('limit entry when not pendingEntry', mkt.type === 'limit' && mkt.stopPrice === null);
+  t('limit = entry when no slippage budget', mkt.limitPrice === 100);
   t('attaches TP + SL bracket', mkt.takeProfit.limitPrice === 110 && mkt.stopLoss.stopPrice === 95);
-  const stop = buildBracketOrder({ signal: sig({ pendingEntry: true }), shares: 100, clientOrderId: 'x' });
-  t('stop-entry when pendingEntry', stop.type === 'stop' && stop.stopPrice === 100);
+  const bounded = buildBracketOrder({ signal: sig(), shares: 100, clientOrderId: 'x', slippageBudgetPct: 0.3 });
+  t('buy limit bounded up by slippage budget', bounded.limitPrice === 100.3);
+  const stop = buildBracketOrder({ signal: sig({ pendingEntry: true }), shares: 100, clientOrderId: 'x', slippageBudgetPct: 0.3 });
+  t('stop-entry when pendingEntry (no limit)', stop.type === 'stop' && stop.stopPrice === 100 && stop.limitPrice === null);
+}
+
+console.log('\n--- entryLimitPrice ---');
+{
+  t('null entry -> null', entryLimitPrice(null, 'buy', 0.3) === null);
+  t('no budget -> entry rounded', entryLimitPrice(100, 'buy') === 100);
+  t('buy pays up to +budget', entryLimitPrice(100, 'buy', 0.3) === 100.3);
+  t('sell accepts down to -budget', entryLimitPrice(100, 'sell', 0.3) === 99.7);
+}
+
+console.log('\n--- marketClock / inEntryWindow (DST-aware ET) ---');
+{
+  // 2026-07-03 13:40 UTC = 09:40 EDT (summer, UTC-4) → in the morning window.
+  const edtMorning = new Date('2026-07-03T13:40:00Z');
+  t('EDT morning maps to 09:40 ET', marketClock(edtMorning).minutes === 9 * 60 + 40);
+  t('EDT date is the ET calendar day', marketClock(edtMorning).date === '2026-07-03');
+  t('09:40 ET is inside entry window', inEntryWindow(edtMorning) === true);
+  // 19:45 UTC = 15:45 EDT → afternoon, outside the window.
+  t('15:45 ET is outside entry window', inEntryWindow(new Date('2026-07-03T19:45:00Z')) === false);
+  // 2026-01-05 14:40 UTC = 09:40 EST (winter, UTC-5) → in window.
+  t('EST morning maps to 09:40 ET', marketClock(new Date('2026-01-05T14:40:00Z')).minutes === 9 * 60 + 40);
+  t('EST 09:40 ET is inside entry window', inEntryWindow(new Date('2026-01-05T14:40:00Z')) === true);
+  // 13:40 UTC in winter = 08:40 EST → before the open, outside window.
+  t('EST pre-open (08:40 ET) is outside window', inEntryWindow(new Date('2026-01-05T13:40:00Z')) === false);
 }
 
 console.log(`\n=============================================`);
