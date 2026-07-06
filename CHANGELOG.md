@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.25.0 — 2026-07-05 (auto-trade: morning-window execution + one-session freshness)
+
+### Changed
+- **Previous-session, morning-only entries.** The worker now reads the **previous
+  trading session's** signal bucket (resolved via the Alpaca market calendar, so it
+  skips weekends and holidays) instead of today's, and opens new positions only
+  inside the **09:30–11:00 ET** window. This decouples entry from the (often
+  GitHub-delayed) morning refresh — the run can trade at the open — and makes
+  freshness strict: a session's signals are eligible on exactly one morning, then
+  expire. No more entering signals days late. Later runs (e.g. the afternoon slot)
+  only reconcile.
+- **Slippage-bounded limit entries.** Entries are now **limit orders** at
+  `entry ×(1 ± slippageBudget%)` (buy/sell) rather than market orders, so a late run
+  can't chase a moved price — it fills near the signal price or not at all. The
+  bracket stays GTC so TP/SL protect the position.
+
+### Added
+- **Stale-entry sweep.** The reconcile pass cancels any prior-session entry limit
+  still unfilled, enforcing one-session freshness at the broker.
+- **Extra morning cron triggers** in `auto-trade.yml` (≈09:35–10:55 ET across
+  EDT/EST) to absorb GitHub Actions scheduling lag; idempotency + the entry-window
+  gate keep duplicate runs safe.
+- Engine helpers `marketClock`, `inEntryWindow`, `entryLimitPrice`; Alpaca adapter
+  `getCalendar` / `cancelOrder` + limit-bracket support. +13 tests.
+
+## v0.24.0 — 2026-07-05 (Large Cap curated index filter + multi-select filters)
+
+### Added
+- **Large Cap index filter.** A curated large-cap membership (from the starter
+  watchlist) is tagged onto every signal as `largeCap` and exposed as a new
+  **Large Cap** option in the index filter on **Live Signals**, **Signal History**,
+  and **Automation** (global + per-strategy override). It overlaps S&P 500, so a
+  name can match either; the INDEX badge shows **Large Cap** in preference to S&P 500.
+  Signal matching is membership-aware (OR). +5 tests.
+- **Multi-select Index & Tier filters** on Live Signals and History (were single
+  dropdowns), matching the Automation chips. Saved/restored filters migrate old
+  single values.
+- Shared `src/data/indexes.js` as the single source of truth for index options,
+  memberships, and badge labels.
+
 ## v0.23.0 — 2026-07-01 (automation: per-strategy index override)
 
 ### Added

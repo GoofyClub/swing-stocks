@@ -31,11 +31,11 @@ export function renderAutomationGuide(root) {
 
       <section class="guide-section" id="a-status">
         <h2>★ Status &amp; roadmap</h2>
-        <div class="guide-warn"><b>Current status: paper worker shipped, manual + dry-run.</b> The execution worker (<code>scripts/auto-trade.mjs</code>) is in the repo and runnable via the <i>Auto-trade (paper)</i> GitHub Action. It defaults to <b>DRY_RUN</b> (logs intended orders without submitting) and to the Alpaca <b>paper</b> endpoint. It only acts for users who set <b>Enable = on</b> and provided broker keys. No scheduled/unattended runs yet.</div>
+        <div class="guide-warn"><b>Current status: paper worker shipped, scheduled + dry-run by default.</b> The execution worker (<code>scripts/auto-trade.mjs</code>) runs on a schedule across the morning (entries gated to the 09:30–11:00 ET window) plus an afternoon reconcile, via the <i>Auto-trade (paper)</i> GitHub Action. It defaults to <b>DRY_RUN</b> (logs intended orders without submitting) and to the Alpaca <b>paper</b> endpoint. It only acts for users who set <b>Enable = on</b> and provided broker keys.</div>
         <p>Rollout is phased so real money is only ever at risk after the safeguards are proven:</p>
         <ol>
           <li><b>Phase 1 — Config (shipped):</b> rules UI (markets, strategies, tiers, risk, filters), persisted per user.</li>
-          <li><b>Phase 2 — Paper execution (shipped):</b> worker reads matching signals + your rules, sizes by fixed-fractional risk, and submits <b>bracket orders</b> (entry + stop + target) to a paper account. Idempotent (deterministic client order id), with an order journal + reconciliation. Runs manually, dry-run by default.</li>
+          <li><b>Phase 2 — Paper execution (shipped):</b> worker reads the previous session's matching signals + your rules, sizes by fixed-fractional risk, and submits <b>bracket orders</b> with a slippage-bounded <b>limit entry</b> to a paper account. Idempotent (deterministic client order id), with an order journal + reconciliation. Scheduled across the morning window, dry-run by default.</li>
           <li><b>Phase 3 — Guardrails (shipped):</b> position/sector caps, portfolio-heat cap, daily-loss halt, slippage guard, trade-day gate, <b>market-regime gate</b> (blocks new longs when risk-off), and a <b>global kill switch</b> (env <code>KILL_SWITCH</code> or <code>publicConfig/automation.paused</code>). An <b>Auto Orders</b> page shows what the worker did.</li>
           <li><b>Phase 4 — Live (small size):</b> US first, tiny position sizes; India once the regulatory path is confirmed. Pre-trade live-quote slippage check and a market-hours guard are <b>in</b>; an Alpaca smoke-test (<code>npm run auto:smoketest</code>) validates the adapter against a real paper account.</li>
         </ol>
@@ -46,13 +46,14 @@ export function renderAutomationGuide(root) {
         <h2>1. How it works</h2>
         <p>Automation reuses the same signals you see in Live Signals and Signal History. The pipeline:</p>
         <ol>
-          <li><b>Signal generated</b> — the EOD cron writes signals with an entry trigger, TP, SL, tier, and strategy.</li>
-          <li><b>Rule match</b> — the worker keeps only signals that pass your filters (market, tier, strategy, side, price band, liquidity, exclusion list).</li>
+          <li><b>Signal generated</b> — the EOD cron writes each trading session's signals (entry, TP, SL, tier, strategy, index) to that day's bucket.</li>
+          <li><b>Next-morning pickup</b> — the worker reads the <b>previous trading session's</b> bucket (calendar-aware, so it skips weekends and holidays) and acts on it only during the <b>morning entry window (09:30–11:00 ET)</b>. A session's signals are eligible on exactly one morning, then expire — nothing stale is ever entered days later.</li>
+          <li><b>Rule match</b> — the worker keeps only signals that pass your filters (market, tier, strategy, <b>index</b> incl. Large Cap, side, price band, liquidity, exclusion list).</li>
           <li><b>Position sizing</b> — shares are sized so the distance to your stop equals your <i>risk per trade %</i> of equity.</li>
-          <li><b>Order placement</b> — a <b>bracket order</b> (entry + stop-loss + take-profit) is submitted so every fill is protected automatically. Buy-stop strategies use a stop-entry trigger.</li>
-          <li><b>Reconciliation</b> — the worker polls fills/positions and syncs outcomes back, the same way Signal History settles today.</li>
+          <li><b>Order placement</b> — a <b>bracket order</b> (entry + stop-loss + take-profit) is submitted so every fill is protected. The entry is a <b>limit order bounded by your slippage budget</b> (not a market order), so a late-firing run fills near the signal price or not at all — never chasing a moved price. Buy-stop strategies keep their stop-entry trigger.</li>
+          <li><b>Reconciliation</b> — the worker polls fills/positions and syncs outcomes back (the same way Signal History settles), and cancels any prior-session entry limit still unfilled so it can't fill late.</li>
         </ol>
-        <p class="muted">Because secrets can't live safely in a browser, order placement runs on a trusted server worker (scheduled near market hours), not in this web app.</p>
+        <p class="muted">Because secrets can't live safely in a browser, order placement runs on a trusted server worker (scheduled across the morning; entries are gated to the open window), not in this web app.</p>
       </section>
 
       <section class="guide-section" id="a-settings">
@@ -66,6 +67,7 @@ export function renderAutomationGuide(root) {
           <tr><td><b>Tiers</b></td><td>Trade only these conviction tiers (A+, Tier 1, Tier 2). A+-only is the safest start.</td></tr>
           <tr><td><b>Sides</b></td><td>Buy and/or sell signals.</td></tr>
           <tr><td><b>Strategies</b></td><td>Allow-list of strategies. None checked = all strategies eligible.</td></tr>
+          <tr><td><b>Indices</b></td><td>Allow-list of index membership — <b>Large Cap</b> (curated large-cap watchlist), S&amp;P 500, MidCap 400, SmallCap 600. None checked = all. Large Cap overlaps S&amp;P 500, so a name can match either. An advanced per-strategy override can pin one strategy to specific indices (e.g. RSI2 → Large Cap only).</td></tr>
           <tr><td><b>Trade days</b></td><td>Weekdays the worker is allowed to open new positions.</td></tr>
           <tr><td><b>Min / Max price</b></td><td>Skip signals priced outside this band (avoid illiquid penny names / very high-priced shares).</td></tr>
           <tr><td><b>Min 20d $ ADV</b></td><td>Liquidity floor — skip names that don't trade enough dollar volume to fill cleanly.</td></tr>
@@ -79,7 +81,7 @@ export function renderAutomationGuide(root) {
           <tr><td><b>Max portfolio heat %</b></td><td>Cap on the <i>sum</i> of open risk across all positions — your worst-case same-day drawdown.</td></tr>
           <tr><td><b>Daily loss halt %</b></td><td>Stop opening new positions once the day's loss hits this level (intraday circuit breaker).</td></tr>
           <tr><td><b>Max drawdown halt %</b></td><td>Account-level circuit breaker: stop opening new positions when equity is this far below its all-time peak (high-water mark). A multi-day backstop; 0 = off. Existing positions keep their stops.</td></tr>
-          <tr><td><b>Slippage budget %</b></td><td>At execution, skip a signal if the live price has already run past the entry by more than this.</td></tr>
+          <tr><td><b>Slippage budget %</b></td><td>Bounds the entry <b>limit price</b>: a buy fills at up to entry ×(1 + budget%), a sell down to entry ×(1 − budget%). It also skips a signal whose live price has already run past that bound before the order is placed.</td></tr>
         </tbody></table>
       </section>
 
@@ -100,7 +102,7 @@ export function renderAutomationGuide(root) {
         <ul>
           <li><b>Paper/shadow first</b> — run the full pipeline against a paper account for weeks; the gap between paper fills and the backtest is your real-world edge decay.</li>
           <li><b>Bracket / OCO orders</b> — submit entry + stop + target atomically so a fill is always protected, even if the worker dies.</li>
-          <li><b>Slippage &amp; gap guards</b> — re-check live price at execution; skip if it gapped past entry. Use marketable limit orders, not naked market orders.</li>
+          <li><b>Slippage &amp; gap guards</b> — re-check live price at execution; skip if it gapped past entry. Use marketable limit orders, not naked market orders. <i>(Implemented: entries are slippage-bounded limit orders gated to the morning window.)</i></li>
           <li><b>Idempotency</b> — deterministic client order IDs so a re-run never double-submits.</li>
           <li><b>Reconciliation</b> — broker fills are the source of truth; sync positions, handle partial fills and rejects.</li>
           <li><b>Kill switch &amp; monitoring</b> — a global pause plus alerts on every fill, reject, and circuit-breaker trip.</li>
@@ -183,6 +185,7 @@ export function renderAutomationGuide(root) {
         <h2>9. Enhancement log</h2>
         <p class="muted">Newest first. Update this whenever automation changes.</p>
         <table class="data"><thead><tr><th>Date</th><th>Change</th></tr></thead><tbody>
+          <tr><td>2026-07-05</td><td><b>Morning-window execution + one-session freshness.</b> The worker now enters from the <b>previous trading session's</b> bucket (calendar-aware; skips weekends/holidays) only inside the <b>09:30–11:00 ET</b> window, so it no longer waits on the morning refresh and can't trade stale signals days later. Entries are now <b>slippage-bounded limit orders</b> (not market) so a late run can't chase price; unfilled prior-session entries are cancelled. Extra morning cron triggers absorb GitHub Actions lag. Added a <b>Large Cap</b> curated index filter and made the <b>Index &amp; Tier filters multi-select</b> on Live Signals, History, and Automation.</td></tr>
           <tr><td>2026-06-26</td><td>Auto-trade worker now runs on a <b>daily schedule</b> (after the open + near the close), dry-run until the repo variable <code>AUTO_DRY_RUN=false</code> is set. Added an <b>Options Playbook</b> page (per-strategy options guidance, rules only). Trend strategies now settle on a <b>trailing stop</b> (RSI2 unchanged — keeps its 5-SMA native exit).</td></tr>
           <tr><td>2026-06-18</td><td>Broker <b>Test connection</b> button (Alpaca), <b>Telegram</b> entry/exit alerts (Settings page + Test message), and a <b>Cron Status</b> page showing the refresh worker's execution history.</td></tr>
           <tr><td>2026-06-17</td><td>Risk + reporting: account-level <b>max-drawdown halt</b> (stops new entries when equity falls a set % below its peak; persists a high-water mark) and an <b>equity curve + P&amp;L summary</b> on the Auto Orders page (current/change/peak/drawdown from daily equity snapshots).</td></tr>

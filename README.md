@@ -142,9 +142,19 @@ Generates signals, settles open/closed trades, prunes old data.
 
 ### 2. Auto-trade (paper) — `.github/workflows/auto-trade.yml`
 Places broker orders from matching signals for users who enabled automation.
-**Runs on a daily schedule** (just after the US open + near the close) and on
+**Runs several times across the morning** plus an afternoon reconcile, and on
 demand. **Dry-run by default.** Script: [`scripts/auto-trade.mjs`](scripts/auto-trade.mjs).
 
+- **Previous-session, morning-only entries:** the worker reads the **previous
+  trading session's** signal bucket (calendar-aware — skips weekends/holidays) and
+  opens new positions only inside the **09:30–11:00 ET** window. So it never waits
+  on the (possibly delayed) morning refresh and never enters stale signals days
+  later; each session's signals are eligible on exactly one morning. Later runs
+  only reconcile. The multiple morning cron slots absorb GitHub Actions cron lag.
+- **Limit entries, not market:** each entry is a **limit order bounded by the
+  slippage budget**, so a late-firing run fills near the signal price or not at
+  all. The bracket stays GTC (TP/SL protect the position); an unfilled prior-session
+  entry is cancelled on the next reconcile.
 - **Scheduled runs are dry-run** until you set the repo **variable**
   `AUTO_DRY_RUN = false` (Repo → Settings → Secrets and variables → Actions →
   **Variables**). A manual run can override via the `dry_run` input.
