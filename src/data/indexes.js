@@ -18,18 +18,18 @@
 // Filter dropdown / chip options. Large Cap first so it reads as the "premium"
 // curated set above the raw index partitions.
 export const INDEX_OPTIONS = [
-  { v: 'largecap', label: 'Large Cap' },
-  { v: 'sp500',    label: 'S&P 500' },
-  { v: 'sp400',    label: 'MidCap 400' },
-  { v: 'sp600',    label: 'SmallCap 600' },
+  { value: 'largecap', label: 'Large Cap' },
+  { value: 'sp500',    label: 'S&P 500' },
+  { value: 'sp400',    label: 'MidCap 400' },
+  { value: 'sp600',    label: 'SmallCap 600' },
 ];
 
 // Tier options for the (now multi-select) tier filter. `label` is the compact
-// chip text; `v` is the value stored on each signal's `tier` field.
+// chip text; `value` is the value stored on each signal's `tier` field.
 export const TIER_OPTIONS = [
-  { v: 'A+',     label: 'A+' },
-  { v: 'Tier 1', label: 'T1' },
-  { v: 'Tier 2', label: 'T2' },
+  { value: 'A+',     label: 'A+' },
+  { value: 'Tier 1', label: 'T1' },
+  { value: 'Tier 2', label: 'T2' },
 ];
 
 // Short labels for the INDEX-column badge.
