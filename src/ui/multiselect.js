@@ -64,5 +64,18 @@ export function clearMultiSelect(id) { setMultiSelectValues(id, []); }
 export function wireMultiSelect(id, onChange) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.querySelector('.ms-menu').addEventListener('change', () => { updateSummary(id); onChange(getMultiSelectValues(id)); });
+  const menu = el.querySelector('.ms-menu');
+  
+  // Handle checkbox changes
+  menu.addEventListener('change', () => { 
+    updateSummary(id); 
+    onChange(getMultiSelectValues(id)); 
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!el.contains(e.target) && el.open) {
+      el.open = false;
+    }
+  });
 }
