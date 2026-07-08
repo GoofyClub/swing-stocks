@@ -131,11 +131,15 @@ export function marketClock(now = new Date()) {
 }
 
 // Regular US session opens 09:30 ET (570 min). New entries are only placed inside
-// [open, open + windowMinutes] ET — early enough that a limit at the signal price
-// still fills near the open, and closed off before the afternoon so a late/laggy
-// cron run can't enter at a drifted price. Reconciliation runs regardless.
+// [open, open + windowMinutes] ET. Price-drift protection comes from the limit
+// order at the signal entry price plus the slippageOk gate — NOT from a tight
+// window — so the window can be generous: it only needs to shut off entries by
+// the late afternoon. It is 210 min (09:30-13:00 ET) because GitHub Actions cron
+// on this repo routinely fires 2-3 hours late; a 90-min window meant every
+// scheduled run landed after it closed and no entries were ever placed.
+// Reconciliation runs regardless of the window.
 export const MARKET_OPEN_ET_MIN = 9 * 60 + 30;
-export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = 90 } = {}) {
+export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = 210 } = {}) {
   const { minutes } = marketClock(now);
   return minutes >= openMinuteET && minutes <= openMinuteET + windowMinutes;
 }

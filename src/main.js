@@ -162,6 +162,38 @@ async function boot() {
   });
 }
 
+// -----------------------------------------------------------------------------
+// Mobile table labels — on phones (≤640px) app.css stacks each table row into a
+// labelled card instead of forcing sideways scrolling. The per-cell labels come
+// from a data-label attribute (rendered by `td::before { content: attr(...) }`),
+// stamped here from the column headers. Views render plain HTML strings and
+// re-render freely, so this runs generically off a MutationObserver instead of
+// every view wiring it up itself.
+// -----------------------------------------------------------------------------
+const WIDE_CELL_MIN_CHARS = 28; // prose-length cells span the full card width
+
+function labelDataTables() {
+  document.querySelectorAll('table.data').forEach((table) => {
+    const heads = [...table.querySelectorAll(':scope > thead th')].map(th => th.textContent.trim());
+    if (!heads.length) return;
+    table.querySelectorAll(':scope > tbody > tr, :scope > tfoot > tr').forEach((tr) => {
+      [...tr.children].forEach((td, i) => {
+        const label = heads[i] || '';
+        if (td.getAttribute('data-label') !== label) td.setAttribute('data-label', label);
+        td.classList.toggle('cell-wide', (td.textContent || '').trim().length >= WIDE_CELL_MIN_CHARS);
+      });
+    });
+  });
+}
+
+// Observe childList only: the attribute/class writes above don't re-trigger it.
+let tableLabelQueued = false;
+new MutationObserver(() => {
+  if (tableLabelQueued) return;
+  tableLabelQueued = true;
+  requestAnimationFrame(() => { tableLabelQueued = false; labelDataTables(); });
+}).observe(document.documentElement, { childList: true, subtree: true });
+
 // Persist prefs on change.
 window.addEventListener('beforeunload', () => {
   try {

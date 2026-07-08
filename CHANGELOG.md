@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.26.0 — 2026-07-08 (cron-lag fix + mobile-friendly tables)
+
+### Fixed
+- **Auto-trade cron never hitting the entry window.** GitHub Actions cron on this
+  repo starts runs **2–3 hours late** (the 13:35 UTC / ~09:35 ET slot was actually
+  running ~16:00 UTC / ~12:00 ET), so every scheduled run landed after the
+  09:30–11:00 ET entry window had closed and never placed entries. Two-sided fix:
+  - `auto-trade.yml` now fires **every 30 min from 11:20 to 15:20 UTC** — with the
+    observed lag several runs land inside the window; pre-open/duplicate runs are
+    harmless (idempotent, reconcile-only outside the window).
+  - The entry window widened **90 → 210 min (09:30–13:00 ET)**. Price-drift
+    protection comes from the limit-at-entry order plus the slippage-budget gate,
+    not from a tight window, so a run landing at 12:30 ET can still safely enter.
+  - The afternoon reconcile slot moved 19:45 → **18:45 UTC** so it lands before
+    the close despite the lag.
+- **Execution Status page** schedule table updated to the new slots, and now
+  explains that listed times are *requested* start times — actual starts on this
+  repo run 2–3 h behind.
+
+### Changed
+- **Mobile: tables render as stacked cards on phones (≤640 px).** Instead of
+  sideways-scrolling through a 16-column table, each row becomes a card with
+  labelled values (labels are stamped from the column headers automatically, so
+  every table in the app — Live Signals, History, My Trades, Auto orders, … —
+  gets the treatment). Screens 641–720 px keep the horizontally-scrollable table.
+
 ## v0.25.0 — 2026-07-05 (auto-trade: morning-window execution + one-session freshness)
 
 ### Changed

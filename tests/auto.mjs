@@ -182,6 +182,11 @@ console.log('\n--- marketClock / inEntryWindow (DST-aware ET) ---');
   t('EDT morning maps to 09:40 ET', marketClock(edtMorning).minutes === 9 * 60 + 40);
   t('EDT date is the ET calendar day', marketClock(edtMorning).date === '2026-07-03');
   t('09:40 ET is inside entry window', inEntryWindow(edtMorning) === true);
+  // 16:30 UTC = 12:30 EDT — where GitHub's delayed cron actually lands; must be
+  // inside the (widened) window so late runs can still place entries.
+  t('12:30 ET is inside entry window', inEntryWindow(new Date('2026-07-03T16:30:00Z')) === true);
+  // 17:30 UTC = 13:30 EDT → past the 13:00 ET cutoff, outside the window.
+  t('13:30 ET is outside entry window', inEntryWindow(new Date('2026-07-03T17:30:00Z')) === false);
   // 19:45 UTC = 15:45 EDT → afternoon, outside the window.
   t('15:45 ET is outside entry window', inEntryWindow(new Date('2026-07-03T19:45:00Z')) === false);
   // 2026-01-05 14:40 UTC = 09:40 EST (winter, UTC-5) → in window.

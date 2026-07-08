@@ -1029,12 +1029,58 @@ table.data .remove-btn {
   .card h2 { font-size: 1rem; }
 }
 
-/* Tables: horizontal scroll on mobile — applied to the card itself */
+/* Tables on mid-size screens (641-720px): horizontal scroll on the card */
 @media (max-width: 720px) {
   .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table.data { min-width: 640px; font-size: 0.85rem; }
   table.data th, table.data td { padding: 6px 6px; }
   table.data th { font-size: 0.69rem; }
+}
+
+/* Phones (≤640px): stack each table row into a labelled card so no sideways
+   scrolling is needed. Cell labels render from the data-label attribute that
+   main.js stamps from the column headers (labelDataTables). */
+@media (max-width: 640px) {
+  .card { overflow-x: visible; }
+  table.data { min-width: 0; width: 100%; display: block; font-size: 0.88rem; }
+  table.data thead { display: none; }
+  table.data tbody, table.data tfoot { display: flex; flex-direction: column; gap: 8px; }
+  table.data tfoot { margin-top: 8px; }
+  table.data tr {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 8px 12px;
+    align-items: start;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: var(--bg);
+  }
+  table.data tr:hover td { background: transparent; }
+  table.data td {
+    display: block;
+    padding: 0;
+    border-bottom: none;
+    overflow-wrap: anywhere;
+  }
+  table.data td.num { text-align: left; }
+  table.data td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    margin-bottom: 2px;
+    white-space: nowrap;
+  }
+  table.data td:not([data-label])::before,
+  table.data td[data-label=""]::before { content: none; }
+  /* Prose-length cells (name, reason, notes …) take the full card width */
+  table.data td.cell-wide { grid-column: 1 / -1; }
+  /* Truly empty cells (spacer/action columns with nothing in them) vanish */
+  table.data td:empty { display: none; }
 }
 
 /* Segmented button groups: allow wrapping on mobile */
