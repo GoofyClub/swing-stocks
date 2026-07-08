@@ -24,7 +24,8 @@ import {
 } from '../data/markets.js';
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
-import { mobileRowsHTML, guardMobileRowButtons } from '../ui/mobile-rows.js';
+import { mobileRowsHTML, guardMobileRowButtons, isPhoneLayout } from '../ui/mobile-rows.js';
+import { initFilterCollapse } from '../ui/filter-collapse.js';
 import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
 import { INDEX_OPTIONS, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
 import { initFirebase } from '../data/firebase.js';
@@ -440,7 +441,11 @@ export async function renderSignals(root) {
       </div>
 
       <div class="card" id="filter-card">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="btn-toggle-filters" class="btn-bare" type="button" aria-controls="filter-body">▾ FILTERS</button>
+          <span id="hit-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
+        </div>
+        <div id="filter-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
           ${multiSelectHtml('f-tier', 'All tiers')}
           <div class="seg-group" id="seg-side" role="group" aria-label="Side filter">
             <span class="seg-label">Side</span>
@@ -456,7 +461,6 @@ export async function renderSignals(root) {
           <input id="f-q" type="search" placeholder="ticker / name" class="search" style="max-width:200px">
           <button id="btn-save-filters" class="btn-bare" type="button" title="Save these filters for next time (this browser)">★ SAVE FILTERS</button>
           <button id="btn-reset" class="btn-bare" type="button">RESET</button>
-          <span id="hit-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
         </div>
       </div>
 
@@ -479,6 +483,8 @@ export async function renderSignals(root) {
   // strategy/sector are data-driven and filled in renderResults instead.
   fillMultiSelect('f-index', INDEX_OPTIONS);
   fillMultiSelect('f-tier', TIER_OPTIONS);
+  // Collapsible filter bar; choice persists per view (hidden by default on phones).
+  initFilterCollapse({ viewKey: 'signals', bodyEl: $('filter-body'), btnEl: $('btn-toggle-filters') });
   const logEl = $('scan-log');
   let drawnLogIdx = 0;
   // Saved-filter selection pending until its <option> populates (see renderResults).
@@ -636,33 +642,38 @@ export async function renderSignals(root) {
     $('hits-count').textContent = `(${filtered.length}/${rows.length})`;
     $('hit-count').textContent = `${filtered.length} of ${rows.length}`;
     const isCron = _viewMode[market] === 'cron';
+    // Build ONLY the variant this screen shows (rendering both doubled the DOM
+    // for hundreds of rows and made filtering slow). main.js re-renders the
+    // view if the breakpoint changes.
+    const phone = isPhoneLayout();
 
-    // Compact 3-line rows for phones (≤640px) — the table hides, these show.
-    const mrows = mobileRowsHTML(filtered.map((s, idx) => {
+    // Compact 3-line rows for phones (≤640px).
+    const mrows = !phone ? '' : mobileRowsHTML(filtered.map((s, idx) => {
       const already = sc.enteredIds.has(s.tradeId);
       const dateStr = s.signalTs ? s.signalTs.slice(5, 10) : (s.source === 'scan' ? 'now' : '—');
       const idxLbl = indexBadgeLabel(s);
       const rr = plannedRR(s);
       const rrStr = rr == null ? '—' : rr.toFixed(2) + ':1';
       const pc = s.pctChange;
+      const nums = [
+        { k: 'E', v: (s.entry ?? 0).toFixed(2) },
+        { k: 'TP', v: (s.tp ?? 0).toFixed(2), color: 'var(--green)' },
+        { k: 'SL', v: (s.sl ?? 0).toFixed(2), color: 'var(--red)' },
+      ];
+      if (isCron && s.currentPrice != null) nums.push({ k: 'Now', v: s.currentPrice.toFixed(2) });
       const detail = [
         { k: 'R:R', v: rrStr },
         { k: 'Side', v: escapeHtml(s.side) },
         { k: 'Date', v: s.signalTs ? escapeHtml(s.signalTs.slice(0, 10)) : dateStr },
       ];
-      if (isCron) detail.unshift({ k: 'Current', v: s.currentPrice != null ? s.currentPrice.toFixed(2) : '—' });
-      else if (s.reason) detail.push({ k: 'Reason', v: escapeHtml(s.reason), wide: true });
+      if (!isCron && s.reason) detail.push({ k: 'Reason', v: escapeHtml(s.reason), wide: true });
       return {
         starHtml: `<button class="star-btn" data-action="${already ? 'remove' : 'enter'}" data-idx="${idx}" title="${already ? 'Already tracked' : 'Track on My Trades'}">${already ? '★' : '☆'}</button>`,
         ticker: escapeHtml(s.ticker),
         name: escapeHtml(s.name || ''),
         badgesHtml: tierBadge(s.tier, s.tierReasons) + (isCron ? statusBadge(s.status, s.winLoss) : ''),
         meta: [escapeHtml(s.short), escapeHtml(sectorName(s.sector) || ''), idxLbl, escapeHtml(dateStr)].filter(Boolean).join(' · '),
-        nums: [
-          { k: 'E', v: (s.entry ?? 0).toFixed(2) },
-          { k: 'TP', v: (s.tp ?? 0).toFixed(2), color: 'var(--green)' },
-          { k: 'SL', v: (s.sl ?? 0).toFixed(2), color: 'var(--red)' },
-        ],
+        nums,
         right: isCron
           ? { v: pc == null ? '—' : (pc >= 0 ? '+' : '') + pc.toFixed(2) + '%', color: pc == null ? 'var(--text-dim)' : pc >= 0 ? 'var(--green)' : 'var(--red)' }
           : { v: rrStr, color: 'var(--text-dim)' },
@@ -670,7 +681,7 @@ export async function renderSignals(root) {
       };
     }));
 
-    $('signal-results').innerHTML = `
+    $('signal-results').innerHTML = phone ? `<div class="tbl-mobile-switch">${mrows}</div>` : `
       <div class="tbl-mobile-switch">
       <table class="data">
         <thead><tr>

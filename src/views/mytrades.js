@@ -5,7 +5,7 @@ import { state } from '../core/state.js';
 import { initFirebase } from '../data/firebase.js';
 import { loadMyTrades, removeTrade } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
-import { mobileRowsHTML, guardMobileRowButtons } from '../ui/mobile-rows.js';
+import { mobileRowsHTML, guardMobileRowButtons, isPhoneLayout } from '../ui/mobile-rows.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -63,16 +63,24 @@ export async function renderMyTrades(root) {
     return;
   }
 
-  // Compact 3-line rows for phones (≤640px) — the table hides, these show.
-  const mrows = mobileRowsHTML(trades.map(t => {
+  // Build ONLY the variant this screen shows; main.js re-renders on breakpoint change.
+  const phone = isPhoneLayout();
+
+  // Compact 3-line rows for phones (≤640px).
+  const mrows = !phone ? '' : mobileRowsHTML(trades.map(t => {
     const pl = t.realizedPct ?? t.unrealizedPct ?? null;
     const statusHtml = t.status === 'closed'
       ? (t.winLoss === 'win' ? '<span class="badge win">WIN</span>' : '<span class="badge loss">LOSS</span>')
       : '<span class="badge open">open</span>';
     const enteredDate = (t.enteredAt?.toDate?.()?.toISOString?.() || t.signalDate || '').slice(0, 10);
     const override = t.overrideEntryPrice != null;
+    const nums = [
+      { k: 'E', v: (t.entryPrice ?? 0).toFixed(2) + (override ? ' *' : '') },
+      { k: 'TP', v: (t.tpPrice ?? 0).toFixed(2), color: 'var(--green)' },
+      { k: 'SL', v: (t.slPrice ?? 0).toFixed(2), color: 'var(--red)' },
+    ];
+    if (t.currentPrice != null) nums.push({ k: 'Now', v: t.currentPrice.toFixed(2) });
     const detail = [
-      { k: 'Current', v: t.currentPrice != null ? t.currentPrice.toFixed(2) : '—' },
       { k: 'Entered', v: escapeHtml(enteredDate) },
     ];
     if (t.notes) detail.push({ k: 'Notes', v: escapeHtml(t.notes), wide: true });
@@ -81,18 +89,18 @@ export async function renderMyTrades(root) {
       name: escapeHtml(t.name || ''),
       badgesHtml: statusHtml,
       meta: [escapeHtml(t.strategy || ''), escapeHtml(enteredDate.slice(5))].filter(Boolean).join(' · '),
-      nums: [
-        { k: 'E', v: (t.entryPrice ?? 0).toFixed(2) + (override ? ' *' : '') },
-        { k: 'TP', v: (t.tpPrice ?? 0).toFixed(2), color: 'var(--green)' },
-        { k: 'SL', v: (t.slPrice ?? 0).toFixed(2), color: 'var(--red)' },
-      ],
+      nums,
       right: { v: pl == null ? '—' : (pl >= 0 ? '+' : '') + pl.toFixed(2) + '%', color: pl == null ? 'var(--text-dim)' : pl >= 0 ? 'var(--green)' : 'var(--red)' },
       detail,
       actionsHtml: `<button class="btn-bare remove-btn" data-trade-id="${escapeHtml(t.id)}" data-ticker="${escapeHtml(t.ticker)}">✕ Remove</button>`,
     };
   }));
 
-  document.getElementById('trades-table').innerHTML = `
+  document.getElementById('trades-table').innerHTML = phone ? `
+    <div class="tbl-mobile-switch">${mrows}</div>
+    <p style="color:var(--text-mute);font-size:0.85rem;margin-top:10px">
+      * = entry price was overridden by you at trade-entry time.
+    </p>` : `
     <div class="tbl-mobile-switch">
     <table class="data">
       <thead><tr>
@@ -125,7 +133,6 @@ export async function renderMyTrades(root) {
         }).join('')}
       </tbody>
     </table>
-    ${mrows}
     </div>
     <p style="color:var(--text-mute);font-size:0.85rem;margin-top:10px">
       * = entry price was overridden by you at trade-entry time.

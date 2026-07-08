@@ -92,6 +92,12 @@ function mountAppShell() {
     if (reason === 'market') dispatch();
   });
 
+  // Views render EITHER the desktop table OR the compact phone rows (not both —
+  // that doubled the DOM and made filtering slow). Crossing the breakpoint
+  // (rotate / split-screen / window resize) re-renders the active view so the
+  // right variant appears.
+  PHONE_MQ.addEventListener('change', () => dispatch());
+
   // Keyboard shortcuts.
   document.addEventListener('keydown', (e) => {
     if (e.target.closest('input, textarea, select')) return;
@@ -171,9 +177,16 @@ async function boot() {
 // every view wiring it up itself.
 // -----------------------------------------------------------------------------
 const WIDE_CELL_MIN_CHARS = 28; // prose-length cells span the full card width
+const PHONE_MQ = window.matchMedia('(max-width: 640px)');
 
 function labelDataTables() {
+  // Labels are only ever rendered by the ≤640px card CSS — skip the work
+  // entirely on larger screens (it was making desktop re-renders sluggish).
+  if (!PHONE_MQ.matches) return;
   document.querySelectorAll('table.data').forEach((table) => {
+    // Tables with a compact .mrows alternative are hidden on phones — their
+    // cells never show labels, so don't walk them (History alone is ~8k cells).
+    if (table.closest('.tbl-mobile-switch')) return;
     const heads = [...table.querySelectorAll(':scope > thead th')].map(th => th.textContent.trim());
     if (!heads.length) return;
     table.querySelectorAll(':scope > tbody > tr, :scope > tfoot > tr').forEach((tr) => {

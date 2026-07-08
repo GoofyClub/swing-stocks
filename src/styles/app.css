@@ -1103,13 +1103,15 @@ table.data .remove-btn {
   .tbl-mobile-switch table.data { display: none; }
   .mrows { display: block; }
 
-  .mrows .mrow { border-top: 1px solid var(--line); }
-  .mrows .mrow:first-child { border-top: none; }
-  .mrows .mrow > summary {
+  .mrows > * { border-top: 1px solid var(--line); }
+  .mrows > *:first-child { border-top: none; }
+  .mrows .mrow > summary,
+  .mrows .mrow-flat {
     list-style: none;
     display: flex; gap: 6px; align-items: flex-start;
-    padding: 8px 2px; cursor: pointer;
+    padding: 8px 2px;
   }
+  .mrows .mrow > summary { cursor: pointer; }
   .mrows .mrow > summary::-webkit-details-marker { display: none; }
   .mrows .mrow[open] > summary { background: var(--bg-elev2); border-radius: 6px 6px 0 0; }
 
@@ -1129,7 +1131,7 @@ table.data .remove-btn {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .mr-l3 {
-    display: flex; align-items: baseline; gap: 10px;
+    display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap;
     font-family: var(--font-mono); font-size: 0.84rem; margin-top: 2px;
   }
   .mr-k {
@@ -1193,8 +1195,8 @@ table.data .remove-btn {
   .signal-source-bar .seg-group { margin-right: 0; }
   .scan-progress { min-width: unset; }
   #source-stat { margin-left: 0 !important; text-align: left; }
-  #hit-count { margin-left: 0 !important; }
-  #row-count { margin-left: 0 !important; }
+  /* #hit-count / #row-count live in the always-visible FILTERS header row and
+     keep their margin-left:auto so the count sits opposite the toggle. */
 
   /* Override inline widths on filter inputs */
   .card input[type="number"],

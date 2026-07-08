@@ -4,6 +4,7 @@
 import { collection, getDocs } from 'firebase/firestore';
 import { initFirebase } from '../data/firebase.js';
 import { sectorName } from '../data/markets.js';
+import { mobileRowsHTML, isPhoneLayout } from '../ui/mobile-rows.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -107,6 +108,34 @@ export async function renderAutoOrders(root) {
       Orders appear here after the <b>Auto-trade (paper)</b> GitHub Action runs for an account with automation enabled.
       It starts in dry-run mode, so the first entries will be <b>DRY-RUN</b> intents — what it <i>would</i> have placed.
     </div>`;
+    return;
+  }
+
+  // Compact 3-line rows for phones (≤640px); table only on desktop.
+  if (isPhoneLayout()) {
+    document.getElementById('ao-table').innerHTML = `<div class="tbl-mobile-switch">${mobileRowsHTML(rows.map(o => {
+      const nums = [
+        { k: 'E', v: o.entry != null ? Number(o.entry).toFixed(2) : '—' },
+        { k: 'TP', v: o.tp != null ? Number(o.tp).toFixed(2) : '—', color: 'var(--green)' },
+        { k: 'SL', v: o.sl != null ? Number(o.sl).toFixed(2) : '—', color: 'var(--red)' },
+        { k: 'Qty', v: String(o.qty ?? '—') },
+      ];
+      const detail = [
+        { k: 'Risk', v: o.dollarRisk != null ? '$' + Number(o.dollarRisk).toFixed(0) : '—' },
+        { k: 'Mode', v: escapeHtml(o.mode || '—') + (o.live ? ' <span class="badge loss">LIVE</span>' : '') },
+        { k: 'Tier', v: escapeHtml(o.tier || '—') },
+        { k: 'When', v: escapeHtml(fmtTs(o.createdAt)) },
+      ];
+      if (o.error) detail.push({ k: 'Error', v: escapeHtml(o.error), wide: true });
+      return {
+        ticker: escapeHtml(o.ticker || ''),
+        name: escapeHtml(o.strategy || o.strategyKey || ''),
+        badgesHtml: `<span class="badge ${o.side === 'sell' ? 'loss' : 'open'}">${escapeHtml(o.side || '—')}</span>` + statusBadge(o),
+        meta: [escapeHtml(sectorName(o.sector) || ''), escapeHtml(fmtTs(o.createdAt))].filter(Boolean).join(' · '),
+        nums,
+        detail,
+      };
+    }))}</div>`;
     return;
   }
 

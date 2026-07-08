@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.28.0 — 2026-07-08 (perf fix, collapsible filters, NOW price, compact rows everywhere)
+
+### Fixed
+- **Sluggish UI after v0.27.** Two regressions compounded: every view rendered
+  BOTH the desktop table and the phone rows (double DOM for hundreds of
+  signals), and the column-label stamper walked every table cell on every
+  re-render even on desktop where labels never show. Views now build only the
+  variant the screen displays (re-rendered automatically if the breakpoint
+  changes), and the stamper runs only on phones and skips tables that have a
+  compact-rows alternative. Filtering and signal loads are back to full speed.
+
+### Added
+- **Hide/show filters, remembered.** Live Signals and Signal History get a
+  `▾ FILTERS` toggle with the match count opposite it; the filter bar starts
+  hidden on phones (visible on desktop) and any manual toggle is persisted
+  per view in this browser.
+- **Current price without expanding.** The compact row's price line now reads
+  `E · TP · SL · NOW` with %Δ right-aligned (Live Signals cron view, Signal
+  History, My Trades, Dashboard open trades).
+- **Compact rows on the remaining tabs.** Auto Orders, Watchlist (notes +
+  edit/remove under the expander), and both Dashboard tables (today's signals,
+  open trades — flat rows, no expander) now use the same list design.
+
 ## v0.27.0 — 2026-07-08 (compact mobile design: list rows + Roboto)
 
 ### Changed
