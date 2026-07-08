@@ -20,7 +20,7 @@ import { fetchBars, DataFetchError } from '../data/fetchers.js';
 import { scanAllStrategies } from '../strategy/normalize.js';
 import { loadWatchlist } from '../data/watchlist.js';
 import {
-  STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, companyName, nameForTicker, sectorName,
+  STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, LARGE_CAP_TICKERS, companyName, nameForTicker, sectorName,
 } from '../data/markets.js';
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
@@ -219,6 +219,10 @@ function unify(row, source) {
       name:   row.name || nameForTicker(row.ticker) || row.ticker,
       sector: row.sector,
       index:  row.index || null,
+      // Older cron docs predate the largeCap tag — fall back to the curated set
+      // so the badge/filter stay correct (History shows the raw doc, this view
+      // must match it).
+      largeCap: row.largeCap ?? LARGE_CAP_TICKERS.has(row.ticker),
       tier:   row.tier || 'Tier 1',
       tierReasons: row.tierReasons || [],
       pendingEntry: row.pendingEntry ?? false,
@@ -246,6 +250,8 @@ function unify(row, source) {
     ticker: row.ticker,
     name:   row.name || nameForTicker(row.ticker) || row.ticker,
     sector: row.sector,
+    index:  null, // browser scans don't carry S&P universe tags
+    largeCap: LARGE_CAP_TICKERS.has(row.ticker),
     tier:   row.tier || 'Tier 1',
     tierReasons: row.tierReasons || [],
     pendingEntry: env.pendingEntry ?? false,

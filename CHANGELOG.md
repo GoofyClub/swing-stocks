@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.28.1 — 2026-07-08 (fix: Large Cap tag missing on Live Signals)
+
+### Fixed
+- **Live Signals showed "S&P 500" where History showed "Large Cap"** (e.g. GE
+  Aerospace). The view's row-unifier copied the signal's `index` field but
+  dropped the `largeCap` flag, so the badge fell back to the raw sp500 tag and
+  the Large Cap filter matched nothing in this view. Cron rows now carry
+  `largeCap` (with a curated-set fallback for older docs), and browser-scan
+  rows tag it from the curated large-cap watchlist.
+
 ## v0.28.0 — 2026-07-08 (perf fix, collapsible filters, NOW price, compact rows everywhere)
 
 ### Fixed
