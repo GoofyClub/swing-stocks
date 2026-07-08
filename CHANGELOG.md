@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.27.0 — 2026-07-08 (compact mobile design: list rows + Roboto)
+
+### Changed
+- **Phones now get a compact list design instead of stacked cards** (user-approved
+  "Design A"). On ≤640 px screens the Live Signals, Signal History, and My Trades
+  tables render as 3-line rows — `ticker · name · badges`, a muted
+  `strategy · sector · index · date` line, and `E/TP/SL` with the %Δ right-aligned.
+  Tapping a row expands the remaining fields and actions (native `<details>`).
+  ~5 signals fit per screen vs ~1 with the old cards. Desktop is unchanged.
+- **History's strategy summary** collapses to a 2-line row per strategy on phones
+  (name + net R headline, then trades/WR/W-L-O/PF/avg R/total %Δ); tap still
+  filters the signal list below.
+- **Roboto on phones.** At ≤720 px both app fonts switch to Roboto with tabular
+  numbers (`tnum`) — noticeably more compact than the IBM Plex Sans + JetBrains
+  Mono pairing at small sizes while digits still align. Desktop keeps the
+  terminal look.
+- New shared component `src/ui/mobile-rows.js`; the generic labelled-card
+  fallback (v0.26.0) stays for all other tables, with tightened padding.
+
 ## v0.26.0 — 2026-07-08 (cron-lag fix + mobile-friendly tables)
 
 ### Fixed

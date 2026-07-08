@@ -24,6 +24,7 @@ import {
 } from '../data/markets.js';
 import { enterTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
+import { mobileRowsHTML, guardMobileRowButtons } from '../ui/mobile-rows.js';
 import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
 import { INDEX_OPTIONS, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
 import { initFirebase } from '../data/firebase.js';
@@ -635,7 +636,42 @@ export async function renderSignals(root) {
     $('hits-count').textContent = `(${filtered.length}/${rows.length})`;
     $('hit-count').textContent = `${filtered.length} of ${rows.length}`;
     const isCron = _viewMode[market] === 'cron';
+
+    // Compact 3-line rows for phones (≤640px) — the table hides, these show.
+    const mrows = mobileRowsHTML(filtered.map((s, idx) => {
+      const already = sc.enteredIds.has(s.tradeId);
+      const dateStr = s.signalTs ? s.signalTs.slice(5, 10) : (s.source === 'scan' ? 'now' : '—');
+      const idxLbl = indexBadgeLabel(s);
+      const rr = plannedRR(s);
+      const rrStr = rr == null ? '—' : rr.toFixed(2) + ':1';
+      const pc = s.pctChange;
+      const detail = [
+        { k: 'R:R', v: rrStr },
+        { k: 'Side', v: escapeHtml(s.side) },
+        { k: 'Date', v: s.signalTs ? escapeHtml(s.signalTs.slice(0, 10)) : dateStr },
+      ];
+      if (isCron) detail.unshift({ k: 'Current', v: s.currentPrice != null ? s.currentPrice.toFixed(2) : '—' });
+      else if (s.reason) detail.push({ k: 'Reason', v: escapeHtml(s.reason), wide: true });
+      return {
+        starHtml: `<button class="star-btn" data-action="${already ? 'remove' : 'enter'}" data-idx="${idx}" title="${already ? 'Already tracked' : 'Track on My Trades'}">${already ? '★' : '☆'}</button>`,
+        ticker: escapeHtml(s.ticker),
+        name: escapeHtml(s.name || ''),
+        badgesHtml: tierBadge(s.tier, s.tierReasons) + (isCron ? statusBadge(s.status, s.winLoss) : ''),
+        meta: [escapeHtml(s.short), escapeHtml(sectorName(s.sector) || ''), idxLbl, escapeHtml(dateStr)].filter(Boolean).join(' · '),
+        nums: [
+          { k: 'E', v: (s.entry ?? 0).toFixed(2) },
+          { k: 'TP', v: (s.tp ?? 0).toFixed(2), color: 'var(--green)' },
+          { k: 'SL', v: (s.sl ?? 0).toFixed(2), color: 'var(--red)' },
+        ],
+        right: isCron
+          ? { v: pc == null ? '—' : (pc >= 0 ? '+' : '') + pc.toFixed(2) + '%', color: pc == null ? 'var(--text-dim)' : pc >= 0 ? 'var(--green)' : 'var(--red)' }
+          : { v: rrStr, color: 'var(--text-dim)' },
+        detail,
+      };
+    }));
+
     $('signal-results').innerHTML = `
+      <div class="tbl-mobile-switch">
       <table class="data">
         <thead><tr>
           <th></th><th>DATE</th><th>TIER</th><th>NAME</th><th>TICKER</th><th>SECTOR</th><th>INDEX</th><th>STRATEGY</th><th>SIDE</th>
@@ -673,7 +709,10 @@ export async function renderSignals(root) {
           }).join('')}
         </tbody>
       </table>
+      ${mrows}
+      </div>
     `;
+    guardMobileRowButtons($('signal-results'));
 
     // Wire star buttons (works on both sources — same trade-doc structure).
     $('signal-results').querySelectorAll('.star-btn').forEach(btn => {
