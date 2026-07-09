@@ -8,7 +8,7 @@
 
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
+  isTradeDayAllowed, slippageOk, buildBracketOrder, brokerPrice, regimeAllowsEntry, drawdownHalted,
   marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -165,6 +165,17 @@ console.log('\n--- buildBracketOrder ---');
   t('buy limit bounded up by slippage budget', bounded.limitPrice === 100.3);
   const stop = buildBracketOrder({ signal: sig({ pendingEntry: true }), shares: 100, clientOrderId: 'x', slippageBudgetPct: 0.3 });
   t('stop-entry when pendingEntry (no limit)', stop.type === 'stop' && stop.stopPrice === 100 && stop.limitPrice === null);
+  // Regression: strategy math yields raw floats (45.06 × 1.02 = 45.961200000000005)
+  // and Alpaca rejects sub-penny prices — every price must round to the penny.
+  const subPenny = buildBracketOrder({
+    signal: sig({ entryPrice: 45.06, tpPrice: 45.06 * 1.02, slPrice: 45.06 * 0.98, pendingEntry: true }),
+    shares: 10, clientOrderId: 'x',
+  });
+  t('TP rounds sub-penny float to penny', subPenny.takeProfit.limitPrice === 45.96);
+  t('SL rounds sub-penny float to penny', subPenny.stopLoss.stopPrice === 44.16);
+  t('pending stop entry rounds to penny', subPenny.stopPrice === 45.06);
+  t('sub-dollar prices keep 4 decimals', brokerPrice(0.12345) === 0.1235 && brokerPrice(0.1234) === 0.1234);
+  t('at/above $1 rounds to pennies', brokerPrice(1.005) === 1.01 || brokerPrice(1.005) === 1.0); // fp-safe: must be a penny increment
 }
 
 console.log('\n--- entryLimitPrice ---');

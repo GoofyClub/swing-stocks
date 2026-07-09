@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.28.2 — 2026-07-09 (fix: Alpaca sub-penny rejection on bracket prices)
+
+### Fixed
+- **Auto-trade orders rejected with "sub-penny increment does not fulfill
+  minimum pricing criteria."** Strategy math produces raw floats (e.g.
+  `45.06 × 1.02 = 45.961200000000005`) and the TP/SL/stop prices were sent to
+  Alpaca unrounded. New `brokerPrice()` in the engine rounds every price on the
+  bracket intent — pennies at ≥ $1, 4 decimals under $1 (Alpaca's rule) — so no
+  raw float ever reaches the API. +5 tests.
+
 ## v0.28.1 — 2026-07-08 (fix: Large Cap tag missing on Live Signals)
 
 ### Fixed

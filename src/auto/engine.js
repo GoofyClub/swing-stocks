@@ -175,13 +175,23 @@ export function entryLimitPrice(entry, side = 'buy', slippageBudgetPct = null) {
   return round2((side === 'sell') ? entry * (1 - b) : entry * (1 + b));
 }
 
+// Round to a broker-valid price increment. Strategy math produces raw floats
+// (e.g. entry × 1.02 = 45.961200000000005) and Alpaca rejects sub-penny prices
+// on stocks ≥ $1 ("sub-penny increment does not fulfill minimum pricing
+// criteria"); under $1 it accepts up to 4 decimals.
+export function brokerPrice(x) {
+  if (x == null || !Number.isFinite(x)) return null;
+  return x >= 1 ? Math.round(x * 100) / 100 : Math.round(x * 10000) / 10000;
+}
+
 // Broker-agnostic bracket-order intent. The adapter translates this to its own
 // API shape. We always attach the stop + target so a fill is protected.
 //
 // Entries are LIMIT orders bounded by the slippage budget (not market) so a run
 // that fires late — after GitHub Actions lag — can't chase a moved price: it
 // either fills near the signal price or doesn't fill. Buy-stop strategies keep
-// their stop-entry trigger.
+// their stop-entry trigger. Every price is passed through brokerPrice so no
+// raw float ever reaches the API.
 export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudgetPct = null }) {
   const isBuy = (signal.side || 'buy') === 'buy';
   const pending = !!signal.pendingEntry;
@@ -192,10 +202,10 @@ export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudge
     side: isBuy ? 'buy' : 'sell',
     qty: shares,
     type: pending ? 'stop' : 'limit',
-    stopPrice: pending ? signal.entryPrice : null,
-    limitPrice,
+    stopPrice: pending ? brokerPrice(signal.entryPrice) : null,
+    limitPrice: brokerPrice(limitPrice),
     timeInForce: 'gtc',
-    takeProfit: signal.tpPrice != null ? { limitPrice: signal.tpPrice } : null,
-    stopLoss: signal.slPrice != null ? { stopPrice: signal.slPrice } : null,
+    takeProfit: signal.tpPrice != null ? { limitPrice: brokerPrice(signal.tpPrice) } : null,
+    stopLoss: signal.slPrice != null ? { stopPrice: brokerPrice(signal.slPrice) } : null,
   };
 }
