@@ -9,6 +9,12 @@
   Alpaca unrounded. New `brokerPrice()` in the engine rounds every price on the
   bracket intent — pennies at ≥ $1, 4 decimals under $1 (Alpaca's rule) — so no
   raw float ever reaches the API. +5 tests.
+- **Rejected orders now retry.** A placement error journals as `error` and used
+  to block that signal permanently (the idempotency check skipped anything
+  non-dry-run), so a run hitting a fixable rejection lost the trade for the
+  session. `error` entries are retryable on the next run inside the window —
+  double-submit-safe because the deterministic client order id collides at the
+  broker if the order actually went through.
 
 ## v0.28.1 — 2026-07-08 (fix: Large Cap tag missing on Live Signals)
 

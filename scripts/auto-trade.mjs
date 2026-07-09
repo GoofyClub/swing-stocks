@@ -248,10 +248,12 @@ async function processUser(db, uid, cfg) {
     const journalRef = db.collection('users').doc(uid).collection('autoOrders').doc(coid);
 
     // Idempotency: already acted on this user+signal — but a prior DRY-RUN intent
-    // must NOT block a real order. Only a real (submitted/filled/error) journal
-    // entry counts; a real placement below overwrites any dry-run doc.
+    // must NOT block a real order, and neither should a prior ERROR (e.g. a price
+    // the broker rejected): the next run inside the window retries it. Retrying is
+    // double-submit-safe because the deterministic client order id collides at the
+    // broker if the order actually went through. Only submitted/filled block.
     const existing = await journalRef.get();
-    if (existing.exists && existing.data().status !== 'dryrun') { skipped++; continue; }
+    if (existing.exists && !['dryrun', 'error'].includes(existing.data().status)) { skipped++; continue; }
 
     const match = signalMatchesRules(sig, cfg);
     if (!match.ok) { log(`skip ${sig.ticker}: ${match.reasons[0] || 'rule filter'}`); skipped++; continue; }
