@@ -175,6 +175,16 @@ export function entryLimitPrice(entry, side = 'buy', slippageBudgetPct = null) {
   return round2((side === 'sell') ? entry * (1 - b) : entry * (1 + b));
 }
 
+// Should an OPEN broker position be closed by the tracked exit model? The GTC
+// bracket already owns the TP and SL legs, so a tp/sl verdict is the bracket's
+// business (it fills at the broker on its own) — this pass acts only on the
+// exits a bracket can't express: RSI2's close>5-SMA native exit, per-strategy
+// time stops, and the trailing-stop model for trend strategies.
+const BROKER_MANAGED_EXITS = new Set(['native', 'time_stop', 'trail']);
+export function modelExitAction(verdict) {
+  return !!(verdict && verdict.status === 'closed' && BROKER_MANAGED_EXITS.has(verdict.exitReason));
+}
+
 // Round to a broker-valid price increment. Strategy math produces raw floats
 // (e.g. entry × 1.02 = 45.961200000000005) and Alpaca rejects sub-penny prices
 // on stocks ≥ $1 ("sub-penny increment does not fulfill minimum pricing

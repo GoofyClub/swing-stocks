@@ -30,8 +30,9 @@ import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
-  marketClock, inEntryWindow,
+  marketClock, inEntryWindow, modelExitAction,
 } from '../src/auto/engine.js';
+import { settleSignal, entryIndexFor } from '../src/strategy/normalize.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
@@ -356,6 +357,65 @@ async function processUser(db, uid, cfg) {
       } catch (e) { log(`reconcile ${data.ticker} failed: ${e.message}`); }
     }
   }
+
+  // --- Exit management: apply the tracked exit model to REAL filled positions.
+  // The GTC bracket already owns TP/SL; this pass adds the exits a bracket can't
+  // express — RSI2's close>5-SMA native exit, per-strategy time stops, and the
+  // trailing-stop model for trend strategies — by replaying the SAME settlement
+  // logic the app uses for W/L verdicts (settleSignal) over daily bars since the
+  // signal's session, then liquidating when it says native/time_stop/trail.
+  // Runs every pass; the ~15:45 ET reconcile slot gives it near-the-close daily
+  // granularity, matching the EOD-based rules.
+  try {
+    const filled = await db.collection('users').doc(uid).collection('autoOrders').where('status', 'in', ['filled', 'exit_submitted']).get();
+    if (!filled.empty) {
+      const livePositions = await client.getPositions();
+      for (const d of filled.docs) {
+        const data = d.data();
+        if ((data.side || 'buy') !== 'buy') continue; // exit model is long-only
+        const pos = livePositions.find(p => p.symbol === data.ticker && p.qty > 0);
+        if (!pos) {
+          // Bracket TP/SL, the exit liquidation, or a manual action flattened it —
+          // record terminal state and stop re-checking.
+          if (!DRY_RUN) await d.ref.update({ status: 'position_closed', positionClosedAt: admin.firestore.FieldValue.serverTimestamp() });
+          continue;
+        }
+        if (data.status === 'exit_submitted') continue; // liquidation order is working — wait
+        if (!data.sessionDate || !data.sl) continue;    // pre-v0.25 docs lack the session bucket
+        try {
+          // Bars from well before the session so indicator exits (5-SMA) have history.
+          const startDate = new Date(new Date(data.sessionDate + 'T00:00:00Z').getTime() - 45 * 86400_000).toISOString().slice(0, 10);
+          const bars = await client.getDailyBars(data.ticker, { start: startDate });
+          const entryIdx = entryIndexFor(bars, null, data.sessionDate);
+          const postBars = entryIdx >= 0 ? bars.slice(entryIdx + 1) : [];
+          if (!postBars.length) continue;
+          // tp:Infinity when the doc has none — disables the TP rule (bracket-less
+          // target) without disturbing the native/time-stop checks.
+          const verdict = settleSignal(
+            { entry: data.filledAvgPrice || data.entry, tp: data.tp ?? Infinity, sl: data.sl, pendingEntry: false, strategyKey: data.strategyKey },
+            postBars, { bars, entryIdx },
+          );
+          if (!modelExitAction(verdict)) continue; // still open, or tp/sl (bracket's job)
+          if (DRY_RUN) {
+            log(`DRYRUN would EXIT ${data.ticker} (${verdict.exitReason}, model ${verdict.winLoss} @ ${verdict.hitPrice})`);
+            continue;
+          }
+          // NOTE: Alpaca positions are per-symbol — if two strategies hold the same
+          // ticker this liquidates both; acceptable given the per-sector/position caps.
+          await client.closePosition(data.ticker, { cancelOrders: true });
+          await d.ref.update({
+            status: 'exit_submitted', exitReason: verdict.exitReason,
+            exitModelWinLoss: verdict.winLoss, exitModelPrice: verdict.hitPrice ?? null,
+            exitRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          log(`EXIT ${data.ticker}: ${verdict.exitReason} (model ${verdict.winLoss} @ ${verdict.hitPrice}) — position closed, bracket cancelled`);
+          await notify(db, uid, `🔴 <b>EXIT</b> ${data.ticker} × ${pos.qty} — ${verdict.exitReason === 'native' ? 'indicator exit (close > 5-SMA)' : verdict.exitReason === 'trail' ? 'trailing stop' : 'time stop'} · model ${verdict.winLoss?.toUpperCase()} @ ~${verdict.hitPrice}`);
+        } catch (e) {
+          log(`exit-check ${data.ticker} failed: ${e.message}`); // doc stays 'filled' → retried next run
+        }
+      }
+    }
+  } catch (e) { log(`exit management failed: ${e.message}`); }
 
   log(`done: placed=${placed} skipped=${skipped} of ${signals.length} signals`);
   return { placed, skipped };

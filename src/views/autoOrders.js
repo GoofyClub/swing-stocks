@@ -58,6 +58,8 @@ function statusBadge(o) {
   const s = (o.status || '').toLowerCase();
   if (s === 'filled') return '<span class="badge win">FILLED</span>';
   if (s === 'submitted' || s === 'new' || s === 'accepted') return '<span class="badge open">SUBMITTED</span>';
+  if (s === 'exit_submitted') return `<span class="badge open" title="Exit-model liquidation submitted (${escapeHtml(o.exitReason || '')})">EXITING</span>`;
+  if (s === 'position_closed') return '<span class="badge" title="Position no longer open at the broker (bracket TP/SL or exit filled)">CLOSED</span>';
   if (s === 'error' || s === 'rejected' || s === 'canceled') return `<span class="badge loss">${escapeHtml((o.status || 'ERROR').toUpperCase())}</span>`;
   return `<span class="badge">${escapeHtml(o.status || '—')}</span>`;
 }

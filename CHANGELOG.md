@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.29.0 — 2026-07-09 (automation: exit management for filled positions)
+
+### Added
+- **The worker now manages exits, not just entries.** Previously a filled
+  position was only protected by its fixed GTC bracket (TP + SL) — RSI2's
+  documented "close back above the 5-SMA" exit, the per-strategy time stops
+  (RSI2 7 sessions … PEAD 60), and the trailing-stop model for trend strategies
+  existed only in the virtual settlement that marks Signal History WIN/LOSS, so
+  real positions systematically diverged from the tracked stats. A new
+  exit-management pass in `auto-trade.mjs` replays the SAME `settleSignal`
+  logic over daily bars since the signal's session for every filled position;
+  when the model exits for a reason the bracket can't express
+  (`native`/`time_stop`/`trail`) it liquidates the position and cancels the
+  bracket legs (TP/SL verdicts stay the bracket's job). Runs on every pass —
+  the ~15:45 ET slot gives it end-of-day granularity. Dry-run logs would-exits.
+- Alpaca adapter: `getDailyBars` (split-adjusted, engine-shaped bars) and
+  `closePosition` (liquidate + cancel the symbol's open orders).
+- Journal lifecycle: `filled → exit_submitted → position_closed` (also set when
+  the bracket itself flattened the position); Auto Orders page shows EXITING /
+  CLOSED badges. Telegram 🔴 EXIT notification with the model's reason.
+- Engine helper `modelExitAction` + 7 tests.
+
 ## v0.28.2 — 2026-07-09 (fix: Alpaca sub-penny rejection on bracket prices)
 
 ### Fixed

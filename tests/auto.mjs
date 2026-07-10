@@ -8,7 +8,7 @@
 
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder, brokerPrice, regimeAllowsEntry, drawdownHalted,
+  isTradeDayAllowed, slippageOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
   marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -176,6 +176,18 @@ console.log('\n--- buildBracketOrder ---');
   t('pending stop entry rounds to penny', subPenny.stopPrice === 45.06);
   t('sub-dollar prices keep 4 decimals', brokerPrice(0.12345) === 0.1235 && brokerPrice(0.1234) === 0.1234);
   t('at/above $1 rounds to pennies', brokerPrice(1.005) === 1.01 || brokerPrice(1.005) === 1.0); // fp-safe: must be a penny increment
+}
+
+console.log('\n--- modelExitAction (broker exit management) ---');
+{
+  const closed = (exitReason) => ({ status: 'closed', winLoss: 'win', exitReason });
+  t('native exit acts', modelExitAction(closed('native')) === true);
+  t('time stop acts', modelExitAction(closed('time_stop')) === true);
+  t('trailing stop acts', modelExitAction(closed('trail')) === true);
+  t('tp is the bracket\'s job', modelExitAction(closed('tp')) === false);
+  t('sl is the bracket\'s job', modelExitAction(closed('sl')) === false);
+  t('open position does not act', modelExitAction({ status: 'open', exitReason: null }) === false);
+  t('null verdict does not act', modelExitAction(null) === false);
 }
 
 console.log('\n--- entryLimitPrice ---');
