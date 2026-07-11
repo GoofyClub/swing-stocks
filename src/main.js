@@ -22,6 +22,8 @@ import { renderAutomationGuide } from './views/automationGuide.js';
 import { renderAutoOrders } from './views/autoOrders.js';
 import { renderCronStatus } from './views/cronStatus.js';
 import { renderOptionsPlaybook } from './views/optionsPlaybook.js';
+import { renderCondorDesk } from './views/condorDesk.js';
+import { renderCondorGuide } from './views/condorGuide.js';
 import { onForegroundMessage, isFCMSupported } from './data/messaging.js';
 
 // Theme + font-size attributes are pre-set by an inline script in index.html
@@ -77,6 +79,8 @@ function mountAppShell() {
   route('auto-orders',      renderAutoOrders);
   route('cron-status',      renderCronStatus);
   route('options-playbook', renderOptionsPlaybook);
+  route('condor-desk',      renderCondorDesk);
+  route('condor-guide',     renderCondorGuide);
   defaultRoute('dashboard');
   const dispatch = start(main);
 

@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.30.0 — 2026-07-11 (Condor Desk + Condor Guide — weekly S&P iron condor)
+
+### Added
+- **Condor Desk tab** — a "no thinking required" morning tool for the weekly
+  1-DTE S&P iron condor (US translation of Sharique Samsudheen's "1%" Nifty
+  strategy). One click fetches CBOE's free delayed option chain (XSP / SPX /
+  SPY — no API key), applies the mechanical rules, and prints the exact four
+  legs to place in the broker: strikes, bid/ask/mid, per-side credits, stop
+  marks (close a side at 4× its credit), contract count sized so total credit
+  ≈ 1% of capital, max profit / defined risk, and a pasteable order ticket.
+  Warnings implement the base rules: skip-week credit floor, first-Friday NFP
+  flag, entry-day/time checks, capital-vs-allocation check.
+- **Adjustable + saveable configuration**: underlying, cadence (Thu→Fri /
+  any-day / twice-weekly), short-delta band, wing width %, credit floor %,
+  stop multiple, capital — stored per-user in Firestore
+  (`/users/{uid}/condor/config`, localStorage fallback) with named presets.
+- **Send to Telegram** button (reuses the existing Settings bot config) so the
+  legs arrive on the phone, and a **journal** (`/users/{uid}/condorTrades`)
+  with status/P&L tracking, win rate and total P&L summary.
+- **Condor Guide tab** — the full rulebook: why the S&P index (not "stable
+  stocks"), delta-based "safe legs" under US volatility, the 10 mechanical
+  rules, the ±1%-per-week math, a minute-by-minute weekly routine, Webull
+  specifics, and the discretion layer to add after 3 months. Longer-form
+  reference in `docs/us-weekly-iron-condor-rules.md`.
+- Engine (`src/data/condor.js`) is pure/DOM-free with 10 unit tests
+  (`npm run test:condor`): OCC parsing, CBOE payload parsing, cadence-based
+  expiry pick, delta-band + premium-fallback strike selection, wing snapping,
+  credit/stop/sizing math, skip-week and sizing warnings.
+- Firestore rules for the two new per-user subcollections (deploy with
+  `firebase deploy --only firestore:rules`).
+
 ## v0.29.0 — 2026-07-09 (automation: exit management for filled positions)
 
 ### Added
