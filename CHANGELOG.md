@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.38.0 — 2026-07-12 (Condor Desk: journal survives "Missing or insufficient permissions")
+
+### Fixed
+- **LOG THIS TRADE hard-failed with "Missing or insufficient permissions"**
+  whenever the account's Firestore security rules for
+  `/users/{uid}/condorTrades` hadn't been deployed yet (the repo owner's
+  one-time `firebase deploy --only firestore:rules` step) — even though
+  the Desk Manual already documented a localStorage fallback for the
+  journal, the code had none; `addCondorTrade`/`updateCondorTrade`/
+  `deleteCondorTrade` simply threw. They now fall back to localStorage
+  (matching the config/preset persistence that already worked this way),
+  so a rules/permissions/connectivity problem no longer blocks logging a
+  trade — it just stays on-device until the underlying Firestore issue is
+  fixed. `LOG THIS TRADE`'s status line now says "saved on this device
+  only" when the cloud write failed, instead of silently masking it.
+- `listCondorTrades` now merges locally-saved trades with Firestore ones
+  (sorted by creation time) so nothing logged during an outage disappears
+  once the cloud starts working again.
+- Desk Manual troubleshooting section updated with the specific error text.
+- Browser smoke (7/7): add/list/update/delete all exercised through the
+  local-storage fallback path (the same path a live "Missing or
+  insufficient permissions" error takes), confirming the trade is never
+  lost. Engine tests unaffected (43/43); `condorStore.js` isn't reachable
+  from the plain-Node engine test runner (it imports the Firebase SDK,
+  which needs Vite's `import.meta.env`), so this fix is covered by browser
+  smoke rather than `tests/condor.mjs`.
+
 ## v0.37.1 — 2026-07-12 (Condor Desk: computed legs survive a page refresh)
 
 ### Fixed

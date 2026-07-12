@@ -637,7 +637,7 @@ export function renderCondorDesk(root) {
     $('cd-log').addEventListener('click', async () => {
       say('Logging…');
       try {
-        await addCondorTrade({
+        const id = await addCondorTrade({
           date: c.etToday.iso, mode: c.mode, underlying: c.underlying, expiry: c.expiry, dte: c.dte, spot: c.spot,
           contracts: c.contracts,
           callSell: c.call.sell.strike, callBuy: c.call.buy.strike,
@@ -649,7 +649,9 @@ export function renderCondorDesk(root) {
           maxProfitUsd: c.maxProfitUsd, definedRiskUsd: c.definedRiskUsd,
           capital: cfg.capital, pnlUsd: null,
         });
-        say('✓ Logged', 'var(--green)');
+        say(id.startsWith('local-')
+          ? '✓ Logged (saved on this device only — cloud sync unavailable, see Desk Manual setup)'
+          : '✓ Logged', 'var(--green)');
         paintJournal();
       } catch (e) { say(e?.message || String(e), 'var(--red)'); }
     });
