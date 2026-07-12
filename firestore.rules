@@ -103,6 +103,16 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Condor Desk config + presets (/users/{uid}/condor/config) and the
+      // condor trade journal (/users/{uid}/condorTrades/{id}). Owner-only;
+      // written and read by the client (Condor Desk tab).
+      match /condor/{docId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /condorTrades/{tradeId} {
+        allow read, write: if isOwner(uid);
+      }
+
       // Notification channels (/users/{uid}/notifications/config) — e.g. Telegram
       // bot token + chat id. Owner-only; the workers read via the Admin SDK to
       // send entry/exit alerts.

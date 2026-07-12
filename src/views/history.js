@@ -10,6 +10,8 @@ import { initFirebase } from '../data/firebase.js';
 import { collection, query, orderBy, limit, getDocs, collectionGroup } from 'firebase/firestore';
 import { enterTrade, removeTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
+import { mobileRowsHTML, guardMobileRowButtons, isPhoneLayout } from '../ui/mobile-rows.js';
+import { initFilterCollapse } from '../ui/filter-collapse.js';
 import { computeEntryStatus, entryStatusBadge, indexMultiSignal, multiSignalBadge } from '../ui/signal-status.js';
 import { sectorName } from '../data/markets.js';
 import { loadColumnPrefs, saveColumnPrefs, resetColumnPrefs, visibleColumns, openColumnConfig } from '../ui/column-prefs.js';
@@ -199,18 +201,20 @@ function summariseByStrategy(rows) {
 }
 
 // Win/Loss outcome badge (the column the UI labels "STATUS").
-function wlBadge(r) {
+function wlBadgeInner(r) {
   const exitWhy = {
     tp: 'Hit take-profit', sl: 'Hit stop-loss',
     native: 'Indicator exit (close > 5-SMA)', time_stop: 'Time stop (max hold reached)',
     trail: 'Trailing stop (breakeven at +1R, trail 2R below high)',
   }[r.exitReason] || '';
   const t = exitWhy ? ` title="${escapeHtml(exitWhy)}"` : '';
-  const inner = r.status === 'open' ? '<span class="badge open">open</span>'
+  return r.status === 'open' ? '<span class="badge open">open</span>'
     : r.winLoss === 'win'  ? `<span class="badge win"${t}>WIN</span>`
     : r.winLoss === 'loss' ? `<span class="badge loss"${t}>LOSS</span>`
     : '<span class="badge">—</span>';
-  return `<td>${inner}</td>`;
+}
+function wlBadge(r) {
+  return `<td>${wlBadgeInner(r)}</td>`;
 }
 
 // Column registry for the Signals table. Each entry renders one <th> (header)
@@ -258,6 +262,11 @@ export async function renderHistory(root) {
       <p class="subtitle">Your full signal history, scoped to your selected market. Pick a timeframe (up to 2Y or All), filter, and click <span style="color:var(--amber)">★</span> on any row to track it. Switch market in the top bar to view the other side.</p>
 
       <div class="card">
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="btn-toggle-filters" class="btn-bare" type="button" aria-controls="history-filter-body">▾ FILTERS</button>
+          <span id="row-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
+        </div>
+        <div id="history-filter-body" style="margin-top:10px">
         <!-- Timeframe row -->
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <span style="color:var(--text-mute);font-size:0.85rem;text-transform:uppercase;letter-spacing:0.08em;margin-right:4px">Timeframe</span>
@@ -300,7 +309,7 @@ export async function renderHistory(root) {
           <button id="btn-save-filters" class="btn-bare" type="button" title="Save these filters for next time (this browser)">★ SAVE FILTERS</button>
           <button id="btn-columns" class="btn-bare" type="button" title="Reorder / show / hide table columns">⚙ COLUMNS</button>
           <button id="btn-csv" class="btn-bare" type="button">CSV ↓</button>
-          <span id="row-count" style="margin-left:auto;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem"></span>
+        </div>
         </div>
       </div>
 
@@ -330,6 +339,8 @@ export async function renderHistory(root) {
   // before deep-link params + saved filters apply their selections below.
   fillMultiSelect('f-index', INDEX_OPTIONS);
   fillMultiSelect('f-tier', TIER_OPTIONS);
+  // Collapsible filter bar; choice persists per view (hidden by default on phones).
+  initFilterCollapse({ viewKey: 'history', bodyEl: $('history-filter-body'), btnEl: $('btn-toggle-filters') });
 
   if (err) {
     const isPermission = /permission|insufficient/i.test(err);
@@ -516,7 +527,49 @@ export async function renderHistory(root) {
     const rSpan = (v, suffix = 'R') => v == null ? '<span style="color:var(--text-dim)">—</span>'
       : `<span style="color:${v >= 0 ? 'var(--green)' : 'var(--red)'}">${(v >= 0 ? '+' : '') + v.toFixed(2) + suffix}</span>`;
 
+    // Build ONLY the variant this screen shows; main.js re-renders on breakpoint change.
+    const phone = isPhoneLayout();
+
+    // Compact 2-line rows for phones (≤640px).
+    const pfFmt = (pf) => pf == null ? '—' : pf === Infinity ? '∞' : pf.toFixed(2);
+    const msumL2 = (n, wr, w, l, o, pf, avgR, totPct) => `
+      <div class="msum-l2">
+        <span>${n} trades</span>
+        <span>WR ${wr}</span>
+        <span><span style="color:var(--green)">${w}W</span>/<span style="color:var(--red)">${l}L</span>/${o}O</span>
+        <span>PF ${pf}</span>
+        ${avgR != null ? `<span>avg ${(avgR >= 0 ? '+' : '') + avgR.toFixed(2)}R</span>` : ''}
+        <span>${rSpan(totPct, '%')}</span>
+      </div>`;
+    const msum = !phone ? '' : `
+      <div class="mrows">
+        ${groups.map(g => `
+          <div class="msum" data-strategy="${escapeHtml(g.strategy)}" title="Tap to filter the table below to ${escapeHtml(g.strategy)} only">
+            <div class="msum-l1"><span class="msum-name">${escapeHtml(g.strategy)}</span><span class="msum-net">${rSpan(g.netR ?? null)}</span></div>
+            ${msumL2(g.total, g.winRate == null ? '—' : Math.round(g.winRate * 100) + '%', g.wins, g.losses, g.open, pfFmt(g.profitFactor), g.avgR, g.totalPct)}
+          </div>`).join('')}
+        ${groups.length > 1 ? `
+          <div class="msum">
+            <div class="msum-l1"><span class="msum-name">ALL</span><span class="msum-net">${rSpan(tot.netRClosed ? tot.netR : null)}</span></div>
+            ${msumL2(tot.total, totWr, tot.wins, tot.losses, tot.open, pfFmt(totPf), totAvgR, tot.totalPct)}
+          </div>` : ''}
+      </div>`;
+
+    if (phone) {
+      $('summary-table').innerHTML = `<div class="tbl-mobile-switch">${msum}</div>`;
+      $('summary-table').querySelectorAll('[data-strategy]').forEach(tr => {
+        tr.addEventListener('click', () => {
+          const s = tr.dataset.strategy;
+          const cur = getMultiSelectValues('f-strategy');
+          setMultiSelectValues('f-strategy', (cur.length === 1 && cur[0] === s) ? [] : [s]);
+          refresh();
+        });
+      });
+      return;
+    }
+
     $('summary-table').innerHTML = `
+      <div class="tbl-mobile-switch">
       <table class="data">
         <thead><tr>
           <th>STRATEGY</th>
@@ -584,9 +637,12 @@ export async function renderHistory(root) {
           <td class="num" title="Sum of realized %Δ across every closed trade listed.">${rSpan(tot.totalPct, '%')}</td>
         </tr></tfoot>
       </table>
+      ${msum}
+      </div>
     `;
-    // Click a summary row → set the strategy filter to that row's strategy.
-    $('summary-table').querySelectorAll('tr[data-strategy]').forEach(tr => {
+    // Click a summary row (table row on desktop, compact row on mobile) → set
+    // the strategy filter to that row's strategy.
+    $('summary-table').querySelectorAll('[data-strategy]').forEach(tr => {
       tr.addEventListener('click', () => {
         const s = tr.dataset.strategy;
         const cur = getMultiSelectValues('f-strategy');
@@ -609,12 +665,52 @@ export async function renderHistory(root) {
     const { tickerCount, multiTickers } = indexMultiSignal(filtered);
     const ctx = { entered, multiTickers, tickerCount };
     // Render columns in the user's chosen order, skipping hidden ones.
-    const cols = visibleColumns(colPrefs, FIXED_SIGNAL_COLS);
-    const thead = cols.map(k => SIGNAL_COLUMNS[k]?.header || '').join('');
-    const body = filtered.map(r =>
-      `<tr data-signal-id="${escapeHtml(tradeIdFor(r))}">${cols.map(k => SIGNAL_COLUMNS[k]?.render(r, ctx) || '').join('')}</tr>`
-    ).join('');
-    $('history-table').innerHTML = `<table class="data"><thead><tr>${thead}</tr></thead><tbody>${body}</tbody></table>`;
+    // Build ONLY the variant this screen shows (rendering both doubled the DOM
+    // for hundreds of rows and made filtering slow). main.js re-renders the
+    // view if the breakpoint changes.
+    if (isPhoneLayout()) {
+      // Compact 3-line rows for phones (≤640px).
+      const mrows = mobileRowsHTML(filtered.map(r => {
+        const id = tradeIdFor(r);
+        const on = ctx.entered.has(id);
+        const p = pctFor(r);
+        const rr = rrFor(r);
+        const outR = resultRFor(r);
+        const es = r.status === 'open' ? computeEntryStatus(r) : null;
+        const idxLbl = indexBadgeLabel(r);
+        const nums = [
+          { k: 'E', v: (r.entryPrice ?? 0).toFixed(2) },
+          { k: 'TP', v: (r.tpPrice ?? 0).toFixed(2), color: 'var(--green)' },
+          { k: 'SL', v: (r.slPrice ?? 0).toFixed(2), color: 'var(--red)' },
+        ];
+        if (r.currentPrice != null) nums.push({ k: 'Now', v: r.currentPrice.toFixed(2) });
+        return {
+          starHtml: `<button class="star-btn" data-action="${on ? 'remove' : 'enter'}" data-signal-id="${escapeHtml(id)}" title="${on ? 'Remove from My Trades' : 'Track on My Trades'}">${on ? '★' : '☆'}</button>`,
+          ticker: escapeHtml(r.ticker || ''),
+          name: escapeHtml(r.name || ''),
+          badgesHtml: tierBadge(r.tier, r.tierReasons) + wlBadgeInner(r),
+          meta: [escapeHtml(r.strategy || ''), escapeHtml(sectorName(r.sector) || ''), idxLbl, escapeHtml((r.signalTs || '').slice(5, 10))].filter(Boolean).join(' · '),
+          nums,
+          right: { v: p == null ? '—' : (p >= 0 ? '+' : '') + p.toFixed(2) + '%', color: p == null ? 'var(--text-dim)' : p >= 0 ? 'var(--green)' : 'var(--red)' },
+          detail: [
+            { k: 'R:R', v: rr == null ? '—' : rr.toFixed(2) + ':1' },
+            { k: 'Out R', v: outR == null ? '—' : `<span style="color:${outR >= 0 ? 'var(--green)' : 'var(--red)'}">${(outR >= 0 ? '+' : '') + outR.toFixed(2)}R</span>` },
+            { k: 'Date', v: escapeHtml((r.signalTs || '').slice(0, 10)) },
+            { k: 'Side', v: escapeHtml(r.side || '—') },
+            { k: 'Entry status', v: es ? entryStatusBadge(es) : '—' },
+          ],
+        };
+      }));
+      $('history-table').innerHTML = `<div class="tbl-mobile-switch">${mrows}</div>`;
+      guardMobileRowButtons($('history-table'));
+    } else {
+      const cols = visibleColumns(colPrefs, FIXED_SIGNAL_COLS);
+      const thead = cols.map(k => SIGNAL_COLUMNS[k]?.header || '').join('');
+      const body = filtered.map(r =>
+        `<tr data-signal-id="${escapeHtml(tradeIdFor(r))}">${cols.map(k => SIGNAL_COLUMNS[k]?.render(r, ctx) || '').join('')}</tr>`
+      ).join('');
+      $('history-table').innerHTML = `<table class="data"><thead><tr>${thead}</tr></thead><tbody>${body}</tbody></table>`;
+    }
 
     $('history-table').querySelectorAll('.star-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {

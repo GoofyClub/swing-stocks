@@ -11,6 +11,10 @@ const NAV = [
     { id: 'history',       icon: '⏱', label: 'Signal History' },
     { id: 'watchlist',     icon: '≡', label: 'Watchlist' },
   ]},
+  { group: 'Options Income', items: [
+    { id: 'condor-desk',  icon: '⛰', label: 'Condor Desk' },
+    { id: 'condor-guide', icon: 'i', label: 'Condor Guide' },
+  ]},
   { group: 'Automation', items: [
     { id: 'automation',       icon: '⚡', label: 'Automation' },
     { id: 'auto-orders',      icon: '⛁', label: 'Auto Orders' },

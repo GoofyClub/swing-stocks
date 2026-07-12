@@ -17,7 +17,10 @@
       "Bash(gh run *)",
       "Bash(node -e \"import\\('./scripts/refresh-signals.mjs'\\).catch\\(e=>{if\\(/FIREBASE_PROJECT_ID/.test\\(e.message\\)\\){console.log\\('cron module loads OK \\(expected env error\\)'\\)}else{console.error\\('IMPORT ERROR',e.message\\);process.exit\\(1\\)}}\\)\")",
       "Bash(node -e \"import\\('./src/strategy/normalize.js'\\).then\\(m=>{console.log\\('SETTLEMENT_VERSION =', m.SETTLEMENT_VERSION\\); console.log\\('exports ok:', ['settleSignal','tierReasons','SETTLEMENT_VERSION','STRATEGIES'].every\\(k=>k in m\\)\\)}\\)\")",
-      "Bash(git commit -m 'Live Signals strategy filter + one-time re-settlement of historical signals *)"
+      "Bash(git commit -m 'Live Signals strategy filter + one-time re-settlement of historical signals *)",
+      "Bash(rm /root/.claude/projects/-home-user-swing-stocks/76c5899d-ded7-5850-9167-d29a3ab7349c/tool-results/mcp-github-actions_list-1783483405620.txt)",
+      "Bash(python3 -c ' *)",
+      "Bash(rm /root/.claude/projects/-home-user-swing-stocks/76c5899d-ded7-5850-9167-d29a3ab7349c/tool-results/mcp-github-actions_list-1783528791767.txt)"
     ]
   }
 }

@@ -22,6 +22,8 @@ import { renderAutomationGuide } from './views/automationGuide.js';
 import { renderAutoOrders } from './views/autoOrders.js';
 import { renderCronStatus } from './views/cronStatus.js';
 import { renderOptionsPlaybook } from './views/optionsPlaybook.js';
+import { renderCondorDesk } from './views/condorDesk.js';
+import { renderCondorGuide } from './views/condorGuide.js';
 import { onForegroundMessage, isFCMSupported } from './data/messaging.js';
 
 // Theme + font-size attributes are pre-set by an inline script in index.html
@@ -77,6 +79,8 @@ function mountAppShell() {
   route('auto-orders',      renderAutoOrders);
   route('cron-status',      renderCronStatus);
   route('options-playbook', renderOptionsPlaybook);
+  route('condor-desk',      renderCondorDesk);
+  route('condor-guide',     renderCondorGuide);
   defaultRoute('dashboard');
   const dispatch = start(main);
 
@@ -91,6 +95,12 @@ function mountAppShell() {
   subscribe((reason) => {
     if (reason === 'market') dispatch();
   });
+
+  // Views render EITHER the desktop table OR the compact phone rows (not both —
+  // that doubled the DOM and made filtering slow). Crossing the breakpoint
+  // (rotate / split-screen / window resize) re-renders the active view so the
+  // right variant appears.
+  PHONE_MQ.addEventListener('change', () => dispatch());
 
   // Keyboard shortcuts.
   document.addEventListener('keydown', (e) => {
@@ -161,6 +171,45 @@ async function boot() {
     }
   });
 }
+
+// -----------------------------------------------------------------------------
+// Mobile table labels — on phones (≤640px) app.css stacks each table row into a
+// labelled card instead of forcing sideways scrolling. The per-cell labels come
+// from a data-label attribute (rendered by `td::before { content: attr(...) }`),
+// stamped here from the column headers. Views render plain HTML strings and
+// re-render freely, so this runs generically off a MutationObserver instead of
+// every view wiring it up itself.
+// -----------------------------------------------------------------------------
+const WIDE_CELL_MIN_CHARS = 28; // prose-length cells span the full card width
+const PHONE_MQ = window.matchMedia('(max-width: 640px)');
+
+function labelDataTables() {
+  // Labels are only ever rendered by the ≤640px card CSS — skip the work
+  // entirely on larger screens (it was making desktop re-renders sluggish).
+  if (!PHONE_MQ.matches) return;
+  document.querySelectorAll('table.data').forEach((table) => {
+    // Tables with a compact .mrows alternative are hidden on phones — their
+    // cells never show labels, so don't walk them (History alone is ~8k cells).
+    if (table.closest('.tbl-mobile-switch')) return;
+    const heads = [...table.querySelectorAll(':scope > thead th')].map(th => th.textContent.trim());
+    if (!heads.length) return;
+    table.querySelectorAll(':scope > tbody > tr, :scope > tfoot > tr').forEach((tr) => {
+      [...tr.children].forEach((td, i) => {
+        const label = heads[i] || '';
+        if (td.getAttribute('data-label') !== label) td.setAttribute('data-label', label);
+        td.classList.toggle('cell-wide', (td.textContent || '').trim().length >= WIDE_CELL_MIN_CHARS);
+      });
+    });
+  });
+}
+
+// Observe childList only: the attribute/class writes above don't re-trigger it.
+let tableLabelQueued = false;
+new MutationObserver(() => {
+  if (tableLabelQueued) return;
+  tableLabelQueued = true;
+  requestAnimationFrame(() => { tableLabelQueued = false; labelDataTables(); });
+}).observe(document.documentElement, { childList: true, subtree: true });
 
 // Persist prefs on change.
 window.addEventListener('beforeunload', () => {

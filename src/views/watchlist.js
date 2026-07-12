@@ -9,6 +9,7 @@ import {
 } from '../data/watchlist.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../data/markets.js';
 import { openModal } from '../ui/modal.js';
+import { mobileRowsHTML, isPhoneLayout } from '../ui/mobile-rows.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -61,6 +62,24 @@ export async function renderWatchlist(root) {
       tableEl.innerHTML = `<div class="empty">Your ${escapeHtml(state.market)} watchlist is empty. Click <b>IMPORT ${escapeHtml(state.market === 'INDIA' ? 'NIFTY 50' : 'S&amp;P 500 LEADERS')}</b> to load the curated basket, <b>BULK ADD</b> to paste your own list, or <b>+ ADD TICKER</b> to add one by hand.</div>`;
       return;
     }
+    // Compact rows for phones (≤640px); table only on desktop. Expanding a row
+    // reveals notes and the edit/remove actions.
+    if (isPhoneLayout()) {
+      tableEl.innerHTML = `<div class="tbl-mobile-switch">${mobileRowsHTML(items.map(w => {
+        const added = w.addedAt?.toDate?.()?.toISOString?.()?.slice(0, 10) || '';
+        const detail = [{ k: 'Added', v: escapeHtml(added || '—') }];
+        if (w.notes) detail.push({ k: 'Notes', v: escapeHtml(w.notes), wide: true });
+        return {
+          ticker: escapeHtml(w.ticker),
+          name: escapeHtml(w.name || w.ticker),
+          meta: escapeHtml(w.sector || ''),
+          detail,
+          actionsHtml: `
+            <button class="btn-bare wl-edit" data-ticker="${escapeHtml(w.ticker)}">✎ Edit notes</button>
+            <button class="btn-bare wl-remove" data-ticker="${escapeHtml(w.ticker)}">✕ Remove</button>`,
+        };
+      }))}</div>`;
+    } else {
     tableEl.innerHTML = `
       <table class="data">
         <thead><tr>
@@ -84,6 +103,7 @@ export async function renderWatchlist(root) {
         </tbody>
       </table>
     `;
+    }
 
     tableEl.querySelectorAll('.wl-remove').forEach(btn => {
       btn.addEventListener('click', () => {

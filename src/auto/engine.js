@@ -131,11 +131,15 @@ export function marketClock(now = new Date()) {
 }
 
 // Regular US session opens 09:30 ET (570 min). New entries are only placed inside
-// [open, open + windowMinutes] ET — early enough that a limit at the signal price
-// still fills near the open, and closed off before the afternoon so a late/laggy
-// cron run can't enter at a drifted price. Reconciliation runs regardless.
+// [open, open + windowMinutes] ET. Price-drift protection comes from the limit
+// order at the signal entry price plus the slippageOk gate — NOT from a tight
+// window — so the window can be generous: it only needs to shut off entries by
+// the late afternoon. It is 210 min (09:30-13:00 ET) because GitHub Actions cron
+// on this repo routinely fires 2-3 hours late; a 90-min window meant every
+// scheduled run landed after it closed and no entries were ever placed.
+// Reconciliation runs regardless of the window.
 export const MARKET_OPEN_ET_MIN = 9 * 60 + 30;
-export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = 90 } = {}) {
+export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = 210 } = {}) {
   const { minutes } = marketClock(now);
   return minutes >= openMinuteET && minutes <= openMinuteET + windowMinutes;
 }
@@ -171,13 +175,33 @@ export function entryLimitPrice(entry, side = 'buy', slippageBudgetPct = null) {
   return round2((side === 'sell') ? entry * (1 - b) : entry * (1 + b));
 }
 
+// Should an OPEN broker position be closed by the tracked exit model? The GTC
+// bracket already owns the TP and SL legs, so a tp/sl verdict is the bracket's
+// business (it fills at the broker on its own) — this pass acts only on the
+// exits a bracket can't express: RSI2's close>5-SMA native exit, per-strategy
+// time stops, and the trailing-stop model for trend strategies.
+const BROKER_MANAGED_EXITS = new Set(['native', 'time_stop', 'trail']);
+export function modelExitAction(verdict) {
+  return !!(verdict && verdict.status === 'closed' && BROKER_MANAGED_EXITS.has(verdict.exitReason));
+}
+
+// Round to a broker-valid price increment. Strategy math produces raw floats
+// (e.g. entry × 1.02 = 45.961200000000005) and Alpaca rejects sub-penny prices
+// on stocks ≥ $1 ("sub-penny increment does not fulfill minimum pricing
+// criteria"); under $1 it accepts up to 4 decimals.
+export function brokerPrice(x) {
+  if (x == null || !Number.isFinite(x)) return null;
+  return x >= 1 ? Math.round(x * 100) / 100 : Math.round(x * 10000) / 10000;
+}
+
 // Broker-agnostic bracket-order intent. The adapter translates this to its own
 // API shape. We always attach the stop + target so a fill is protected.
 //
 // Entries are LIMIT orders bounded by the slippage budget (not market) so a run
 // that fires late — after GitHub Actions lag — can't chase a moved price: it
 // either fills near the signal price or doesn't fill. Buy-stop strategies keep
-// their stop-entry trigger.
+// their stop-entry trigger. Every price is passed through brokerPrice so no
+// raw float ever reaches the API.
 export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudgetPct = null }) {
   const isBuy = (signal.side || 'buy') === 'buy';
   const pending = !!signal.pendingEntry;
@@ -188,10 +212,10 @@ export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudge
     side: isBuy ? 'buy' : 'sell',
     qty: shares,
     type: pending ? 'stop' : 'limit',
-    stopPrice: pending ? signal.entryPrice : null,
-    limitPrice,
+    stopPrice: pending ? brokerPrice(signal.entryPrice) : null,
+    limitPrice: brokerPrice(limitPrice),
     timeInForce: 'gtc',
-    takeProfit: signal.tpPrice != null ? { limitPrice: signal.tpPrice } : null,
-    stopLoss: signal.slPrice != null ? { stopPrice: signal.slPrice } : null,
+    takeProfit: signal.tpPrice != null ? { limitPrice: brokerPrice(signal.tpPrice) } : null,
+    stopLoss: signal.slPrice != null ? { stopPrice: brokerPrice(signal.slPrice) } : null,
   };
 }

@@ -8,7 +8,7 @@
 
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
+  isTradeDayAllowed, slippageOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
   marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -165,6 +165,29 @@ console.log('\n--- buildBracketOrder ---');
   t('buy limit bounded up by slippage budget', bounded.limitPrice === 100.3);
   const stop = buildBracketOrder({ signal: sig({ pendingEntry: true }), shares: 100, clientOrderId: 'x', slippageBudgetPct: 0.3 });
   t('stop-entry when pendingEntry (no limit)', stop.type === 'stop' && stop.stopPrice === 100 && stop.limitPrice === null);
+  // Regression: strategy math yields raw floats (45.06 × 1.02 = 45.961200000000005)
+  // and Alpaca rejects sub-penny prices — every price must round to the penny.
+  const subPenny = buildBracketOrder({
+    signal: sig({ entryPrice: 45.06, tpPrice: 45.06 * 1.02, slPrice: 45.06 * 0.98, pendingEntry: true }),
+    shares: 10, clientOrderId: 'x',
+  });
+  t('TP rounds sub-penny float to penny', subPenny.takeProfit.limitPrice === 45.96);
+  t('SL rounds sub-penny float to penny', subPenny.stopLoss.stopPrice === 44.16);
+  t('pending stop entry rounds to penny', subPenny.stopPrice === 45.06);
+  t('sub-dollar prices keep 4 decimals', brokerPrice(0.12345) === 0.1235 && brokerPrice(0.1234) === 0.1234);
+  t('at/above $1 rounds to pennies', brokerPrice(1.005) === 1.01 || brokerPrice(1.005) === 1.0); // fp-safe: must be a penny increment
+}
+
+console.log('\n--- modelExitAction (broker exit management) ---');
+{
+  const closed = (exitReason) => ({ status: 'closed', winLoss: 'win', exitReason });
+  t('native exit acts', modelExitAction(closed('native')) === true);
+  t('time stop acts', modelExitAction(closed('time_stop')) === true);
+  t('trailing stop acts', modelExitAction(closed('trail')) === true);
+  t('tp is the bracket\'s job', modelExitAction(closed('tp')) === false);
+  t('sl is the bracket\'s job', modelExitAction(closed('sl')) === false);
+  t('open position does not act', modelExitAction({ status: 'open', exitReason: null }) === false);
+  t('null verdict does not act', modelExitAction(null) === false);
 }
 
 console.log('\n--- entryLimitPrice ---');
@@ -182,6 +205,11 @@ console.log('\n--- marketClock / inEntryWindow (DST-aware ET) ---');
   t('EDT morning maps to 09:40 ET', marketClock(edtMorning).minutes === 9 * 60 + 40);
   t('EDT date is the ET calendar day', marketClock(edtMorning).date === '2026-07-03');
   t('09:40 ET is inside entry window', inEntryWindow(edtMorning) === true);
+  // 16:30 UTC = 12:30 EDT — where GitHub's delayed cron actually lands; must be
+  // inside the (widened) window so late runs can still place entries.
+  t('12:30 ET is inside entry window', inEntryWindow(new Date('2026-07-03T16:30:00Z')) === true);
+  // 17:30 UTC = 13:30 EDT → past the 13:00 ET cutoff, outside the window.
+  t('13:30 ET is outside entry window', inEntryWindow(new Date('2026-07-03T17:30:00Z')) === false);
   // 19:45 UTC = 15:45 EDT → afternoon, outside the window.
   t('15:45 ET is outside entry window', inEntryWindow(new Date('2026-07-03T19:45:00Z')) === false);
   // 2026-01-05 14:40 UTC = 09:40 EST (winter, UTC-5) → in window.

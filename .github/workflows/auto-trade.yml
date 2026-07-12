@@ -23,18 +23,22 @@ on:
         description: 'Global kill switch — abort without placing any orders'
         required: false
         default: 'false'
-  # GitHub cron is fixed UTC (no DST) AND best-effort — scheduled runs routinely
-  # land 10-40 min late. So we fire SEVERAL times across the morning; the worker
-  # gates new entries to the 09:30-11:00 ET window (src/auto/engine.js inEntryWindow)
-  # and is idempotent (deterministic client order id), so early/late/duplicate
-  # runs are harmless — the first one inside the window that finds the previous
-  # session's signals places the (limit) orders; the rest just reconcile. The
-  # UTC slots below cover the ET window in both EDT (summer) and EST (winter).
+  # GitHub cron is fixed UTC (no DST) AND best-effort — on this repo scheduled
+  # runs have been observed starting 2-3 HOURS late (e.g. the old 13:35 UTC slot
+  # ran at ~16:00 UTC / 12:00 ET). So the slots below start well BEFORE the
+  # market open and repeat every 30 min: whatever the delay, several runs land
+  # inside the entry window. The worker gates new entries to the 09:30-13:00 ET
+  # window (src/auto/engine.js inEntryWindow) and is idempotent (deterministic
+  # client order id), so early/late/duplicate runs are harmless — runs before
+  # the open or after the window just reconcile; the first one inside the
+  # window places the (limit) orders. Covers both EDT (summer) and EST (winter).
   schedule:
-    - cron: "35,55 13 * * 1-5"     # EDT 09:35, 09:55 ET
-    - cron: "15,35,55 14 * * 1-5"  # EDT 10:15/10:35/10:55 · EST 09:15/09:35/09:55 ET
-    - cron: "15 15 * * 1-5"        # EST 10:15 ET
-    - cron: "45 19 * * 1-5"        # ~15:45 ET (both regimes) — reconcile fills/exits
+    - cron: "20,50 11 * * 1-5"   # land ~09:30-10:50 ET (EDT) with the typical 2-3h delay
+    - cron: "20,50 12 * * 1-5"
+    - cron: "20,50 13 * * 1-5"   # 09:20/09:50 EDT if GitHub ever runs on time
+    - cron: "20,50 14 * * 1-5"   # 10:20/10:50 EDT · 09:20/09:50 EST on time
+    - cron: "20 15 * * 1-5"      # 11:20 EDT · 10:20 EST on time
+    - cron: "45 18 * * 1-5"      # reconcile fills/exits — lands ~15:45-16:15 ET with the usual ~1h delay
 
 jobs:
   auto-trade:

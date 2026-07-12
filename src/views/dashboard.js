@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { sparkline } from '../ui/sparkline.js';
 import { openModal } from '../ui/modal.js';
+import { mobileRowsHTML, isPhoneLayout } from '../ui/mobile-rows.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -465,7 +466,20 @@ export async function renderDashboard(root) {
 
   // ---- Today's top signals
   document.getElementById('sig-count').textContent = sigs.signals.length ? `(${sigs.signals.length})` : '';
-  document.getElementById('today-signals').innerHTML = sigs.signals.length ? `
+  const phone = isPhoneLayout();
+  document.getElementById('today-signals').innerHTML = !sigs.signals.length
+    ? `<div class="empty">No signals yet for ${escapeHtml(market)}. The cron job populates these once per refresh window.</div>`
+    : phone ? `<div class="tbl-mobile-switch">${mobileRowsHTML(sigs.signals.map(s => ({
+        ticker: escapeHtml(s.ticker),
+        name: escapeHtml(s.name || ''),
+        badgesHtml: `<span class="badge ${s.side === 'sell' ? 'loss' : 'open'}">${escapeHtml(s.side || '—')}</span>`,
+        meta: [escapeHtml(s.strategy || ''), escapeHtml(s.signalTs?.slice(11, 16) || '')].filter(Boolean).join(' · '),
+        nums: [
+          { k: 'E', v: (s.entryPrice ?? 0).toFixed(2) },
+          { k: 'TP', v: (s.tpPrice ?? 0).toFixed(2), color: 'var(--green)' },
+          { k: 'SL', v: (s.slPrice ?? 0).toFixed(2), color: 'var(--red)' },
+        ],
+      })))}</div>` : `
     <table class="data">
       <thead><tr><th>TIME</th><th>NAME</th><th>TICKER</th><th>STRATEGY</th><th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th><th>SIDE</th></tr></thead>
       <tbody>
@@ -481,14 +495,31 @@ export async function renderDashboard(root) {
         </tr>`).join('')}
       </tbody>
     </table>
-  ` : `<div class="empty">No signals yet for ${escapeHtml(market)}. The cron job populates these once per refresh window.</div>`;
+  `;
 
   // ---- Sector ranks
   document.getElementById('sector-ranks').innerHTML = sectorRanksHtml(regime);
 
   // ---- Open trades
   document.getElementById('open-count').textContent = openTrades.length ? `(${openTrades.length})` : '';
-  document.getElementById('open-trades').innerHTML = openTrades.length ? `
+  document.getElementById('open-trades').innerHTML = !openTrades.length
+    ? `<div class="empty">No open trades. Mark a signal as "Entered" from Signal History to start tracking.</div>`
+    : phone ? `<div class="tbl-mobile-switch">${mobileRowsHTML(openTrades.map(t => {
+        const pl = t.currentPrice != null && t.entryPrice ? ((t.currentPrice - t.entryPrice) / t.entryPrice) * 100 : null;
+        const nums = [
+          { k: 'E', v: (t.entryPrice ?? 0).toFixed(2) },
+          { k: 'TP', v: (t.tpPrice ?? 0).toFixed(2), color: 'var(--green)' },
+          { k: 'SL', v: (t.slPrice ?? 0).toFixed(2), color: 'var(--red)' },
+        ];
+        if (t.currentPrice != null) nums.push({ k: 'Now', v: t.currentPrice.toFixed(2) });
+        return {
+          ticker: escapeHtml(t.ticker),
+          name: escapeHtml(t.name || ''),
+          meta: escapeHtml(t.strategy || ''),
+          nums,
+          right: { v: pl == null ? '—' : (pl >= 0 ? '+' : '') + pl.toFixed(2) + '%', color: pl == null ? 'var(--text-dim)' : pl >= 0 ? 'var(--green)' : 'var(--red)' },
+        };
+      }))}</div>` : `
     <table class="data">
       <thead><tr><th>NAME</th><th>TICKER</th><th>STRATEGY</th><th class="num">ENTRY</th><th class="num">TP</th><th class="num">SL</th><th class="num">CURRENT</th><th class="num">UNREAL.</th></tr></thead>
       <tbody>
@@ -507,5 +538,5 @@ export async function renderDashboard(root) {
         }).join('')}
       </tbody>
     </table>
-  ` : `<div class="empty">No open trades. Mark a signal as "Entered" from Signal History to start tracking.</div>`;
+  `;
 }

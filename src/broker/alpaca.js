@@ -123,6 +123,31 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
       return { isOpen: !!c.is_open, nextOpen: c.next_open, nextClose: c.next_close, timestamp: c.timestamp };
     },
 
+    // Daily bars from the market-data API, ascending, shaped like the strategy
+    // engine's bars ({date, open, high, low, close, volume}) so settleSignal can
+    // run directly on them. Used by the exit-management pass. split-adjusted so
+    // indicator math (5-SMA etc.) stays continuous across splits.
+    async getDailyBars(symbol, { start, end = null, limit = 300 } = {}) {
+      const q = new URLSearchParams({ timeframe: '1Day', adjustment: 'split', limit: String(limit) });
+      if (start) q.set('start', `${start}T00:00:00Z`);
+      if (end)   q.set('end', `${end}T23:59:59Z`);
+      const res = await fetchImpl(`${dataRoot}/v2/stocks/${encodeURIComponent(symbol)}/bars?${q}`, { headers });
+      if (!res.ok) throw new Error(`Alpaca bars ${symbol} failed: ${res.status} ${await res.text().catch(() => '')}`);
+      const j = await res.json().catch(() => null);
+      return (j?.bars || []).map(b => ({
+        date: String(b.t).slice(0, 10),
+        open: Number(b.o), high: Number(b.h), low: Number(b.l), close: Number(b.c),
+        volume: Number(b.v),
+      }));
+    },
+
+    // Liquidate a position (market order). cancelOrders=true also cancels the
+    // symbol's open orders (the resting bracket legs) — required, since Alpaca
+    // rejects a close while the bracket still holds the shares.
+    async closePosition(symbol, { cancelOrders = true } = {}) {
+      return req('DELETE', `/v2/positions/${encodeURIComponent(symbol)}?cancel_orders=${cancelOrders ? 'true' : 'false'}`);
+    },
+
     // Latest trade price from the market-data API (separate host). Used for the
     // pre-trade slippage check so we compare against a live price, not a stale
     // EOD close. Returns null on any failure so the caller can fall back.

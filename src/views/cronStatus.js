@@ -47,12 +47,12 @@ export async function renderCronStatus(root) {
             <tr><td>Refresh shared signals</td><td>11:00 · Mon–Fri</td><td>~06:30 ET</td><td>India NSE end-of-day pass</td></tr>
             <tr><td><b>Refresh broad universe</b></td><td>21:30 · Mon–Fri</td><td>~17:30 ET (after close)</td><td>Full S&amp;P 500/400/600 scan (once daily)</td></tr>
             <tr><td><b>Refresh S&amp;P universe</b></td><td>08:00 · Saturday</td><td>~04:00 ET Sat</td><td>Refresh + validate the S&amp;P constituent lists</td></tr>
-            <tr><td><b>Auto-trade</b></td><td>13:40 &amp; 14:40 · Mon–Fri</td><td>~09:40 ET (just after open)</td><td>Place orders from matching signals</td></tr>
-            <tr><td>Auto-trade</td><td>19:45 · Mon–Fri</td><td>~15:45 ET (before close)</td><td>Reconcile fills / exits</td></tr>
+            <tr><td><b>Auto-trade</b></td><td>Every 30 min, 11:20–15:20 · Mon–Fri</td><td>entries land 09:30–13:00 ET</td><td>Place orders from matching signals (first run inside the entry window)</td></tr>
+            <tr><td>Auto-trade</td><td>18:45 · Mon–Fri</td><td>~15:45 ET (before close)</td><td>Reconcile fills / exits</td></tr>
           </tbody>
         </table>
         </div>
-        <p class="muted" style="margin-top:8px">Cron is fixed UTC and doesn't shift for daylight saving, so the Eastern times drift ±1h between summer (EDT) and winter (EST). Trigger any worker on demand: GitHub → Actions → pick the workflow → Run workflow.</p>
+        <p class="muted" style="margin-top:8px"><b>Times above are when GitHub is asked to start a run, not when it actually runs</b> — GitHub Actions cron is best-effort and on this repo runs typically start <b>2–3 hours late</b>. The schedules fire early and often to compensate: the auto-trade worker itself gates new entries to 09:30–13:00 ET wall-clock, so early runs just reconcile and whichever run lands inside the window places the orders. Cron is also fixed UTC (no daylight-saving shift), so Eastern times drift ±1h between EDT and EST. Trigger any worker on demand: GitHub → Actions → pick the workflow → Run workflow.</p>
       </div>
 
       <div class="card"><div id="cron-table"><div class="empty">Loading…</div></div></div>

@@ -1,5 +1,179 @@
 # Changelog
 
+## v0.31.0 — 2026-07-11 (Condor Desk: 30–45 DTE managed mode as default + trader-POV polish)
+
+### Added
+- **Expiry mode switch with 30–45 DTE managed as the DEFAULT** (per the
+  daystoexpiry.com iron-condor entry/exit playbook): enter at the listed
+  expiry closest to ~38 DTE (30–45 accepted), short strikes 0.15–0.20Δ,
+  wings ~1.5% of spot, **take profit at 50% of credit, time-exit at 21 DTE,
+  hard stop at 2× credit loss** (~78–82% managed win rate historically).
+  Sizing rule: defined risk per trade ≤ 20% of capital (configurable).
+  The 1-DTE weekly source strategy remains as the second mode with its
+  per-side 3×-credit stops; each mode is a complete, separately-saved
+  parameter set and the trade card / ticket adapt their management lines.
+- **Pros/cons notes + tooltips**: visible pros/cons panels for each expiry
+  mode in the config, and a hover tooltip on every config field explaining
+  what it does and why the default is what it is.
+- **Trader-POV additions to the trade card**: natural vs mid credit (with a
+  fill-acceptance floor), credit as % of wing width, expiry DTE, breakeven
+  range with distance from spot, per-leg liquidity warnings (thin OI /
+  wide bid-ask), GTC profit-target instruction for Webull, and a
+  RESET MODE DEFAULTS button. Config panel auto-collapses once a trade
+  card is on screen; journal gains TP-HIT / TIME-EXIT statuses and a mode
+  column, and logged trades store their exit plan.
+- Guide rewritten around the two modes with a side-by-side comparison
+  table and a "reading the trade card like a trader" section. Engine tests
+  extended to 12 (managed-mode expiry snapping, marks, sizing, liquidity
+  flags, mode-specific tickets).
+
+## v0.30.0 — 2026-07-11 (Condor Desk + Condor Guide — weekly S&P iron condor)
+
+### Added
+- **Condor Desk tab** — a "no thinking required" morning tool for the weekly
+  1-DTE S&P iron condor (US translation of Sharique Samsudheen's "1%" Nifty
+  strategy). One click fetches CBOE's free delayed option chain (XSP / SPX /
+  SPY — no API key), applies the mechanical rules, and prints the exact four
+  legs to place in the broker: strikes, bid/ask/mid, per-side credits, stop
+  marks (close a side at 4× its credit), contract count sized so total credit
+  ≈ 1% of capital, max profit / defined risk, and a pasteable order ticket.
+  Warnings implement the base rules: skip-week credit floor, first-Friday NFP
+  flag, entry-day/time checks, capital-vs-allocation check.
+- **Adjustable + saveable configuration**: underlying, cadence (Thu→Fri /
+  any-day / twice-weekly), short-delta band, wing width %, credit floor %,
+  stop multiple, capital — stored per-user in Firestore
+  (`/users/{uid}/condor/config`, localStorage fallback) with named presets.
+- **Send to Telegram** button (reuses the existing Settings bot config) so the
+  legs arrive on the phone, and a **journal** (`/users/{uid}/condorTrades`)
+  with status/P&L tracking, win rate and total P&L summary.
+- **Condor Guide tab** — the full rulebook: why the S&P index (not "stable
+  stocks"), delta-based "safe legs" under US volatility, the 10 mechanical
+  rules, the ±1%-per-week math, a minute-by-minute weekly routine, Webull
+  specifics, and the discretion layer to add after 3 months. Longer-form
+  reference in `docs/us-weekly-iron-condor-rules.md`.
+- Engine (`src/data/condor.js`) is pure/DOM-free with 10 unit tests
+  (`npm run test:condor`): OCC parsing, CBOE payload parsing, cadence-based
+  expiry pick, delta-band + premium-fallback strike selection, wing snapping,
+  credit/stop/sizing math, skip-week and sizing warnings.
+- Firestore rules for the two new per-user subcollections (deploy with
+  `firebase deploy --only firestore:rules`).
+
+## v0.29.0 — 2026-07-09 (automation: exit management for filled positions)
+
+### Added
+- **The worker now manages exits, not just entries.** Previously a filled
+  position was only protected by its fixed GTC bracket (TP + SL) — RSI2's
+  documented "close back above the 5-SMA" exit, the per-strategy time stops
+  (RSI2 7 sessions … PEAD 60), and the trailing-stop model for trend strategies
+  existed only in the virtual settlement that marks Signal History WIN/LOSS, so
+  real positions systematically diverged from the tracked stats. A new
+  exit-management pass in `auto-trade.mjs` replays the SAME `settleSignal`
+  logic over daily bars since the signal's session for every filled position;
+  when the model exits for a reason the bracket can't express
+  (`native`/`time_stop`/`trail`) it liquidates the position and cancels the
+  bracket legs (TP/SL verdicts stay the bracket's job). Runs on every pass —
+  the ~15:45 ET slot gives it end-of-day granularity. Dry-run logs would-exits.
+- Alpaca adapter: `getDailyBars` (split-adjusted, engine-shaped bars) and
+  `closePosition` (liquidate + cancel the symbol's open orders).
+- Journal lifecycle: `filled → exit_submitted → position_closed` (also set when
+  the bracket itself flattened the position); Auto Orders page shows EXITING /
+  CLOSED badges. Telegram 🔴 EXIT notification with the model's reason.
+- Engine helper `modelExitAction` + 7 tests.
+
+## v0.28.2 — 2026-07-09 (fix: Alpaca sub-penny rejection on bracket prices)
+
+### Fixed
+- **Auto-trade orders rejected with "sub-penny increment does not fulfill
+  minimum pricing criteria."** Strategy math produces raw floats (e.g.
+  `45.06 × 1.02 = 45.961200000000005`) and the TP/SL/stop prices were sent to
+  Alpaca unrounded. New `brokerPrice()` in the engine rounds every price on the
+  bracket intent — pennies at ≥ $1, 4 decimals under $1 (Alpaca's rule) — so no
+  raw float ever reaches the API. +5 tests.
+- **Rejected orders now retry.** A placement error journals as `error` and used
+  to block that signal permanently (the idempotency check skipped anything
+  non-dry-run), so a run hitting a fixable rejection lost the trade for the
+  session. `error` entries are retryable on the next run inside the window —
+  double-submit-safe because the deterministic client order id collides at the
+  broker if the order actually went through.
+
+## v0.28.1 — 2026-07-08 (fix: Large Cap tag missing on Live Signals)
+
+### Fixed
+- **Live Signals showed "S&P 500" where History showed "Large Cap"** (e.g. GE
+  Aerospace). The view's row-unifier copied the signal's `index` field but
+  dropped the `largeCap` flag, so the badge fell back to the raw sp500 tag and
+  the Large Cap filter matched nothing in this view. Cron rows now carry
+  `largeCap` (with a curated-set fallback for older docs), and browser-scan
+  rows tag it from the curated large-cap watchlist.
+
+## v0.28.0 — 2026-07-08 (perf fix, collapsible filters, NOW price, compact rows everywhere)
+
+### Fixed
+- **Sluggish UI after v0.27.** Two regressions compounded: every view rendered
+  BOTH the desktop table and the phone rows (double DOM for hundreds of
+  signals), and the column-label stamper walked every table cell on every
+  re-render even on desktop where labels never show. Views now build only the
+  variant the screen displays (re-rendered automatically if the breakpoint
+  changes), and the stamper runs only on phones and skips tables that have a
+  compact-rows alternative. Filtering and signal loads are back to full speed.
+
+### Added
+- **Hide/show filters, remembered.** Live Signals and Signal History get a
+  `▾ FILTERS` toggle with the match count opposite it; the filter bar starts
+  hidden on phones (visible on desktop) and any manual toggle is persisted
+  per view in this browser.
+- **Current price without expanding.** The compact row's price line now reads
+  `E · TP · SL · NOW` with %Δ right-aligned (Live Signals cron view, Signal
+  History, My Trades, Dashboard open trades).
+- **Compact rows on the remaining tabs.** Auto Orders, Watchlist (notes +
+  edit/remove under the expander), and both Dashboard tables (today's signals,
+  open trades — flat rows, no expander) now use the same list design.
+
+## v0.27.0 — 2026-07-08 (compact mobile design: list rows + Roboto)
+
+### Changed
+- **Phones now get a compact list design instead of stacked cards** (user-approved
+  "Design A"). On ≤640 px screens the Live Signals, Signal History, and My Trades
+  tables render as 3-line rows — `ticker · name · badges`, a muted
+  `strategy · sector · index · date` line, and `E/TP/SL` with the %Δ right-aligned.
+  Tapping a row expands the remaining fields and actions (native `<details>`).
+  ~5 signals fit per screen vs ~1 with the old cards. Desktop is unchanged.
+- **History's strategy summary** collapses to a 2-line row per strategy on phones
+  (name + net R headline, then trades/WR/W-L-O/PF/avg R/total %Δ); tap still
+  filters the signal list below.
+- **Roboto on phones.** At ≤720 px both app fonts switch to Roboto with tabular
+  numbers (`tnum`) — noticeably more compact than the IBM Plex Sans + JetBrains
+  Mono pairing at small sizes while digits still align. Desktop keeps the
+  terminal look.
+- New shared component `src/ui/mobile-rows.js`; the generic labelled-card
+  fallback (v0.26.0) stays for all other tables, with tightened padding.
+
+## v0.26.0 — 2026-07-08 (cron-lag fix + mobile-friendly tables)
+
+### Fixed
+- **Auto-trade cron never hitting the entry window.** GitHub Actions cron on this
+  repo starts runs **2–3 hours late** (the 13:35 UTC / ~09:35 ET slot was actually
+  running ~16:00 UTC / ~12:00 ET), so every scheduled run landed after the
+  09:30–11:00 ET entry window had closed and never placed entries. Two-sided fix:
+  - `auto-trade.yml` now fires **every 30 min from 11:20 to 15:20 UTC** — with the
+    observed lag several runs land inside the window; pre-open/duplicate runs are
+    harmless (idempotent, reconcile-only outside the window).
+  - The entry window widened **90 → 210 min (09:30–13:00 ET)**. Price-drift
+    protection comes from the limit-at-entry order plus the slippage-budget gate,
+    not from a tight window, so a run landing at 12:30 ET can still safely enter.
+  - The afternoon reconcile slot moved 19:45 → **18:45 UTC** so it lands before
+    the close despite the lag.
+- **Execution Status page** schedule table updated to the new slots, and now
+  explains that listed times are *requested* start times — actual starts on this
+  repo run 2–3 h behind.
+
+### Changed
+- **Mobile: tables render as stacked cards on phones (≤640 px).** Instead of
+  sideways-scrolling through a 16-column table, each row becomes a card with
+  labelled values (labels are stamped from the column headers automatically, so
+  every table in the app — Live Signals, History, My Trades, Auto orders, … —
+  gets the treatment). Screens 641–720 px keep the horizontally-scrollable table.
+
 ## v0.25.0 — 2026-07-05 (auto-trade: morning-window execution + one-session freshness)
 
 ### Changed

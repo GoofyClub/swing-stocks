@@ -1029,12 +1029,139 @@ table.data .remove-btn {
   .card h2 { font-size: 1rem; }
 }
 
-/* Tables: horizontal scroll on mobile — applied to the card itself */
+/* Tables on mid-size screens (641-720px): horizontal scroll on the card */
 @media (max-width: 720px) {
   .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table.data { min-width: 640px; font-size: 0.85rem; }
   table.data th, table.data td { padding: 6px 6px; }
   table.data th { font-size: 0.69rem; }
+}
+
+/* Phones: Roboto with tabular numbers replaces the Plex/JetBrains pairing —
+   noticeably more compact at small sizes while digits still align. */
+@media (max-width: 720px) {
+  :root {
+    --font-sans: 'Roboto', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Roboto', system-ui, -apple-system, sans-serif;
+  }
+  html { font-feature-settings: 'tnum' 1; }
+}
+
+/* Phones (≤640px): stack each table row into a labelled card so no sideways
+   scrolling is needed. Cell labels render from the data-label attribute that
+   main.js stamps from the column headers (labelDataTables). This is the
+   generic fallback — the main signal tables render .mrows instead (below). */
+@media (max-width: 640px) {
+  .card { overflow-x: visible; }
+  table.data { min-width: 0; width: 100%; display: block; font-size: 0.85rem; }
+  table.data thead { display: none; }
+  table.data tbody, table.data tfoot { display: flex; flex-direction: column; gap: 6px; }
+  table.data tfoot { margin-top: 6px; }
+  table.data tr {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    gap: 5px 10px;
+    align-items: start;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 9px;
+    background: var(--bg);
+  }
+  table.data tr:hover td { background: transparent; }
+  table.data td {
+    display: block;
+    padding: 0;
+    border-bottom: none;
+    overflow-wrap: anywhere;
+  }
+  table.data td.num { text-align: left; }
+  table.data td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.58rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    margin-bottom: 1px;
+    white-space: nowrap;
+  }
+  table.data td:not([data-label])::before,
+  table.data td[data-label=""]::before { content: none; }
+  /* Prose-length cells (name, reason, notes …) take the full card width */
+  table.data td.cell-wide { grid-column: 1 / -1; }
+  /* Truly empty cells (spacer/action columns with nothing in them) vanish */
+  table.data td:empty { display: none; }
+}
+
+/* =============================================================================
+   Compact mobile list rows (Design A) — see src/ui/mobile-rows.js.
+   Hidden on desktop; on phones they replace the table inside .tbl-mobile-switch.
+   ============================================================================= */
+.mrows { display: none; }
+@media (max-width: 640px) {
+  .tbl-mobile-switch table.data { display: none; }
+  .mrows { display: block; }
+
+  .mrows > * { border-top: 1px solid var(--line); }
+  .mrows > *:first-child { border-top: none; }
+  .mrows .mrow > summary,
+  .mrows .mrow-flat {
+    list-style: none;
+    display: flex; gap: 6px; align-items: flex-start;
+    padding: 8px 2px;
+  }
+  .mrows .mrow > summary { cursor: pointer; }
+  .mrows .mrow > summary::-webkit-details-marker { display: none; }
+  .mrows .mrow[open] > summary { background: var(--bg-elev2); border-radius: 6px 6px 0 0; }
+
+  .mr-star { flex: none; }
+  .mr-star .star-btn { padding: 0 4px; }
+  .mr-main { flex: 1; min-width: 0; }
+  .mr-l1 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .mr-tick { font-family: var(--font-mono); font-size: 0.95rem; font-weight: 700; }
+  .mr-name {
+    color: var(--text-mute); font-size: 0.82rem; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mr-badges { display: flex; gap: 5px; flex: none; }
+  .mr-badges .badge { font-size: 0.68rem; }
+  .mr-l2 {
+    display: block; color: var(--text-mute); font-size: 0.78rem; margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mr-l3 {
+    display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 0.84rem; margin-top: 2px;
+  }
+  .mr-k {
+    color: var(--text-mute); font-size: 0.64rem;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-right: 3px;
+  }
+  .mr-right { margin-left: auto; font-weight: 600; }
+  .mr-chev { color: var(--text-mute); font-size: 0.66rem; margin-top: 3px; flex: none; transition: transform 0.15s; }
+  .mrow[open] .mr-chev { transform: rotate(180deg); }
+
+  .mr-detail {
+    margin: 0 2px 10px 27px; padding: 8px 10px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 0 0 6px 6px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px 10px;
+  }
+  .mr-f .mr-k { display: block; margin: 0 0 1px; }
+  .mr-f .mr-v { font-family: var(--font-mono); font-size: 0.82rem; overflow-wrap: anywhere; }
+  .mr-f.mr-wide { grid-column: 1 / -1; }
+  .mr-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+
+  /* 2-line strategy-summary rows (Signal History) */
+  .msum { border-top: 1px solid var(--line); padding: 8px 2px; cursor: pointer; }
+  .msum:first-child { border-top: none; }
+  .msum-l1 { display: flex; align-items: baseline; gap: 8px; }
+  .msum-l1 .msum-name { font-weight: 600; font-size: 0.95rem; }
+  .msum-l1 .msum-net { margin-left: auto; font-family: var(--font-mono); font-weight: 600; font-size: 0.95rem; }
+  .msum-l2 {
+    font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-dim);
+    margin-top: 1px; display: flex; flex-wrap: wrap; column-gap: 10px; row-gap: 1px;
+  }
 }
 
 /* Segmented button groups: allow wrapping on mobile */
@@ -1068,8 +1195,8 @@ table.data .remove-btn {
   .signal-source-bar .seg-group { margin-right: 0; }
   .scan-progress { min-width: unset; }
   #source-stat { margin-left: 0 !important; text-align: left; }
-  #hit-count { margin-left: 0 !important; }
-  #row-count { margin-left: 0 !important; }
+  /* #hit-count / #row-count live in the always-visible FILTERS header row and
+     keep their margin-left:auto so the count sits opposite the toggle. */
 
   /* Override inline widths on filter inputs */
   .card input[type="number"],
