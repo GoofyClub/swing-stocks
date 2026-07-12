@@ -57,7 +57,8 @@ export function renderCondorManual(root) {
           <li><b>Strike ruler:</b> spot's position relative to your four strikes and the profit zone between the breakevens — the same read as the tastytrade-style payoff ruler, at a glance.</li>
           <li><b>DTE strip</b> (managed mode only): a second, independent bar tracking calendar days toward the stored <b>time-exit date</b> — the 21-DTE rule fires on the calendar regardless of where the mark sits, so this is deliberately separate from the profit/loss gauge above it.</li>
           <li><b>Defend annotation:</b> appears when a short strike enters the ~0.30-delta defend zone, pointing back to the optional roll move in the Strategy Guide §6.</li>
-          <li>Cards disappear once you set the trade's journal status to anything other than OPEN.</li>
+          <li>Cards disappear once you set the trade's journal status to anything other than OPEN — or click <b>✕ Delete</b> on the card itself, which removes the trade from the journal entirely (same action as the Journal table's ✕, just reachable without scrolling down). Both ask for confirmation first.</li>
+          <li><b>How long a position stays listed:</b> there's no day-based cutoff — a card stays in Open Positions indefinitely as long as its journal status is OPEN, even past its own expiry (it just won't be able to re-price itself once the option chain is gone; see Troubleshooting). Only the 100 most recently logged trades are fetched at all, so this only matters once you've logged more than 100 trades total.</li>
         </ul>
       </section>
 
