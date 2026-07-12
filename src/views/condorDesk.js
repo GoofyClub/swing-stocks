@@ -303,7 +303,7 @@ export function renderCondorDesk(root) {
       <td style="font-family:var(--font-mono)">${fmt2(o.bid)} / ${fmt2(o.ask)}</td>
       <td style="font-family:var(--font-mono)">${fmt2(o.mid)}</td>
       <td style="font-family:var(--font-mono)">${o.delta === null ? '—' : Math.abs(o.delta).toFixed(3)}</td>
-      <td style="font-family:var(--font-mono)">${o.oi.toLocaleString()}</td>
+      <td style="font-family:var(--font-mono)" title="${o.oi === null ? 'This data source does not report open interest' : 'Open interest'}">${o.oi === null ? '—' : o.oi.toLocaleString()}</td>
     </tr>`;
   }
 

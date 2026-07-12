@@ -113,7 +113,8 @@ function normalizeRow(row) {
     mid: Math.round(mid * 100) / 100,
     delta: Number.isFinite(Number(row.delta)) ? Number(row.delta) : null,
     iv: Number(row.iv) || null,
-    oi: Number(row.open_interest) || 0,
+    // null = "source didn't report OI" (skip liquidity check) — distinct from a real 0.
+    oi: Number.isFinite(Number(row.open_interest)) ? Number(row.open_interest) : null,
     volume: Number(row.volume) || 0,
   };
 }
@@ -464,6 +465,10 @@ export function buildCondor(chain, cfg, now = new Date(), extras = {}) {
     ['Short call', call.sell], ['Call wing', call.buy],
     ['Short put', put.sell], ['Put wing', put.buy],
   ]));
+
+  if (t.weekday === 'Sat' || t.weekday === 'Sun') {
+    warnings.push(`Market is closed (${t.weekday}) — quotes are last Friday's close, so treat this card as a PREVIEW for planning. Recompute on a trading day before placing the order.`);
+  }
 
   const entryDayOK = (() => {
     if (cfg.mode !== '1dte') return true;             // managed mode: any day works

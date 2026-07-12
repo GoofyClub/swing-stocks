@@ -199,6 +199,25 @@ ok('30-45dte: VIX entry filter warns only below the floor', () => {
   assert.equal(okVix.warnings.some(w => w.includes('VIX is')), false);
 });
 
+ok('missing OI normalizes to null and skips the thin-OI check (Alpaca-style rows)', () => {
+  const json = { data: { current_price: 680, options: [
+    { option: 'SPY260821C00710000', bid: 2.85, ask: 2.95, delta: 0.15 },   // no open_interest field
+  ] } };
+  const chain = parseCboeChain(json, 'SPY');
+  assert.equal(chain.options[0].oi, null);
+  const nullOi = { ...CHAIN_M, options: CHAIN_M.options.map(o => ({ ...o, oi: null })) };
+  const c = buildCondor(nullOi, cfg('30-45dte', {}, 30000), NOW);
+  assert.equal(c.warnings.some(w => w.includes('open interest is thin')), false);
+});
+
+ok('weekend compute adds a PREVIEW note (quotes are Friday close)', () => {
+  const SAT = new Date('2026-07-18T15:00:00Z'); // Saturday, 11:00 ET
+  const c = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), SAT);
+  assert.equal(c.warnings.some(w => w.includes('PREVIEW') && w.includes('Sat')), true);
+  const thu = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW);
+  assert.equal(thu.warnings.some(w => w.includes('PREVIEW')), false);
+});
+
 ok('liquidity warnings: thin OI and wide markets are flagged', () => {
   const bad = { ...CHAIN_M, options: CHAIN_M.options.map(o =>
     o.strike === 720 && o.type === 'C' ? { ...o, oi: 40, bid: 0.9, ask: 1.9, mid: 1.40 } : o) };
