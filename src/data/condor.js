@@ -238,18 +238,28 @@ export async function fetchAlpacaChain(underlyingKey, creds, cfg, fetchImpl = gl
 }
 
 // Source orchestration: Alpaca (if keys + SPY) → CBOE direct → CBOE via proxy.
-// Throws with a per-source breakdown only when everything failed.
+// Throws with a per-source breakdown only when everything failed. Every
+// successful chain is stamped with fetchedAt (client clock, ISO) so callers
+// can cache it and judge staleness without depending on a source's own
+// asOf field (Alpaca doesn't set one).
 export async function fetchChainSmart(cfg, creds, fetchImpl = globalThis.fetch) {
   const failures = [];
+  let chain = null;
   if (cfg.underlying === 'SPY' && creds?.apiKey && creds?.apiSecret) {
-    try { return await fetchAlpacaChain(cfg.underlying, creds, cfg, fetchImpl); }
+    try { chain = await fetchAlpacaChain(cfg.underlying, creds, cfg, fetchImpl); }
     catch (e) { failures.push(`Alpaca: ${e.message}`); }
   }
-  try { return await fetchCboeChain(cfg.underlying, fetchImpl); }
-  catch (e) { failures.push(`CBOE direct: ${e.message || 'blocked (CORS)'}`); }
-  try { return await fetchCboeChain(cfg.underlying, fetchImpl, true); }
-  catch (e) { failures.push(`CBOE via proxy: ${e.message}`); }
-  throw new Error(`All chain sources failed — ${failures.join(' · ')}`);
+  if (!chain) {
+    try { chain = await fetchCboeChain(cfg.underlying, fetchImpl); }
+    catch (e) { failures.push(`CBOE direct: ${e.message || 'blocked (CORS)'}`); }
+  }
+  if (!chain) {
+    try { chain = await fetchCboeChain(cfg.underlying, fetchImpl, true); }
+    catch (e) { failures.push(`CBOE via proxy: ${e.message}`); }
+  }
+  if (!chain) throw new Error(`All chain sources failed — ${failures.join(' · ')}`);
+  chain.fetchedAt = new Date().toISOString();
+  return chain;
 }
 
 export const CHAIN_SOURCE_LABEL = {
@@ -568,4 +578,19 @@ export function condorTicketText(c, cfg) {
         ? 'Cash-settled: if both shorts are safely OTM at 3:30 PM ET expiry day, let them expire.'
         : 'Cash-settled — but in this mode you exit by the profit target / 21-DTE rule, not at expiry.'));
   return lines.join('\n');
+}
+
+// Format a logged journal row's exit plan — "when do I close this, and at
+// what?" for a trade the user is revisiting later. `trade.exitPlan` is stored
+// verbatim from the buildCondor() result at log time (see wireCardButtons in
+// condorDesk.js), so this stays correct even if today's defaults have since
+// changed.
+export function formatExitPlan(trade) {
+  const ep = trade?.exitPlan;
+  if (!ep) return '—';
+  const f = n => (Number.isFinite(n) ? n.toFixed(2) : '—');
+  if (trade.mode === '1dte') {
+    return `stop C≥${f(ep.callStopMark)} · P≥${f(ep.putStopMark)}`;
+  }
+  return `TP≤${f(ep.profitTargetMark)} · by ${ep.timeExitDate || '—'} · SL≥${f(ep.lossMark)}`;
 }

@@ -21,7 +21,7 @@ export function renderCondorManual(root) {
       <section class="guide-section">
         <h2>The routine (managed mode — under 5 minutes)</h2>
         <ol>
-          <li>Open <b>Condor Desk</b> → click <b>GET TODAY'S LEGS</b>.</li>
+          <li>Open <b>Condor Desk</b> → click <b>GET TODAY'S LEGS</b>. The status line under the button shows the data source and the exact time it was fetched (ET) so you always know how fresh the numbers are; a repeat click the same trading day reuses that fetch instead of hitting CBOE/Alpaca again — click <b>↻ Refresh data</b> next to it if you want live quotes right now instead.</li>
           <li><b>Check the summary box's verdict first.</b> <b style="color:var(--green)">✅ GO</b> = every entry rule passed, proceed. <b style="color:var(--amber)">⏸ WAIT</b> = a blocking rule fired (thin credit, VIX floor, weekend/holiday preview, staggered-entry, wrong entry day, NFP-Friday expiry) — read the amber boxes below the summary for which one, and don't trade today.</li>
           <li>Amber boxes below the summary that <i>aren't</i> counted as blockers are cautions — e.g. a liquidity flag on one leg, or a high-VIX headline-regime note (size down, don't skip automatically; see the Strategy Guide §4). Read them before placing the order.</li>
           <li>GO (or an accepted caution) → read the four-leg table: <b>green rows = SELL to open, red rows = BUY to open</b>, exactly as you'll enter them.</li>
@@ -81,7 +81,7 @@ export function renderCondorManual(root) {
       <section class="guide-section">
         <h2>Journal</h2>
         <ul>
-          <li><b>LOG THIS TRADE</b> stores date, mode, legs, credits and the exit plan. Keep it honest — the stagger warning and your win-rate stats come from it.</li>
+          <li><b>LOG THIS TRADE</b> stores date, mode, legs, credits, and the <b>exit plan</b> exactly as computed at the time — this is what answers "when do I close this, and at what profit?" days or weeks later, without having to remember or recompute. It's the <b>Exit Plan</b> column in the table: managed mode shows <code>TP≤mark · by date · SL≥mark</code>; 1-DTE mode shows each side's stop mark.</li>
           <li>When a trade resolves: set the status (<b>TP HIT / EXPIRED WIN / TIME EXIT / STOPPED / CLOSED</b>), type the realized P&amp;L in dollars, click SAVE. The summary line recomputes win rate and total P&amp;L.</li>
           <li>Review every ~12 trades: if the win rate or average loss drifts far from the Strategy Guide's expectations, something in your execution (usually skipped exits) needs fixing before the config does.</li>
         </ul>
@@ -98,6 +98,7 @@ export function renderCondorManual(root) {
           <li><b>Computed on a weekend and the verdict is WAIT with a "PREVIEW" note:</b> correct behavior — markets are closed, quotes are Friday's close. Use it to plan Monday's/Thursday's trade, then recompute on the actual trading day before placing anything.</li>
           <li><b>Verdict says WAIT but I don't see why:</b> the summary box only shows the verdict, not the reason — scroll to the amber warning boxes just below it; the specific rule that fired is spelled out there.</li>
           <li><b>Big news day (Fed, tariffs, geopolitics) and VIX is spiking:</b> the Desk will flag a high-VIX caution once it crosses your configured level (default 27 managed / 25 for 1-DTE) — read the Strategy Guide §4 for what's automatic (wider strikes, fatter credit) vs. what isn't (predicting the headline itself). The guidance is size down or stand aside, not "the tool has it covered."</li>
+          <li><b>Status line says "(cached)" and I want a fresh quote:</b> click <b>↻ Refresh data</b> next to it — it bypasses the cache for that one compute. The cache is tied to the calendar date (US-Eastern) it was fetched on and is never reused once that date has passed, so you'll never see yesterday's — or last week's — chain silently.</li>
         </ul>
       </section>
     </div>

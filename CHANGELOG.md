@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.35.0 — 2026-07-12 (Condor Desk: chain caching + Journal Exit Plan column)
+
+### Fixed
+- **The exit plan (when to close, at what profit) disappeared once a trade
+  was logged.** The Journal table stored `exitPlan` on every row but never
+  displayed it, so revisiting a logged trade days later gave no way to see
+  its profit target / time exit / hard stop (managed mode) or per-side stop
+  marks (1-DTE) without recomputing. New **Exit Plan** column shows it
+  directly, e.g. `TP≤1.50 · by 2026-07-31 · SL≥9.00`. The formatting is a
+  pure function (`formatExitPlan`, `src/data/condor.js`) so it's unit-tested
+  without needing Firestore.
+
+### Added
+- **Chain data is cached per underlying+mode for the current US-Eastern
+  trading day** (`src/data/condorChainCache.js`, localStorage-backed).
+  Repeat clicks of GET TODAY'S LEGS — or reloading the page — reuse the last
+  successful fetch instead of hitting CBOE/Alpaca again; a stale (different
+  calendar day) entry is never silently reused. The status line under the
+  button now always shows the data source AND the exact fetch time in ET,
+  with "(cached — click ↻ Refresh for live quotes)" appended when serving
+  from cache. A new **↻ Refresh data** control bypasses the cache for one
+  compute when you want a live quote intraday. `fetchChainSmart` now stamps
+  every successful chain with a client-clock `fetchedAt` (Alpaca has no
+  native `asOf`), which the cache keys its freshness check on.
+- Engine tests 20 → 29 (chain cache save/load/stale/cross-key/corrupt-data
+  behavior, `fetchedAt` stamping, `formatExitPlan` for both modes and
+  missing/partial data); browser smoke covers the full cache lifecycle
+  (fetch → reuse → forced refresh → survives a simulated reload → rejects
+  an artificially stale entry) end to end.
+
 ## v0.34.2 — 2026-07-12 (docs: explain the "imbalanced sides" caution)
 
 ### Changed

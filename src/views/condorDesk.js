@@ -9,9 +9,10 @@
 import {
   UNDERLYINGS, MODE_DEFAULTS, MODE_INFO, DEFAULT_CONDOR_CONFIG, activeParams,
   fetchChainSmart, fetchVixSpot, buildCondor, condorTicketText, daysBetween, etNow,
-  CHAIN_SOURCE_LABEL,
+  CHAIN_SOURCE_LABEL, formatExitPlan,
 } from '../data/condor.js';
 import { loadAutomationConfig } from '../data/automation.js';
+import { saveChainCache, loadChainCache } from '../data/condorChainCache.js';
 import { loadCondorState, saveCondorState, addCondorTrade, listCondorTrades, updateCondorTrade, deleteCondorTrade } from '../data/condorStore.js';
 import { loadNotifications } from '../data/notifications.js';
 import { sendTelegram } from '../data/telegram.js';
@@ -21,6 +22,9 @@ function esc(s) {
 }
 const fmt2 = n => Number(n).toFixed(2);
 const usd = n => `$${Number(n).toLocaleString()}`;
+const fmtEtTime = iso => new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+}).format(new Date(iso)) + ' ET';
 
 const FIELD_STYLE = 'display:flex;flex-direction:column;gap:6px;font-size:0.8rem;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.06em';
 
@@ -66,6 +70,7 @@ export function renderCondorDesk(root) {
           <button id="cd-compute" class="btn-primary" type="button">GET TODAY'S LEGS</button>
           <span id="cd-mode-chip" style="font-family:var(--font-mono);font-size:0.85rem;color:var(--cyan)"></span>
           <span id="cd-status" style="color:var(--text-dim);font-size:0.92rem"></span>
+          <button id="cd-refresh" class="btn-bare" type="button" style="display:none;font-size:0.8rem;padding:2px 10px" title="Bypass the cached chain and pull fresh quotes right now">↻ Refresh data</button>
         </div>
         <div id="cd-result" style="margin-top:14px"></div>
       </div>
@@ -260,18 +265,34 @@ export function renderCondorDesk(root) {
   });
 
   // ----- compute --------------------------------------------------------------
-  $('cd-compute').addEventListener('click', async () => {
-    const btn = $('cd-compute'), status = $('cd-status'), out = $('cd-result');
-    btn.disabled = true; status.textContent = 'Fetching option chain…'; out.innerHTML = '';
+  // Chain + VIX are cached per underlying+mode for the current US-Eastern
+  // trading day (src/data/condorChainCache.js) — repeat clicks (or a page
+  // reload) reuse them instead of re-hitting CBOE/Alpaca. `forceRefresh`
+  // bypasses the cache for one compute (the "↻ Refresh data" control).
+  async function computeLegs(forceRefresh) {
+    const btn = $('cd-compute'), status = $('cd-status'), out = $('cd-result'), refreshBtn = $('cd-refresh');
+    btn.disabled = true; refreshBtn.disabled = true; out.innerHTML = '';
     try {
       const cfg = readConfig();
-      const [creds, vix, trades] = await Promise.all([
-        loadAutomationConfig().catch(() => ({})),  // Alpaca keys, if the user set them up
-        fetchVixSpot().catch(() => null),          // informational — never blocks
-        listCondorTrades().catch(() => []),        // for the staggered-entry check
-      ]);
-      const chain = await fetchChainSmart(cfg, creds);
+      let chain, vix, cached = false;
+
+      if (!forceRefresh) {
+        const hit = loadChainCache(cfg.underlying, cfg.mode);
+        if (hit) { chain = hit.chain; vix = hit.vix; cached = true; }
+      }
+      if (!chain) {
+        status.textContent = 'Fetching option chain…';
+        const [creds, freshVix] = await Promise.all([
+          loadAutomationConfig().catch(() => ({})),  // Alpaca keys, if the user set them up
+          fetchVixSpot().catch(() => null),          // informational — never blocks
+        ]);
+        chain = await fetchChainSmart(cfg, creds);
+        vix = freshVix;
+        saveChainCache(cfg.underlying, cfg.mode, chain, vix);
+      }
+
       status.textContent = 'Selecting legs…';
+      const trades = await listCondorTrades().catch(() => []); // always fresh — Firestore read, not the chain pull
       const c = buildCondor(chain, cfg, new Date(), { vix });
       // Time diversification (blueprint: one entry every 1–2 weeks, staggered).
       const today = etNow().iso;
@@ -284,7 +305,9 @@ export function renderCondorDesk(root) {
       wireCardButtons(c, cfg);
       $('cd-config').open = false; // collapse config once there's a live card
       const srcLabel = CHAIN_SOURCE_LABEL[chain.source] || 'chain';
-      status.textContent = `Data: ${srcLabel}${c.asOf ? ` · as of ${String(c.asOf)}` : ''} — confirm the credit in Webull before submitting`;
+      const fetchedLabel = chain.fetchedAt ? fmtEtTime(chain.fetchedAt) : (chain.asOf ? String(chain.asOf) : 'unknown time');
+      status.textContent = `Data: ${srcLabel} · fetched ${fetchedLabel}${cached ? ' (cached — click ↻ Refresh for live quotes)' : ''} — confirm the credit in Webull before submitting`;
+      refreshBtn.style.display = '';
     } catch (e) {
       console.error('[condor] compute failed', e);
       out.innerHTML = `<div class="guide-warn" style="text-align:left"><b>Could not compute legs.</b> ${esc(e?.message || String(e))}
@@ -294,8 +317,10 @@ export function renderCondorDesk(root) {
         <b>2)</b> Disable ad-blockers/shields for this site — they commonly block cdn.cboe.com and proxy fallbacks.
         <b>3)</b> Retry in a minute; CBOE's CDN intermittently rejects whole networks.</span></div>`;
       status.textContent = '';
-    } finally { btn.disabled = false; }
-  });
+    } finally { btn.disabled = false; refreshBtn.disabled = false; }
+  }
+  $('cd-compute').addEventListener('click', () => computeLegs(false));
+  $('cd-refresh').addEventListener('click', () => computeLegs(true));
 
   function legRow(action, o, cls) {
     return `<tr>
@@ -477,6 +502,7 @@ export function renderCondorDesk(root) {
     time_exit: 'TIME EXIT', stopped: 'STOPPED', closed_manual: 'CLOSED',
   };
 
+
   async function paintJournal() {
     const el = $('cd-journal');
     const trades = await listCondorTrades();
@@ -492,7 +518,7 @@ export function renderCondorDesk(root) {
     el.innerHTML = summary + `
       <div style="overflow-x:auto">
       <table class="data">
-        <thead><tr><th>Date</th><th>Mode</th><th>U/L</th><th>Expiry</th><th>Legs (C sell/buy · P sell/buy)</th><th>Credit</th><th>Qty</th><th>Status</th><th>P&amp;L $</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Mode</th><th>U/L</th><th>Expiry</th><th>Legs (C sell/buy · P sell/buy)</th><th>Credit</th><th>Qty</th><th title="When to close and at what — stored from the trade card at log time">Exit Plan</th><th>Status</th><th>P&amp;L $</th><th></th></tr></thead>
         <tbody>
           ${trades.map(t => `
             <tr data-id="${esc(t.id)}">
@@ -503,6 +529,7 @@ export function renderCondorDesk(root) {
               <td style="font-family:var(--font-mono)">${t.callSell}/${t.callBuy} · ${t.putSell}/${t.putBuy}</td>
               <td style="font-family:var(--font-mono)">${fmt2(t.totalCredit || 0)}</td>
               <td style="font-family:var(--font-mono)">${t.contracts || 1}</td>
+              <td style="font-family:var(--font-mono);font-size:0.82rem;white-space:nowrap">${esc(formatExitPlan(t))}</td>
               <td>
                 <select class="btn-bare jr-status" style="font-size:0.85rem">
                   ${STATUSES.map(s => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}

@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {
   parseOccSymbol, parseCboeChain, pickExpiry, isFirstFriday, daysBetween, addDays,
   buildCondor, condorTicketText, DEFAULT_CONDOR_CONFIG, MODE_DEFAULTS,
-  fetchAlpacaChain, fetchChainSmart,
+  fetchAlpacaChain, fetchChainSmart, formatExitPlan,
 } from '../src/data/condor.js';
+import { saveChainCache, loadChainCache, clearChainCache } from '../src/data/condorChainCache.js';
 
 let passed = 0;
 function ok(name, fn) {
@@ -239,6 +240,84 @@ ok('liquidity warnings: thin OI and wide markets are flagged', () => {
   assert.equal(c.warnings.some(w => w.includes('market is wide')), true);
 });
 
+// ---------------------------------------------------------------------------
+// Chain cache (localStorage-backed; a tiny in-memory fake stands in for it —
+// Node has no localStorage — via the injectable `storage` param).
+function fakeStorage() {
+  const m = new Map();
+  return {
+    getItem: k => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { m.set(k, String(v)); },
+    removeItem: k => { m.delete(k); },
+  };
+}
+const SOME_CHAIN = { spot: 680, options: CHAIN_M.options, source: 'cboe', fetchedAt: '2026-07-16T14:00:00.000Z' }; // Thu 10:00 ET
+
+ok('chain cache: save then load same ET day returns the chain + vix', () => {
+  const s = fakeStorage();
+  saveChainCache('SPY', '30-45dte', SOME_CHAIN, 16.2, s);
+  const hit = loadChainCache('SPY', '30-45dte', new Date('2026-07-16T19:30:00.000Z'), s); // same Thu, 15:30 ET
+  assert.ok(hit);
+  assert.equal(hit.chain.spot, 680);
+  assert.equal(hit.vix, 16.2);
+});
+
+ok('chain cache: a different ET calendar day is a miss (never silently stale)', () => {
+  const s = fakeStorage();
+  saveChainCache('SPY', '30-45dte', SOME_CHAIN, 16.2, s);
+  const nextDay = loadChainCache('SPY', '30-45dte', new Date('2026-07-17T14:00:00.000Z'), s); // Fri
+  assert.equal(nextDay, null);
+});
+
+ok('chain cache: keyed per underlying+mode — no cross-leak', () => {
+  const s = fakeStorage();
+  saveChainCache('SPY', '30-45dte', SOME_CHAIN, 16.2, s);
+  assert.equal(loadChainCache('XSP', '30-45dte', new Date('2026-07-16T19:00:00.000Z'), s), null);
+  assert.equal(loadChainCache('SPY', '1dte', new Date('2026-07-16T19:00:00.000Z'), s), null);
+});
+
+ok('chain cache: empty, corrupt, or optionless entries all miss cleanly', () => {
+  const s = fakeStorage();
+  assert.equal(loadChainCache('SPY', '30-45dte', NOW, s), null); // nothing saved
+  s.setItem('swing.condorChain.v1.SPY.30-45dte', '{not json');
+  assert.equal(loadChainCache('SPY', '30-45dte', NOW, s), null); // corrupt JSON
+  saveChainCache('SPY', '30-45dte', { ...SOME_CHAIN, options: [] }, 16.2, s);
+  assert.equal(loadChainCache('SPY', '30-45dte', new Date('2026-07-16T19:00:00.000Z'), s), null); // no options
+});
+
+ok('chain cache: clearChainCache removes the entry', () => {
+  const s = fakeStorage();
+  saveChainCache('SPY', '30-45dte', SOME_CHAIN, 16.2, s);
+  clearChainCache('SPY', '30-45dte', s);
+  assert.equal(loadChainCache('SPY', '30-45dte', new Date('2026-07-16T19:00:00.000Z'), s), null);
+});
+
+ok('chain cache: a null VIX (fetch failed) round-trips as null, not NaN/undefined', () => {
+  const s = fakeStorage();
+  saveChainCache('SPY', '30-45dte', SOME_CHAIN, null, s);
+  const hit = loadChainCache('SPY', '30-45dte', new Date('2026-07-16T19:00:00.000Z'), s);
+  assert.equal(hit.vix, null);
+});
+
+// formatExitPlan is what a journal row shows once a trade is logged —
+// answers "when do I close this, and at what?" without recomputing anything.
+ok('formatExitPlan: managed-mode row shows TP / time-exit date / hard stop', () => {
+  const t = { mode: '30-45dte', exitPlan: { profitTargetMark: 1.50, timeExitDate: '2026-07-31', lossMark: 9.00 } };
+  assert.equal(formatExitPlan(t), 'TP≤1.50 · by 2026-07-31 · SL≥9.00');
+});
+
+ok('formatExitPlan: 1-DTE row shows the per-side stop marks', () => {
+  const t = { mode: '1dte', exitPlan: { callStopMark: 0.80, putStopMark: 0.76 } };
+  assert.equal(formatExitPlan(t), 'stop C≥0.80 · P≥0.76');
+});
+
+ok('formatExitPlan: missing or malformed exit plan degrades gracefully, never throws', () => {
+  assert.equal(formatExitPlan({ mode: '30-45dte' }), '—');           // no exitPlan at all
+  assert.equal(formatExitPlan({}), '—');
+  assert.equal(formatExitPlan(null), '—');
+  assert.equal(formatExitPlan({ mode: '30-45dte', exitPlan: {} }), 'TP≤— · by — · SL≥—'); // partial data
+});
+
 ok('ticket text: mode-specific management lines', () => {
   const cm = cfg('30-45dte', {}, 30000);
   const tm = condorTicketText(buildCondor(CHAIN_M, cm, NOW, { vix: 17.3 }), cm);
@@ -301,10 +380,14 @@ await (async () => {
       if (u.includes('allorigins')) return jsonRes(cboeJson);
       throw new Error(`unexpected url ${u}`);
     };
+    const before = Date.now();
     const chain = await fetchChainSmart(cfg('30-45dte'), {}, fetchImpl);
     assert.equal(chain.source, 'cboe-proxy');
     assert.equal(chain.options.length, 1);
-    passed++; console.log('  ✓ fetchChainSmart: falls back direct→proxy and reports the source');
+    assert.ok(chain.fetchedAt, 'fetchedAt should be stamped for caching');
+    const fetchedMs = new Date(chain.fetchedAt).getTime();
+    assert.ok(fetchedMs >= before && fetchedMs <= Date.now() + 1, 'fetchedAt should be ~now, not the source\'s own asOf');
+    passed++; console.log('  ✓ fetchChainSmart: falls back direct→proxy, reports the source, stamps fetchedAt');
   } catch (e) { console.error(`  ✗ fetchChainSmart fallback\n    ${e.message}`); process.exitCode = 1; }
 
   try {
