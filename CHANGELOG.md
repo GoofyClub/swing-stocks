@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.40.0 — 2026-07-12 (Open Positions cards: dollar P&L/target/stop, more compact)
+
+### Changed
+- **Position cards show real dollar figures instead of per-share marks.**
+  The old two-line block (STOP/ENTRY/TARGET as raw marks, then a separate
+  "Mark X.XX — subtext" readout) is replaced with a single compact stat
+  row: current **P&L**, the **N% TARGET** ($, computed from the trade's
+  actual stored target — not hardcoded to 50%), and **STOP** ($) — all
+  multiplied by the trade's logged contract count, so "will I make real
+  money" no longer requires doing the mid-price × 100 × contracts math
+  yourself. 1-DTE's per-side gauges get the same treatment (P&L + STOP per
+  side; no target stat, since that mode holds to expiry rather than
+  targeting a profit percentage).
+- **Cards are shorter.** The narrative caption line only appears when
+  there's something actionable to say (stop hit, target hit, time exit,
+  or a defend-eligible watch) — the common "on track" state shows just the
+  numbers and the bar, no caption. Ruler, DTE strip, and card padding
+  margins were all tightened; a managed-mode card is roughly 30% shorter
+  vertically with no loss of information.
+- Browser smoke (10/10): verifies the exact dollar math for P&L/target/stop
+  in both modes against a contracts>1 fixture, confirms the old
+  `postrk-gauge-labels`/`postrk-gauge-readout` markup is gone, and confirms
+  the caption line is correctly omitted/shown per state. Engine tests
+  unaffected (43/43) — this is a view-layer-only change.
+
 ## v0.39.0 — 2026-07-12 (Condor Guide: capital-scaling expectations + 1-DTE worked example)
 
 ### Added
