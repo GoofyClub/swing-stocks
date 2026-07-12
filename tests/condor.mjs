@@ -199,6 +199,19 @@ ok('30-45dte: VIX entry filter warns only below the floor', () => {
   assert.equal(okVix.warnings.some(w => w.includes('VIX is')), false);
 });
 
+ok('high-VIX headline-regime warning fires in both modes at their own levels', () => {
+  // Managed mode: default caution level 27.
+  const panic = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW, { vix: 34.6 });
+  assert.equal(panic.warnings.some(w => w.includes('headline regime') && w.includes('34.6')), true);
+  const calm = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW, { vix: 22.0 });
+  assert.equal(calm.warnings.some(w => w.includes('headline regime')), false);
+  // 1-DTE mode is gap-sensitive: fires earlier (default 25).
+  const w1 = buildCondor(CHAIN_1DTE, cfg('1dte'), NOW, { vix: 25.5 });
+  assert.equal(w1.warnings.some(w => w.includes('headline regime')), true);
+  const q1 = buildCondor(CHAIN_1DTE, cfg('1dte'), NOW, { vix: 20.0 });
+  assert.equal(q1.warnings.some(w => w.includes('headline regime')), false);
+});
+
 ok('missing OI normalizes to null and skips the thin-OI check (Alpaca-style rows)', () => {
   const json = { data: { current_price: 680, options: [
     { option: 'SPY260821C00710000', bid: 2.85, ask: 2.95, delta: 0.15 },   // no open_interest field

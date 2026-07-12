@@ -74,6 +74,7 @@ export function renderCondorGuide(root) {
         <ul>
           <li><b>When IV is high</b> (pullbacks, pre-CPI/Fed): strikes sit further out AND credits are fatter — the best time to sell. This is the blueprint's "optimal entry condition".</li>
           <li><b>When IV is dead</b> (VIX below ~13): credits are thin, the credit-vs-width floor fails, and the right move is to <b>wait</b> — the Desk warns instead of forcing strikes closer.</li>
+          <li><b>When IV is extreme</b> (VIX 27+ — tariff announcements, geopolitics, crash tape): the Desk flags a <b>headline regime</b>. Understand what's already handled vs. what isn't: your delta-picked strikes are automatically sitting far wider than normal and the credit is fat — that's the built-in accommodation — but <i>unscheduled</i> policy shocks can move the index further than any model prices. No tool can predict a surprise announcement; the honest defenses are structural: <b>half size (or skip), wider staggering, defined-risk wings, and stops taken without hesitation</b>. Historically these high-IV months are also when premium selling pays best — for the traders who sized small enough to survive them.</li>
           <li><b>Liquidity screen:</b> every leg is checked for thin open interest and wide bid/ask; a flagged leg usually means "move one strike over".</li>
         </ul>
       </section>

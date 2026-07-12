@@ -39,6 +39,7 @@ const MODE_FIELDS = {
     ['lossMult', 'Loss exit (× credit)', 'Hard stop: close everything when the total loss reaches this multiple of the credit received. Blueprint: 2–3×; default 2×.', 'type="number" step="0.5" min="1" max="4"'],
     ['riskPct', 'Risk per trade (% of capital)', 'Sizing: one trade\'s defined risk (width − credit) may use at most this % of capital. Blueprint: 2–5%.', 'type="number" step="1" min="1" max="100"'],
     ['minVix', 'Min VIX to enter', 'Premium sellers get paid for volatility. Below this VIX level the Desk warns that premium is too thin — the blueprint prefers entries on pullbacks / pre-event IV bumps.', 'type="number" step="0.5" min="0" max="30"'],
+    ['highVix', 'High-VIX caution level', 'At/above this VIX the Desk flags a headline/panic regime (tariff shocks, geopolitics): strikes auto-widen via delta, but guidance is half size, wider staggering, strict stops — or stand aside.', 'type="number" step="0.5" min="15" max="60"'],
   ],
   '1dte': [
     ['cadence', 'Cadence', 'Thu→Fri is the source strategy\'s weekly rhythm. Any-day trades every 1-DTE expiry; twice-weekly adds Mon→Tue.', 'select'],
@@ -47,6 +48,7 @@ const MODE_FIELDS = {
     ['wingPct', 'Wing width (% of spot)', 'Distance to the protective long. 0.65% scales the source strategy\'s 150-point Nifty wing.', 'type="number" step="0.05" min="0.1" max="3"'],
     ['minCreditPct', 'Min credit / side (% of spot)', 'The skip-week floor: below this the reward doesn\'t pay for the risk.', 'type="number" step="0.005" min="0" max="0.2"'],
     ['stopMult', 'Stop (× side credit)', 'Close a SIDE when its loss reaches this multiple of that side\'s credit. Source rule: 3×.', 'type="number" step="0.5" min="1" max="10"'],
+    ['highVix', 'High-VIX caution level', 'At/above this VIX the Desk flags a headline/panic regime. 1-DTE is gap-sensitive, so it fires earlier (25) than managed mode: half size or skip the week.', 'type="number" step="0.5" min="15" max="60"'],
   ],
 };
 
@@ -310,6 +312,51 @@ export function renderCondorDesk(root) {
   const tile = (label, value, tip = '') =>
     `<div class="card" style="margin:0" ${tip ? `title="${esc(tip)}"` : ''}><div class="muted" style="font-size:0.8rem">${label}</div>${value}</div>`;
 
+  // Concise at-a-glance box: date, price, the four legs, profit/loss plan and
+  // a GO/WAIT verdict — everything needed without reading the full card.
+  function renderSummary(c, cfg) {
+    const p = activeParams(cfg);
+    // Blockers = warnings that mean "don't enter today" (vs. cautions).
+    const blockers = c.warnings.filter(w =>
+      w.includes('SKIP RULE') || w.includes('below your') || w.includes('PREVIEW')
+      || w.includes('Staggered-entry') || w.includes('first Friday'));
+    if (!c.entryDayOK) blockers.push('not the configured entry day');
+    const go = blockers.length === 0;
+    const cautions = c.warnings.length - c.warnings.filter(w => blockers.includes(w)).length;
+    const verdict = go
+      ? `<b style="color:var(--green)">✅ GO</b> — all entry rules pass${cautions > 0 ? ` <span class="muted">(${cautions} caution${cautions > 1 ? 's' : ''} below)</span>` : ''}`
+      : `<b style="color:var(--amber)">⏸ WAIT</b> — ${blockers.length} blocking rule${blockers.length > 1 ? 's' : ''}, details below`;
+    const row = (label, value) => `
+      <div style="display:flex;gap:10px;align-items:baseline">
+        <span class="muted" style="font-size:0.75rem;letter-spacing:0.08em;min-width:74px;text-transform:uppercase">${label}</span>
+        <span style="font-family:var(--font-mono);font-size:0.95rem">${value}</span>
+      </div>`;
+    const legs = `
+      <span style="color:var(--green);font-weight:700">SELL ${c.call.sell.strike}C</span> · <span style="color:var(--red)">BUY ${c.call.buy.strike}C</span>
+      &nbsp;&nbsp;<span style="color:var(--green);font-weight:700">SELL ${c.put.sell.strike}P</span> · <span style="color:var(--red)">BUY ${c.put.buy.strike}P</span>
+      &nbsp;<span class="muted">× ${c.contracts}</span>`;
+    const profit = c.mode === '30-45dte'
+      ? `<b style="color:var(--green)">+${usd(c.profitTargetUsd)}</b> at 50% target (GTC buy-back ≤ ${fmt2(c.profitTargetMark)}) · out by ${esc(c.timeExitDate)} latest`
+      : `<b style="color:var(--green)">+${usd(c.maxProfitUsd)}</b> if it expires inside ${fmt2(c.breakevenDown)}–${fmt2(c.breakevenUp)}`;
+    const loss = c.mode === '30-45dte'
+      ? `<b style="color:var(--red)">−${usd(c.plannedLossUsd)}</b> at the stop (mark ≥ ${fmt2(c.lossMark)}) · absolute worst ${usd(c.definedRiskUsd)}`
+      : `<b style="color:var(--red)">−${usd(c.stopLossUsd)}</b> if one side stops · gap worst case ${usd(c.definedRiskUsd)}`;
+    const when = c.mode === '30-45dte'
+      ? `any day at ${p.dteMin}–${p.dteMax} DTE, VIX ${p.minVix}–${p.highVix}, ≥ 1 week after your last entry`
+      : `the morning before expiry, after 10:00 AM ET`;
+    return `
+      <div id="cd-summary" style="border:1px solid var(--cyan);border-radius:6px;padding:12px 16px;margin:2px 0 14px;display:flex;flex-direction:column;gap:6px;background:var(--bg-elev)">
+        ${row('Today', `${esc(c.etToday.iso)} (${esc(c.etToday.weekday)}) · ${esc(c.underlying)} <b>${fmt2(c.spot)}</b>${c.vix !== null ? ` · VIX ${c.vix.toFixed(1)}` : ''}`)}
+        ${row('Trade', `Iron condor · exp ${esc(c.expiry)} (${c.dte} DTE)${c.popPct !== null ? ` · POP ≈ ${c.popPct}%` : ''}`)}
+        ${row('Legs', legs)}
+        ${row('Collect', `<b style="color:var(--green)">${fmt2(c.totalCredit)}</b> credit ≈ ${usd(c.maxProfitUsd)} max`)}
+        ${row('Profit', profit)}
+        ${row('Loss', loss)}
+        ${row('Enter when', esc(when))}
+        ${row('Verdict', verdict)}
+      </div>`;
+  }
+
   function renderCondorCard(c, cfg) {
     const u = UNDERLYINGS[c.underlying];
     const p = activeParams(cfg);
@@ -337,6 +384,7 @@ export function renderCondorDesk(root) {
     ];
 
     return `
+      ${renderSummary(c, cfg)}
       ${entryWarn}${timeWarn}
       ${c.warnings.map(w => `<div class="guide-warn" style="text-align:left">${esc(w)}</div>`).join('')}
       <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;margin:6px 0 10px">
