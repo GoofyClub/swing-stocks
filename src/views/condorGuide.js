@@ -85,6 +85,7 @@ export function renderCondorGuide(root) {
             Historically these high-IV months are also when premium selling pays best per trade — but only for traders sized small enough to still be trading after the bad one.
           </li>
           <li><b>Liquidity screen:</b> every leg is checked for thin open interest and wide bid/ask; a flagged leg usually means "move one strike over". (Some data sources, like Alpaca's snapshot feed, don't report open interest at all — the Desk shows "—" for those instead of skipping the check silently.)</li>
+          <li><b>"Sides are imbalanced" caution</b> (one side's credit &gt;25% richer than the other): almost always normal <b>volatility skew</b> — puts are structurally priced richer than calls because the market always insures more against a crash than a rally. It's context, not a problem: place the trade as computed, don't move a strike just to force the credits to match (that would quietly lower that side's win probability). It only matters mechanically in 1-DTE mode, where stops are per-side — the richer side also carries a bigger dollar stop.</li>
         </ul>
       </section>
 

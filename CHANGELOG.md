@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.34.2 — 2026-07-12 (docs: explain the "imbalanced sides" caution)
+
+### Changed
+- Strategy Guide §4 gained a short bullet on the "Sides are imbalanced"
+  caution: it's normal volatility skew (puts price richer than calls),
+  place the trade as computed rather than forcing strikes to match
+  credits, and it only has a mechanical effect in 1-DTE mode (the
+  richer side carries a bigger per-side stop).
+
 ## v0.34.1 — 2026-07-12 (docs: guides catch up to v0.34's summary box + high-VIX guard)
 
 ### Changed
