@@ -134,27 +134,126 @@ export function parseCboeChain(json, underlyingKey) {
   return { spot, options, asOf: json?.timestamp || null };
 }
 
-export async function fetchCboeChain(underlyingKey, fetchImpl = globalThis.fetch) {
-  const u = UNDERLYINGS[underlyingKey];
-  if (!u) throw new Error(`Unknown underlying ${underlyingKey}`);
-  const url = `https://cdn.cboe.com/api/global/delayed_quotes/options/${u.cboe}.json`;
-  const res = await fetchImpl(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`CBOE chain fetch failed: ${res.status}`);
-  const json = await res.json();
-  return parseCboeChain(json, underlyingKey);
+// CBOE's CDN blocks many networks (Akamai bot protection) and does not always
+// send CORS headers, so every CBOE call supports a public read-proxy fallback.
+const CORS_PROXY = url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+
+async function fetchJson(url, fetchImpl, viaProxy = false) {
+  const res = await fetchImpl(viaProxy ? CORS_PROXY(url) : url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
-// VIX spot from the same free CBOE feed (the _VIX payload's underlying price).
-// Used only for the "is premium worth selling right now" entry check; callers
-// should treat null (fetch failed) as "unknown", not as a blocker.
+export async function fetchCboeChain(underlyingKey, fetchImpl = globalThis.fetch, viaProxy = false) {
+  const u = UNDERLYINGS[underlyingKey];
+  if (!u) throw new Error(`Unknown underlying ${underlyingKey}`);
+  const json = await fetchJson(`https://cdn.cboe.com/api/global/delayed_quotes/options/${u.cboe}.json`, fetchImpl, viaProxy);
+  const chain = parseCboeChain(json, underlyingKey);
+  chain.source = viaProxy ? 'cboe-proxy' : 'cboe';
+  return chain;
+}
+
+// VIX spot from the CBOE feed (with the same proxy fallback). Informational
+// only — callers should treat null (both attempts failed) as "unknown".
 export async function fetchVixSpot(fetchImpl = globalThis.fetch) {
-  const res = await fetchImpl('https://cdn.cboe.com/api/global/delayed_quotes/options/_VIX.json', { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`CBOE VIX fetch failed: ${res.status}`);
-  const json = await res.json();
+  const url = 'https://cdn.cboe.com/api/global/delayed_quotes/options/_VIX.json';
+  let json;
+  try { json = await fetchJson(url, fetchImpl); }
+  catch { json = await fetchJson(url, fetchImpl, true); }
   const v = [json?.data?.current_price, json?.data?.close].map(Number).find(Number.isFinite);
   if (!Number.isFinite(v)) throw new Error('CBOE VIX payload missing price');
   return v;
 }
+
+// ---------------------------------------------------------------------------
+// Alpaca option-chain source (SPY only — Alpaca has no index options).
+// Uses the user's existing Alpaca keys (Automation tab); the market-data API
+// accepts the same key pair, serves a free real-time *indicative* options feed
+// including greeks, and sends CORS headers — far more reliable in-browser
+// than CBOE's CDN.
+// ---------------------------------------------------------------------------
+
+const ALPACA_DATA = 'https://data.alpaca.markets';
+
+export async function fetchAlpacaChain(underlyingKey, creds, cfg, fetchImpl = globalThis.fetch, todayISO = etNow().iso) {
+  if (underlyingKey !== 'SPY') throw new Error('Alpaca source supports SPY only');
+  if (!creds?.apiKey || !creds?.apiSecret) throw new Error('No Alpaca keys configured');
+  const headers = {
+    'APCA-API-KEY-ID': creds.apiKey,
+    'APCA-API-SECRET-KEY': creds.apiSecret,
+    Accept: 'application/json',
+  };
+  const get = async (url) => {
+    const res = await fetchImpl(url, { headers });
+    if (!res.ok) throw new Error(`Alpaca ${res.status}`);
+    return res.json();
+  };
+
+  // Spot from the free IEX feed.
+  const trade = await get(`${ALPACA_DATA}/v2/stocks/SPY/trades/latest?feed=iex`);
+  const spot = Number(trade?.trade?.p);
+  if (!Number.isFinite(spot)) throw new Error('Alpaca spot price unavailable');
+
+  // Snapshot window sized to the active mode so we never page the whole chain.
+  const p = activeParams(cfg);
+  const [gte, lte] = cfg.mode === '30-45dte'
+    ? [addDays(todayISO, Math.max(1, (p.dteMin ?? 30) - 2)), addDays(todayISO, (p.dteMax ?? 45) + 2)]
+    : [addDays(todayISO, 1), addDays(todayISO, 8)];
+
+  const options = [];
+  let pageToken = null;
+  for (let page = 0; page < 6; page++) {
+    const q = new URLSearchParams({
+      feed: 'indicative', limit: '1000',
+      expiration_date_gte: gte, expiration_date_lte: lte,
+    });
+    if (pageToken) q.set('page_token', pageToken);
+    const j = await get(`${ALPACA_DATA}/v1beta1/options/snapshots/SPY?${q}`);
+    const snaps = j?.snapshots || {};
+    for (const [sym, s] of Object.entries(snaps)) {
+      const id = parseOccSymbol(sym);
+      if (!id) continue;
+      const quote = s.latestQuote || s.latest_quote || {};
+      const bid = Number(quote.bp), ask = Number(quote.ap);
+      if (!Number.isFinite(bid) || !Number.isFinite(ask) || ask <= 0) continue;
+      const delta = Number(s.greeks?.delta);
+      options.push({
+        ...id,
+        bid, ask,
+        mid: Math.round((bid > 0 ? (bid + ask) / 2 : ask / 2) * 100) / 100,
+        delta: Number.isFinite(delta) ? delta : null,
+        iv: Number(s.impliedVolatility ?? s.implied_volatility) || null,
+        oi: null,                                   // snapshots don't carry OI
+        volume: Number(s.dailyBar?.v ?? s.daily_bar?.v) || 0,
+      });
+    }
+    pageToken = j?.next_page_token || null;
+    if (!pageToken) break;
+  }
+  if (!options.length) throw new Error('Alpaca returned no option snapshots in the DTE window');
+  return { spot, options, asOf: null, source: 'alpaca' };
+}
+
+// Source orchestration: Alpaca (if keys + SPY) → CBOE direct → CBOE via proxy.
+// Throws with a per-source breakdown only when everything failed.
+export async function fetchChainSmart(cfg, creds, fetchImpl = globalThis.fetch) {
+  const failures = [];
+  if (cfg.underlying === 'SPY' && creds?.apiKey && creds?.apiSecret) {
+    try { return await fetchAlpacaChain(cfg.underlying, creds, cfg, fetchImpl); }
+    catch (e) { failures.push(`Alpaca: ${e.message}`); }
+  }
+  try { return await fetchCboeChain(cfg.underlying, fetchImpl); }
+  catch (e) { failures.push(`CBOE direct: ${e.message || 'blocked (CORS)'}`); }
+  try { return await fetchCboeChain(cfg.underlying, fetchImpl, true); }
+  catch (e) { failures.push(`CBOE via proxy: ${e.message}`); }
+  throw new Error(`All chain sources failed — ${failures.join(' · ')}`);
+}
+
+export const CHAIN_SOURCE_LABEL = {
+  alpaca: 'Alpaca (real-time indicative feed)',
+  cboe: 'CBOE (≈15-min delayed)',
+  'cboe-proxy': 'CBOE via proxy (≈15-min delayed)',
+};
 
 // ---------------------------------------------------------------------------
 // Dates (US-Eastern; a pre-market check from any timezone must agree with NY)
@@ -282,10 +381,11 @@ function buildSide(options, spot, expiry, cfg, side) {
 }
 
 // Liquidity screen a trader would do by eye: thin OI or wide markets on a leg.
+// (oi === null means the source doesn't report OI — skip that check.)
 function liquidityWarnings(legs) {
   const out = [];
   for (const [name, o] of legs) {
-    if (o.oi < 100) out.push(`${name} (${o.strike}${o.type}) open interest is thin (${o.oi}) — expect worse fills; consider one strike over.`);
+    if (o.oi !== null && o.oi < 100) out.push(`${name} (${o.strike}${o.type}) open interest is thin (${o.oi}) — expect worse fills; consider one strike over.`);
     const spread = r2(o.ask - o.bid);
     if (o.mid >= 0.10 && spread / o.mid > 0.4) {
       out.push(`${name} (${o.strike}${o.type}) market is wide (${o.bid.toFixed(2)}/${o.ask.toFixed(2)}) — work the order at mid, never take the natural price.`);

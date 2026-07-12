@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseOccSymbol, parseCboeChain, pickExpiry, isFirstFriday, daysBetween, addDays,
   buildCondor, condorTicketText, DEFAULT_CONDOR_CONFIG, MODE_DEFAULTS,
+  fetchAlpacaChain, fetchChainSmart,
 } from '../src/data/condor.js';
 
 let passed = 0;
@@ -219,5 +220,69 @@ ok('ticket text: mode-specific management lines', () => {
     assert.ok(t1.includes(s), `missing "${s}" in 1dte ticket`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Data-source orchestration (async tests)
+const jsonRes = obj => ({ ok: true, json: async () => obj });
+
+const ALPACA_SNAPSHOT_PAGE = {
+  snapshots: {
+    'SPY260821C00710000': { latestQuote: { bp: 2.85, ap: 2.95 }, greeks: { delta: 0.15 }, impliedVolatility: 0.19, dailyBar: { v: 1200 } },
+    'SPY260821P00650000': { latestQuote: { bp: 2.95, ap: 3.05 }, greeks: { delta: -0.15 }, impliedVolatility: 0.20 },
+    'SPY260821C00990000': { latestQuote: { bp: 0, ap: 0 } },   // quote-less → dropped
+  },
+  next_page_token: null,
+};
+
+await (async () => {
+  try {
+    const calls = [];
+    const fetchImpl = async (url) => {
+      calls.push(String(url));
+      if (String(url).includes('/stocks/SPY/trades/latest')) return jsonRes({ trade: { p: 680.25 } });
+      if (String(url).includes('/options/snapshots/SPY')) return jsonRes(ALPACA_SNAPSHOT_PAGE);
+      throw new Error(`unexpected url ${url}`);
+    };
+    const chain = await fetchAlpacaChain('SPY', { apiKey: 'k', apiSecret: 's' },
+      cfg('30-45dte'), fetchImpl, '2026-07-16');
+    assert.equal(chain.source, 'alpaca');
+    assert.equal(chain.spot, 680.25);
+    assert.equal(chain.options.length, 2);            // quote-less contract dropped
+    const call = chain.options.find(o => o.type === 'C');
+    assert.equal(call.strike, 710);
+    assert.equal(call.mid, 2.90);
+    assert.equal(call.delta, 0.15);
+    assert.equal(call.oi, null);                       // snapshots carry no OI
+    assert.ok(calls.some(u => u.includes('expiration_date_gte=2026-08-13')), 'DTE window lower bound');
+    assert.ok(calls.some(u => u.includes('expiration_date_lte=2026-09-01')), 'DTE window upper bound');
+    passed++; console.log('  ✓ fetchAlpacaChain: parses snapshots, drops quote-less, windows by DTE');
+  } catch (e) { console.error(`  ✗ fetchAlpacaChain\n    ${e.message}`); process.exitCode = 1; }
+
+  try {
+    // No creds → Alpaca skipped; CBOE direct fails; proxy succeeds.
+    const cboeJson = { timestamp: 'x', data: { current_price: 680, options: [
+      { option: 'SPY260821C00710000', bid: 2.85, ask: 2.95, delta: 0.15 },
+    ] } };
+    const fetchImpl = async (url) => {
+      const u = String(url);
+      if (u.startsWith('https://cdn.cboe.com')) throw new TypeError('Failed to fetch'); // CORS-style failure
+      if (u.includes('allorigins')) return jsonRes(cboeJson);
+      throw new Error(`unexpected url ${u}`);
+    };
+    const chain = await fetchChainSmart(cfg('30-45dte'), {}, fetchImpl);
+    assert.equal(chain.source, 'cboe-proxy');
+    assert.equal(chain.options.length, 1);
+    passed++; console.log('  ✓ fetchChainSmart: falls back direct→proxy and reports the source');
+  } catch (e) { console.error(`  ✗ fetchChainSmart fallback\n    ${e.message}`); process.exitCode = 1; }
+
+  try {
+    const fetchImpl = async () => { throw new TypeError('Failed to fetch'); };
+    await assert.rejects(
+      () => fetchChainSmart(cfg('30-45dte'), { apiKey: 'k', apiSecret: 's' }, fetchImpl),
+      /All chain sources failed.*Alpaca.*CBOE direct.*CBOE via proxy/s,
+    );
+    passed++; console.log('  ✓ fetchChainSmart: aggregate error names every failed source');
+  } catch (e) { console.error(`  ✗ fetchChainSmart aggregate error\n    ${e.message}`); process.exitCode = 1; }
+})();
 
 console.log(`${passed} passed`);

@@ -8,8 +8,10 @@
 
 import {
   UNDERLYINGS, MODE_DEFAULTS, MODE_INFO, DEFAULT_CONDOR_CONFIG, activeParams,
-  fetchCboeChain, fetchVixSpot, buildCondor, condorTicketText, daysBetween, etNow,
+  fetchChainSmart, fetchVixSpot, buildCondor, condorTicketText, daysBetween, etNow,
+  CHAIN_SOURCE_LABEL,
 } from '../data/condor.js';
+import { loadAutomationConfig } from '../data/automation.js';
 import { loadCondorState, saveCondorState, addCondorTrade, listCondorTrades, updateCondorTrade, deleteCondorTrade } from '../data/condorStore.js';
 import { loadNotifications } from '../data/notifications.js';
 import { sendTelegram } from '../data/telegram.js';
@@ -66,9 +68,15 @@ export function renderCondorDesk(root) {
         <div id="cd-result" style="margin-top:14px"></div>
       </div>
 
-      <details class="collapsible" id="cd-config" open>
-        <summary>Configuration (the mechanical rules — adjust as you learn, hover any field for why)</summary>
+      <details class="collapsible" id="cd-config">
+        <summary title="The defaults already implement the successful-trader consensus — you don't need to open this to start trading.">Configuration — defaults are the recommended setup; open only to customize</summary>
         <div class="body">
+          <div class="guide-pass" style="text-align:left;margin:0 0 12px">
+            <b>You can leave everything as is.</b> The defaults are the consensus setup successful systematic condor
+            sellers use (~0.15Δ shorts at ~40 DTE, $5-equivalent wings, 50% profit target, 21-DTE time exit,
+            2× credit hard stop, 5% risk sizing) — see the <a href="#/condor-guide" style="color:var(--cyan)">Strategy Guide</a>
+            for why each number. Change fields only when you have a reason; hover any field for its tooltip.
+          </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:960px;margin-bottom:6px">
             <label style="${FIELD_STYLE}" title="Which S&P product to quote. XSP/SPX are cash-settled European (no assignment risk); SPY is American-style.">Underlying
               <select id="cf-underlying" class="btn-bare">
@@ -130,6 +138,19 @@ export function renderCondorDesk(root) {
     return c;
   }
 
+  // True when the active mode's params all match the shipped defaults — the
+  // chip then says "defaults" so the user knows there's nothing to tweak.
+  function usingDefaults(config) {
+    const d = MODE_DEFAULTS[config.mode];
+    const p = config.modes?.[config.mode] || {};
+    return Object.keys(d).every(k => String(p[k] ?? d[k]) === String(d[k]));
+  }
+  function paintChip(config) {
+    const custom = !usingDefaults(config);
+    $('cd-mode-chip').textContent = `${MODE_INFO[config.mode].label} · ${custom ? 'customized' : 'recommended defaults'}`;
+    $('cd-mode-chip').style.color = custom ? 'var(--amber)' : 'var(--cyan)';
+  }
+
   function paintModeInfo(mode) {
     const info = MODE_INFO[mode];
     $('cf-mode-info').innerHTML = `
@@ -161,7 +182,7 @@ export function renderCondorDesk(root) {
     $('cf-underlying').value = state.config.underlying;
     $('cf-mode').value = state.config.mode;
     $('cf-capital').value = state.config.capital;
-    $('cd-mode-chip').textContent = MODE_INFO[state.config.mode].label;
+    paintChip(state.config);
     uiMode = state.config.mode;
     paintModeInfo(state.config.mode);
     paintModeFields(state.config.mode);
@@ -200,13 +221,14 @@ export function renderCondorDesk(root) {
     state.config.modes[uiMode] = readModeFields(uiMode);
     state.config.mode = $('cf-mode').value;
     uiMode = state.config.mode;
-    $('cd-mode-chip').textContent = MODE_INFO[state.config.mode].label;
+    paintChip(state.config);
     paintModeInfo(state.config.mode);
     paintModeFields(state.config.mode);
   });
 
   $('cf-save').addEventListener('click', async () => {
     state.config = readConfig();
+    paintChip(state.config);
     try { await saveCondorState(state); cfStatus('✓ Saved'); } catch (e) { cfStatus(e.message); }
   });
   $('cf-reset').addEventListener('click', () => {
@@ -238,14 +260,15 @@ export function renderCondorDesk(root) {
   // ----- compute --------------------------------------------------------------
   $('cd-compute').addEventListener('click', async () => {
     const btn = $('cd-compute'), status = $('cd-status'), out = $('cd-result');
-    btn.disabled = true; status.textContent = 'Fetching CBOE chain…'; out.innerHTML = '';
+    btn.disabled = true; status.textContent = 'Fetching option chain…'; out.innerHTML = '';
     try {
       const cfg = readConfig();
-      const [chain, vix, trades] = await Promise.all([
-        fetchCboeChain(cfg.underlying),
+      const [creds, vix, trades] = await Promise.all([
+        loadAutomationConfig().catch(() => ({})),  // Alpaca keys, if the user set them up
         fetchVixSpot().catch(() => null),          // informational — never blocks
         listCondorTrades().catch(() => []),        // for the staggered-entry check
       ]);
+      const chain = await fetchChainSmart(cfg, creds);
       status.textContent = 'Selecting legs…';
       const c = buildCondor(chain, cfg, new Date(), { vix });
       // Time diversification (blueprint: one entry every 1–2 weeks, staggered).
@@ -258,11 +281,16 @@ export function renderCondorDesk(root) {
       out.innerHTML = renderCondorCard(c, cfg);
       wireCardButtons(c, cfg);
       $('cd-config').open = false; // collapse config once there's a live card
-      status.textContent = c.asOf ? `Chain as of ${esc(String(c.asOf))} (≈15-min delayed — confirm the credit in Webull)` : '≈15-min delayed data — confirm the credit in Webull';
+      const srcLabel = CHAIN_SOURCE_LABEL[chain.source] || 'chain';
+      status.textContent = `Data: ${srcLabel}${c.asOf ? ` · as of ${String(c.asOf)}` : ''} — confirm the credit in Webull before submitting`;
     } catch (e) {
       console.error('[condor] compute failed', e);
       out.innerHTML = `<div class="guide-warn" style="text-align:left"><b>Could not compute legs.</b> ${esc(e?.message || String(e))}
-        <br><span class="muted" style="font-size:0.88rem">CBOE's free feed occasionally rejects requests — retry in a minute. If it persists, check the browser console for CORS/network details.</span></div>`;
+        <br><span class="muted" style="font-size:0.88rem">
+        Fixes, in order: <b>1)</b> Add your Alpaca API keys in the <a href="#/automation" style="color:var(--cyan)">Automation</a> tab
+        (paper keys are fine) — that enables Alpaca's reliable real-time options feed for SPY and skips CBOE entirely.
+        <b>2)</b> Disable ad-blockers/shields for this site — they commonly block cdn.cboe.com and proxy fallbacks.
+        <b>3)</b> Retry in a minute; CBOE's CDN intermittently rejects whole networks.</span></div>`;
       status.textContent = '';
     } finally { btn.disabled = false; }
   });
