@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.34.0 — 2026-07-12 (Condor Desk: at-a-glance summary + high-VIX headline-regime guard)
+
+### Added
+- **Concise summary box** at the top of every computed card — date/spot/VIX,
+  expiry + DTE + POP, the four legs on one line, credit to collect, the
+  profit plan, the loss plan, when to enter, and a **GO / WAIT verdict**
+  (WAIT when a blocking rule fired: skip-rule, VIX floor, weekend preview,
+  staggered-entry, wrong entry day; cautions are counted but don't block).
+  Everything needed for the morning glance without reading the full card.
+- **High-VIX caution warning in both modes** (answers "does the tool handle
+  months when SPY swings on policy headlines?"): delta-picked strikes
+  already auto-widen when IV is elevated — that's the built-in
+  accommodation — but at/above a configurable VIX level (managed 27,
+  1-DTE 25, tweakable per mode) the Desk now flags a headline/panic
+  regime with the honest guidance: half size, stagger wider, strict
+  stops, or stand aside. Strategy Guide's volatility section gained a
+  matching "when IV is extreme" explanation of what is and isn't
+  predictable about surprise announcements. Engine tests 19 → 20.
+
 ## v0.33.1 — 2026-07-12 (fix: crash rendering Alpaca-sourced legs; weekend preview note)
 
 ### Fixed

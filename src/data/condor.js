@@ -46,6 +46,7 @@ export const MODE_DEFAULTS = {
     lossMult: 2,                      // hard exit when total loss = 2× total credit
     riskPct: 5,                       // sizing: defined risk per trade ≤ this % of capital
     minVix: 13,                       // warn when VIX below this — premium too thin to sell
+    highVix: 27,                      // warn when VIX at/above this — headline regime, size down
   },
   '1dte': {
     cadence: 'thu-fri',               // 'thu-fri' | 'any-day' | 'twice-weekly'
@@ -53,6 +54,7 @@ export const MODE_DEFAULTS = {
     wingPct: 0.65,
     minCreditPct: 0.025,
     stopMult: 3,                      // per-side stop: loss = 3× that side's credit
+    highVix: 25,                      // 1-DTE is gap-sensitive — flag stress regimes earlier
   },
 };
 
@@ -451,6 +453,16 @@ export function buildCondor(chain, cfg, now = new Date(), extras = {}) {
         + `(${p.minCreditPct}% of spot). Premium is too thin to pay for the risk — do NOT move strikes closer to force it.`);
     }
   }
+  // High-volatility / headline regimes (tariff announcements, geopolitics,
+  // crash tape). Delta-picked strikes already sit much further out when IV is
+  // elevated — that's the built-in adaptation — but realized moves in these
+  // regimes can outrun even widened strikes, so flag it in BOTH modes.
+  if (Number.isFinite(extras.vix) && extras.vix >= (p.highVix ?? 27)) {
+    warnings.push(`VIX is ${extras.vix.toFixed(1)} — high-volatility / headline regime (≥ your ${p.highVix} caution level). `
+      + 'Your delta-picked strikes are already much further out than in calm markets and the credit is richer, but news-driven tape '
+      + 'can outrun even these. Guidance: halve the size, stagger entries wider, treat the stop as sacred — or stand aside until it settles.');
+  }
+
   const big = Math.max(call.credit, put.credit), small = Math.min(call.credit, put.credit);
   if (big > 0 && (big - small) / big > 0.25) {
     warnings.push('Sides are imbalanced (>25% credit difference) — acceptable, but the richer side carries the market\'s feared direction.');
