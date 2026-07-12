@@ -19,17 +19,17 @@
 // =============================================================================
 
 export const UNDERLYINGS = {
+  SPY: {
+    key: 'SPY', cboe: 'SPY', roots: ['SPY'], label: 'SPY · ETF (most liquid, default)',
+    style: 'american', note: 'Deepest option market on earth; penny-wide spreads. American-style — never hold short legs into expiry; the managed rules exit by 21 DTE anyway.',
+  },
   XSP: {
     key: 'XSP', cboe: '_XSP', roots: ['XSP'], label: 'XSP · Mini-SPX (cash-settled)',
-    style: 'european', note: 'Cash-settled, European — no assignment risk; OK to let expire OTM.',
+    style: 'european', note: 'Cash-settled, European — no assignment risk, 60/40 tax treatment. Slightly wider markets than SPY.',
   },
   SPX: {
     key: 'SPX', cboe: '_SPX', roots: ['SPXW', 'SPX'], label: 'SPX · full-size (cash-settled)',
-    style: 'european', note: 'Cash-settled, European — no assignment risk; OK to let expire OTM.',
-  },
-  SPY: {
-    key: 'SPY', cboe: 'SPY', roots: ['SPY'], label: 'SPY · ETF (American style)',
-    style: 'american', note: 'American-style with assignment risk — never hold short legs into expiry; close early.',
+    style: 'european', note: 'Cash-settled, European, 60/40 tax — 10× XSP size; best fee economics for large accounts.',
   },
 };
 
@@ -37,14 +37,15 @@ export const UNDERLYINGS = {
 // modes in the UI swaps the whole parameter set (both are saved).
 export const MODE_DEFAULTS = {
   '30-45dte': {
-    targetDte: 38, dteMin: 30, dteMax: 45,
-    deltaMin: 0.15, deltaMax: 0.20,   // ~80-85% OTM probability per side at entry
-    wingPct: 1.5,                     // % of spot beyond the short strike
-    minCreditPct: 0.25,               // per-side credit floor, % of spot
-    profitTargetPct: 50,              // close all legs at 50% of max profit
+    targetDte: 40, dteMin: 30, dteMax: 45,
+    deltaMin: 0.12, deltaMax: 0.18,   // target ~0.15Δ shorts → est. POP ≈ 70-75%
+    wingPct: 0.75,                    // % of spot beyond the short strike (≈ $5 on SPY)
+    minCreditWidthPct: 20,            // total credit floor as % of wing width (≈ $1.00 on $5 wings)
+    profitTargetPct: 50,              // close all legs at 50% of max profit (standing GTC order)
     timeExitDte: 21,                  // or close/roll at 21 DTE, whichever first
     lossMult: 2,                      // hard exit when total loss = 2× total credit
-    riskPct: 20,                      // sizing: defined risk per trade ≤ this % of capital
+    riskPct: 5,                       // sizing: defined risk per trade ≤ this % of capital
+    minVix: 13,                       // warn when VIX below this — premium too thin to sell
   },
   '1dte': {
     cadence: 'thu-fri',               // 'thu-fri' | 'any-day' | 'twice-weekly'
@@ -57,8 +58,8 @@ export const MODE_DEFAULTS = {
 
 export const MODE_INFO = {
   '30-45dte': {
-    label: '30–45 DTE · managed (enter ~35–40 DTE)',
-    pros: 'Highest managed win rate (~78–82%), big credits, slow gamma — mistakes are survivable, adjustments have time to work. Check the position once a day, not once an hour. Best mode to learn on.',
+    label: '30–45 DTE · managed (enter ~40 DTE)',
+    pros: 'What successful systematic condor traders run: ~0.15Δ shorts (est. POP 70–75%), managed win rate ~78–82%, slow gamma — mistakes are survivable and adjustments have time to work. Check once a day, not once an hour. Best mode to learn on.',
     cons: 'Capital is committed for 2–4 weeks per cycle, weeks of overnight/event exposure (CPI, NFP, often FOMC land inside the window — normal for this style, the management rules handle it), and annualized return per dollar is lower than faster cycles.',
   },
   '1dte': {
@@ -69,9 +70,9 @@ export const MODE_INFO = {
 };
 
 export const DEFAULT_CONDOR_CONFIG = {
-  underlying: 'XSP',
+  underlying: 'SPY',
   mode: '30-45dte',
-  capital: 4000,
+  capital: 10000,
   modes: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
 };
 
@@ -141,6 +142,18 @@ export async function fetchCboeChain(underlyingKey, fetchImpl = globalThis.fetch
   if (!res.ok) throw new Error(`CBOE chain fetch failed: ${res.status}`);
   const json = await res.json();
   return parseCboeChain(json, underlyingKey);
+}
+
+// VIX spot from the same free CBOE feed (the _VIX payload's underlying price).
+// Used only for the "is premium worth selling right now" entry check; callers
+// should treat null (fetch failed) as "unknown", not as a blocker.
+export async function fetchVixSpot(fetchImpl = globalThis.fetch) {
+  const res = await fetchImpl('https://cdn.cboe.com/api/global/delayed_quotes/options/_VIX.json', { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`CBOE VIX fetch failed: ${res.status}`);
+  const json = await res.json();
+  const v = [json?.data?.current_price, json?.data?.close].map(Number).find(Number.isFinite);
+  if (!Number.isFinite(v)) throw new Error('CBOE VIX payload missing price');
+  return v;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +295,8 @@ function liquidityWarnings(legs) {
 }
 
 // Main entry: chain (+config) → the trade card model.
-export function buildCondor(chain, cfg, now = new Date()) {
+// extras: { vix } — optional context the view fetched alongside the chain.
+export function buildCondor(chain, cfg, now = new Date(), extras = {}) {
   const p = activeParams(cfg);
   const t = etNow(now);
   const expiries = chain.options.map(o => o.expiry);
@@ -318,10 +332,23 @@ export function buildCondor(chain, cfg, now = new Date()) {
   }
   contracts = Math.max(1, sizedByCapital);
 
-  const minCredit = r2(chain.spot * p.minCreditPct / 100);
-  if (call.credit < minCredit || put.credit < minCredit) {
-    warnings.push(`SKIP RULE: a side's net credit is below the floor of ${minCredit.toFixed(2)} `
-      + `(${p.minCreditPct}% of spot). Premium is too thin to pay for the risk — do NOT move strikes closer to force it.`);
+  if (cfg.mode === '30-45dte') {
+    // Managed mode thinks in credit-vs-width (the blueprint's $1.00+ on $5 wings ≈ 20%).
+    if (creditOfWidthPct < p.minCreditWidthPct) {
+      warnings.push(`SKIP RULE: total credit is ${creditOfWidthPct}% of wing width — below the ${p.minCreditWidthPct}% floor `
+        + `(≈ $${(maxWidth * p.minCreditWidthPct / 100 * 100).toFixed(0)} per condor). Premium is too thin to pay for the risk — `
+        + 'wait for higher IV rather than moving strikes closer.');
+    }
+    if (Number.isFinite(extras.vix) && extras.vix < p.minVix) {
+      warnings.push(`VIX is ${extras.vix.toFixed(1)} — below your ${p.minVix} floor. Premium sellers get paid for volatility; `
+        + 'with IV this low the blueprint says wait for a pullback or pre-event IV bump instead of forcing an entry.');
+    }
+  } else {
+    const minCredit = r2(chain.spot * p.minCreditPct / 100);
+    if (call.credit < minCredit || put.credit < minCredit) {
+      warnings.push(`SKIP RULE: a side's net credit is below the floor of ${minCredit.toFixed(2)} `
+        + `(${p.minCreditPct}% of spot). Premium is too thin to pay for the risk — do NOT move strikes closer to force it.`);
+    }
   }
   const big = Math.max(call.credit, put.credit), small = Math.min(call.credit, put.credit);
   if (big > 0 && (big - small) / big > 0.25) {
@@ -345,11 +372,19 @@ export function buildCondor(chain, cfg, now = new Date()) {
     return cad === 'thu-fri' ? t.weekday === 'Thu' : (t.weekday === 'Mon' || t.weekday === 'Thu');
   })();
 
+  // Estimated probability the index finishes between the short strikes at
+  // expiry ≈ 1 − (short call Δ + |short put Δ|). ~0.15Δ shorts → ~70-75%.
+  const popPct = (call.sell.delta !== null && put.sell.delta !== null)
+    ? Math.round((1 - (Math.abs(call.sell.delta) + Math.abs(put.sell.delta))) * 100)
+    : null;
+
   const c = {
     mode: cfg.mode,
     underlying: cfg.underlying,
     spot: chain.spot,
     asOf: chain.asOf,
+    vix: Number.isFinite(extras.vix) ? extras.vix : null,
+    popPct,
     expiry,
     expiryWeekday: weekdayOfISO(expiry),
     dte,
@@ -398,10 +433,12 @@ export function condorTicketText(c, cfg) {
   ];
   if (c.mode === '30-45dte') {
     lines.push(
-      `TAKE PROFIT: buy back all 4 legs when condor mark ≤ ${c.profitTargetMark.toFixed(2)}  [${p.profitTargetPct}% of credit ≈ +$${c.profitTargetUsd}]`,
+      `TAKE PROFIT: buy back all 4 legs when condor mark ≤ ${c.profitTargetMark.toFixed(2)}  [${p.profitTargetPct}% of credit ≈ +$${c.profitTargetUsd}] — place this GTC order right after the fill`,
       `TIME EXIT: if target not hit, close by ${c.timeExitDate}  [${p.timeExitDte} DTE]`,
+      `DEFEND (optional): if a SHORT strike's delta reaches ~0.30, roll the UNTESTED side — buy its spread back cheap and re-sell at the new ~0.15Δ for extra credit`,
       `HARD STOP: close everything if condor mark ≥ ${c.lossMark.toFixed(2)}  [loss = ${p.lossMult}× credit ≈ −$${c.plannedLossUsd}]`,
     );
+    if (c.popPct !== null) lines.splice(1, 0, `Est. probability of profit ≈ ${c.popPct}%${c.vix !== null ? ` · VIX ${c.vix.toFixed(1)}` : ''}`);
   } else {
     lines.push(
       `STOPS (per side): close CALL side if its spread mark ≥ ${c.call.stopMark.toFixed(2)}; PUT side if ≥ ${c.put.stopMark.toFixed(2)}  [${1 + p.stopMult}× credit]`,

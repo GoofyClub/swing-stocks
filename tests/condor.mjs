@@ -54,8 +54,8 @@ ok('date helpers', () => {
 
 ok('pickExpiry: 30-45dte mode snaps to DTE closest to target inside the range', () => {
   const exps = ['2026-07-17', '2026-08-14', '2026-08-21', '2026-08-28', '2026-09-18'];
-  // From 2026-07-16: DTEs are 1, 29, 36, 43, 64 → in [30,45]: 36 & 43 → closest to 38 = 36.
-  assert.equal(pickExpiry(exps, cfg('30-45dte'), '2026-07-16'), '2026-08-21');
+  // From 2026-07-16: DTEs are 1, 29, 36, 43, 64 → in [30,45]: 36 & 43 → closest to 40 = 43.
+  assert.equal(pickExpiry(exps, cfg('30-45dte'), '2026-07-16'), '2026-08-28');
   // Nothing in range → overall closest to target.
   assert.equal(pickExpiry(['2026-07-17', '2026-09-18'], cfg('30-45dte'), '2026-07-16'), '2026-09-18');
 });
@@ -143,44 +143,59 @@ const CHAIN_M = { spot: 680, asOf: 'test', options: [
   mk(E1, 'P', 664, 0.30, -0.09), mk(E1, 'P', 659, 0.11, -0.05),
 ] };
 
-ok('30-45dte: picks ~38-DTE expiry, 0.15-0.20Δ shorts, 1.5% wings', () => {
-  const c = buildCondor(CHAIN_M, cfg('30-45dte', {}, 12000), NOW);
+ok('30-45dte: 0.15Δ shorts (band 0.12-0.18), 0.75%-of-spot wings (≈$5 SPY-scale)', () => {
+  const c = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW);
   assert.equal(c.mode, '30-45dte');
-  assert.equal(c.expiry, EM);
+  assert.equal(c.expiry, EM);                          // only in-range expiry in this chain
   assert.equal(c.dte, 36);
   assert.equal(c.entryDayOK, true);                    // any day is fine in this mode
-  assert.equal(c.call.sell.strike, 705);
-  assert.equal(c.call.buy.strike, 720);
-  assert.equal(c.put.sell.strike, 655);
+  assert.equal(c.call.sell.strike, 710);               // δ 0.15 = band midpoint
+  assert.equal(c.call.buy.strike, 720);                // 710 + 5.1 → next listed = 720
+  assert.equal(c.put.sell.strike, 650);
   assert.equal(c.put.buy.strike, 640);
-  assert.equal(c.call.credit, 2.20);
-  assert.equal(c.put.credit, 2.20);
-  assert.equal(c.totalCredit, 4.40);
+  assert.equal(c.call.credit, 1.50);                   // 2.90 − 1.40
+  assert.equal(c.put.credit, 1.50);                    // 3.00 − 1.50
+  assert.equal(c.totalCredit, 3.00);
   assert.equal(c.call.stopMark, null);                 // no per-side stop in managed mode
+  assert.equal(c.popPct, 70);                          // 1 − (0.15 + 0.15)
 });
 
-ok('30-45dte: playbook management marks (50% TP, 21-DTE time exit, 2× loss stop)', () => {
-  const c = buildCondor(CHAIN_M, cfg('30-45dte', {}, 12000), NOW);
-  assert.equal(c.profitTargetMark, 2.20);              // buy back at 50% of credit
-  assert.equal(c.lossMark, 13.20);                     // credit × (1 + 2)
+ok('30-45dte: management marks (50% TP, 21-DTE time exit, 2× loss stop) + width floor', () => {
+  const c = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW);
+  assert.equal(c.profitTargetMark, 1.50);              // buy back at 50% of credit
+  assert.equal(c.lossMark, 9.00);                      // credit × (1 + 2)
   assert.equal(c.timeExitDate, '2026-07-31');          // expiry − 21 days
-  assert.equal(c.breakevenUp, 709.40);
-  assert.equal(c.breakevenDown, 650.60);
-  assert.equal(c.creditOfWidthPct, 29);                // 4.4 / 15
+  assert.equal(c.breakevenUp, 713.00);
+  assert.equal(c.breakevenDown, 647.00);
+  assert.equal(c.creditOfWidthPct, 30);                // 3.0 / 10 → ≥ 20% floor, no warning
+  assert.equal(c.warnings.some(w => w.includes('SKIP RULE')), false);
+  // Thin premium → credit falls under 20% of width → skip warning.
+  const thin = { ...CHAIN_M, options: CHAIN_M.options.map(o =>
+    ({ ...o, mid: Math.round(o.mid / 3 * 100) / 100, bid: Math.round(o.bid / 3 * 100) / 100, ask: Math.round(o.ask / 3 * 100) / 100 })) };
+  const ct = buildCondor(thin, cfg('30-45dte', {}, 30000), NOW);
+  assert.equal(ct.warnings.some(w => w.includes('SKIP RULE') && w.includes('% of wing width')), true);
 });
 
-ok('30-45dte: risk-based sizing (defined risk ≤ riskPct% of capital)', () => {
-  // Risk per condor = (15 − 4.4) × 100 = $1,060. 20% of 12k = $2,400 → 2 contracts.
-  const c = buildCondor(CHAIN_M, cfg('30-45dte', {}, 12000), NOW);
+ok('30-45dte: risk-based sizing (defined risk ≤ riskPct% of capital, blueprint 2-5%)', () => {
+  // Risk per condor = (10 − 3) × 100 = $700. 5% of 30k = $1,500 → 2 contracts.
+  const c = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW);
   assert.equal(c.contracts, 2);
-  assert.equal(c.maxProfitUsd, 880);
-  assert.equal(c.definedRiskUsd, 2120);
-  assert.equal(c.plannedLossUsd, 1760);                // 2× credit × 100 × 2
-  // Small account: 20% of 4k = $800 < $1,060 → quote 1 with a sizing warning.
-  const small = buildCondor(CHAIN_M, cfg('30-45dte'), NOW);
+  assert.equal(c.maxProfitUsd, 600);
+  assert.equal(c.definedRiskUsd, 1400);
+  assert.equal(c.plannedLossUsd, 1200);                // 2× credit × 100 × 2
+  // $10k account: 5% = $500 < $700 → quote 1 with a sizing warning.
+  const small = buildCondor(CHAIN_M, cfg('30-45dte', {}, 10000), NOW);
   assert.equal(small.sizedByCapital, 0);
   assert.equal(small.contracts, 1);
   assert.equal(small.warnings.some(w => w.includes('defined risk')), true);
+});
+
+ok('30-45dte: VIX entry filter warns only below the floor', () => {
+  const low = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW, { vix: 11.2 });
+  assert.equal(low.vix, 11.2);
+  assert.equal(low.warnings.some(w => w.includes('VIX is 11.2')), true);
+  const okVix = buildCondor(CHAIN_M, cfg('30-45dte', {}, 30000), NOW, { vix: 18.4 });
+  assert.equal(okVix.warnings.some(w => w.includes('VIX is')), false);
 });
 
 ok('liquidity warnings: thin OI and wide markets are flagged', () => {
@@ -192,9 +207,10 @@ ok('liquidity warnings: thin OI and wide markets are flagged', () => {
 });
 
 ok('ticket text: mode-specific management lines', () => {
-  const cm = cfg('30-45dte', {}, 12000);
-  const tm = condorTicketText(buildCondor(CHAIN_M, cm, NOW), cm);
-  for (const s of ['36 DTE', 'TAKE PROFIT', '2.20', 'TIME EXIT', '2026-07-31', 'HARD STOP', '13.20', 'Breakevens']) {
+  const cm = cfg('30-45dte', {}, 30000);
+  const tm = condorTicketText(buildCondor(CHAIN_M, cm, NOW, { vix: 17.3 }), cm);
+  for (const s of ['36 DTE', 'TAKE PROFIT', '1.50', 'TIME EXIT', '2026-07-31', 'DEFEND', '~0.30',
+                   'HARD STOP', '9.00', 'Breakevens', 'Est. probability of profit ≈ 70%', 'VIX 17.3']) {
     assert.ok(tm.includes(s), `missing "${s}" in managed ticket`);
   }
   const c1 = cfg('1dte');

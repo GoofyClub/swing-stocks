@@ -12,8 +12,9 @@ const NAV = [
     { id: 'watchlist',     icon: '≡', label: 'Watchlist' },
   ]},
   { group: 'Options Income', items: [
-    { id: 'condor-desk',  icon: '⛰', label: 'Condor Desk' },
-    { id: 'condor-guide', icon: 'i', label: 'Condor Guide' },
+    { id: 'condor-desk',   icon: '⛰', label: 'Condor Desk' },
+    { id: 'condor-guide',  icon: '◈', label: 'Strategy Guide' },
+    { id: 'condor-manual', icon: 'i', label: 'Desk Manual' },
   ]},
   { group: 'Automation', items: [
     { id: 'automation',       icon: '⚡', label: 'Automation' },

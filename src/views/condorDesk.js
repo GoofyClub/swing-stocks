@@ -8,7 +8,7 @@
 
 import {
   UNDERLYINGS, MODE_DEFAULTS, MODE_INFO, DEFAULT_CONDOR_CONFIG, activeParams,
-  fetchCboeChain, buildCondor, condorTicketText,
+  fetchCboeChain, fetchVixSpot, buildCondor, condorTicketText, daysBetween, etNow,
 } from '../data/condor.js';
 import { loadCondorState, saveCondorState, addCondorTrade, listCondorTrades, updateCondorTrade, deleteCondorTrade } from '../data/condorStore.js';
 import { loadNotifications } from '../data/notifications.js';
@@ -25,17 +25,18 @@ const FIELD_STYLE = 'display:flex;flex-direction:column;gap:6px;font-size:0.8rem
 // Per-mode form fields: [key, label, tooltip, inputAttrs]
 const MODE_FIELDS = {
   '30-45dte': [
-    ['targetDte', 'Target DTE', 'Days to expiry to aim for at entry. 35–40 is the playbook sweet spot: enough premium, slow gamma, time to manage.', 'type="number" step="1" min="20" max="70"'],
+    ['targetDte', 'Target DTE', 'Days to expiry to aim for at entry. ~40 is the blueprint sweet spot: enough premium, slow gamma, time to manage.', 'type="number" step="1" min="20" max="70"'],
     ['dteMin', 'DTE min', 'Lower bound when snapping to a listed expiry. Below ~30 DTE gamma accelerates and the managed edge decays.', 'type="number" step="1" min="7" max="60"'],
     ['dteMax', 'DTE max', 'Upper bound when snapping to a listed expiry. Above ~45 DTE theta is slow and capital sits idle.', 'type="number" step="1" min="21" max="90"'],
-    ['deltaMin', 'Short delta min', 'Lower edge of the short-strike delta band. 0.15–0.20 ≈ 80–85% chance each side expires OTM.', 'type="number" step="0.01" min="0.05" max="0.4"'],
+    ['deltaMin', 'Short delta min', 'Lower edge of the short-strike delta band. Default 0.12–0.18 targets ~0.15Δ shorts ≈ 70–75% probability of profit.', 'type="number" step="0.01" min="0.05" max="0.4"'],
     ['deltaMax', 'Short delta max', 'Upper edge of the band. Higher delta = more credit but a lower win rate.', 'type="number" step="0.01" min="0.08" max="0.5"'],
-    ['wingPct', 'Wing width (% of spot)', 'How far beyond the short strike the protective long sits. Wider = more credit kept but more capital at risk.', 'type="number" step="0.1" min="0.3" max="5"'],
-    ['minCreditPct', 'Min credit / side (% of spot)', 'If a side can\'t collect this at the target delta, premium is too thin — skip the entry.', 'type="number" step="0.01" min="0" max="2"'],
-    ['profitTargetPct', 'Profit target (% of credit)', 'Buy the whole condor back at this % of max profit. 50% is the playbook number — most of the P&L, none of the late-cycle gamma.', 'type="number" step="5" min="20" max="90"'],
-    ['timeExitDte', 'Time exit (DTE)', 'If the target hasn\'t hit by this many days to expiry, close (or roll) anyway. 21 DTE is the playbook number.', 'type="number" step="1" min="7" max="35"'],
-    ['lossMult', 'Loss exit (× credit)', 'Hard stop: close everything when the total loss reaches this multiple of the credit received. Playbook: 2×.', 'type="number" step="0.5" min="1" max="4"'],
-    ['riskPct', 'Risk per trade (% of capital)', 'Sizing: one trade\'s defined risk (width − credit) may use at most this % of capital.', 'type="number" step="5" min="5" max="100"'],
+    ['wingPct', 'Wing width (% of spot)', 'How far beyond the short strike the protective long sits. 0.75% ≈ the blueprint\'s $5 SPY wings; wider = more credit kept but more capital at risk.', 'type="number" step="0.05" min="0.3" max="5"'],
+    ['minCreditWidthPct', 'Min credit (% of width)', 'Skip the entry if total credit is below this % of wing width. 20% ≈ the blueprint\'s $1.00+ on $5 wings.', 'type="number" step="1" min="5" max="50"'],
+    ['profitTargetPct', 'Profit target (% of credit)', 'Buy the whole condor back at this % of max profit. 50% is the consensus number — most of the P&L, none of the late-cycle gamma.', 'type="number" step="5" min="20" max="90"'],
+    ['timeExitDte', 'Time exit (DTE)', 'If the target hasn\'t hit by this many days to expiry, close (or roll) anyway. 21 DTE is the consensus number.', 'type="number" step="1" min="7" max="35"'],
+    ['lossMult', 'Loss exit (× credit)', 'Hard stop: close everything when the total loss reaches this multiple of the credit received. Blueprint: 2–3×; default 2×.', 'type="number" step="0.5" min="1" max="4"'],
+    ['riskPct', 'Risk per trade (% of capital)', 'Sizing: one trade\'s defined risk (width − credit) may use at most this % of capital. Blueprint: 2–5%.', 'type="number" step="1" min="1" max="100"'],
+    ['minVix', 'Min VIX to enter', 'Premium sellers get paid for volatility. Below this VIX level the Desk warns that premium is too thin — the blueprint prefers entries on pullbacks / pre-event IV bumps.', 'type="number" step="0.5" min="0" max="30"'],
   ],
   '1dte': [
     ['cadence', 'Cadence', 'Thu→Fri is the source strategy\'s weekly rhythm. Any-day trades every 1-DTE expiry; twice-weekly adds Mon→Tue.', 'select'],
@@ -240,9 +241,20 @@ export function renderCondorDesk(root) {
     btn.disabled = true; status.textContent = 'Fetching CBOE chain…'; out.innerHTML = '';
     try {
       const cfg = readConfig();
-      const chain = await fetchCboeChain(cfg.underlying);
+      const [chain, vix, trades] = await Promise.all([
+        fetchCboeChain(cfg.underlying),
+        fetchVixSpot().catch(() => null),          // informational — never blocks
+        listCondorTrades().catch(() => []),        // for the staggered-entry check
+      ]);
       status.textContent = 'Selecting legs…';
-      const c = buildCondor(chain, cfg);
+      const c = buildCondor(chain, cfg, new Date(), { vix });
+      // Time diversification (blueprint: one entry every 1–2 weeks, staggered).
+      const today = etNow().iso;
+      const recentOpen = trades.find(t => t.status === 'open' && t.date && daysBetween(t.date, today) < 7);
+      if (recentOpen) {
+        c.warnings.unshift(`Staggered-entry rule: you already opened a condor on ${recentOpen.date} (${daysBetween(recentOpen.date, today)} day(s) ago). `
+          + 'The blueprint spaces entries 1–2 weeks apart for time diversification — consider waiting or sizing down.');
+      }
       out.innerHTML = renderCondorCard(c, cfg);
       wireCardButtons(c, cfg);
       $('cd-config').open = false; // collapse config once there's a live card
@@ -304,6 +316,8 @@ export function renderCondorDesk(root) {
         <span>expiry <b>${esc(c.expiry)} (${esc(c.expiryWeekday)}, ${c.dte} DTE)</b></span>
         <span title="Mid-price credit; the natural (instant-fill) credit is lower.">net credit <b style="font-family:var(--font-mono);color:var(--green)">${fmt2(c.totalCredit)}</b> mid / ${fmt2(c.naturalCredit)} natural</span>
         <span title="Credit as % of wing width — the risk/reward gauge for a condor.">credit = <b>${c.creditOfWidthPct}%</b> of width</span>
+        ${c.popPct !== null ? `<span title="Estimated probability the index finishes between your short strikes at expiry ≈ 1 − (call Δ + put Δ).">est. POP ≈ <b>${c.popPct}%</b></span>` : ''}
+        ${c.vix !== null ? `<span title="VIX — the market's implied volatility. Premium sellers want this elevated; below your configured floor the Desk warns.">VIX <b style="font-family:var(--font-mono)">${c.vix.toFixed(1)}</b></span>` : ''}
         <span>contracts <b style="font-family:var(--font-mono)">${c.contracts}</b></span>
       </div>
       <div style="overflow-x:auto">
@@ -324,6 +338,10 @@ export function renderCondorDesk(root) {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:12px 0">
         ${mgmtTiles.join('')}
       </div>
+      ${c.mode === '30-45dte' ? `<p class="muted" style="font-size:0.9rem;margin:8px 0" title="The blueprint's defense move — optional, done before the hard stop is threatened.">
+        <b>Defend (optional):</b> if a short strike's delta reaches ~0.30 (price approaching it), roll the <b>untested</b> side —
+        buy its spread back cheap and re-sell at the new ~0.15Δ closer in. Extra credit collected reduces your max risk.
+      </p>` : ''}
       <div class="guide-pass" style="text-align:left">
         <b>Placing in Webull:</b> Options chain → pick the <b>${esc(c.expiry)}</b> expiry → order type <b>Iron Condor</b> (or 4-leg custom) →
         enter the four legs above → <b>net credit limit ≈ ${fmt2(c.totalCredit)}</b> (start at mid; accept ≥ ${fmt2(Math.max(c.naturalCredit, c.totalCredit * 0.9))}) → review → submit.
