@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.32.0 — 2026-07-12 (Condor Desk: blueprint alignment — defaults now match the successful-trader consensus)
+
+### Changed
+- **Defaults recalibrated to the systematic-condor consensus / SPY blueprint**
+  (all still tweakable per field, with updated tooltips):
+  - Underlying default **SPY** (deepest market; XSP/SPX selectable — guide
+    explains when to switch for cash settlement + 60/40 tax).
+  - Managed mode: target **40 DTE**, short-delta band **0.12–0.18** (~0.15Δ),
+    wings **0.75% of spot** (≈ the blueprint's $5 SPY wings), credit floor
+    now expressed as **total credit ≥ 20% of wing width** (≈ $1.00+ on $5
+    wings) instead of % of spot, sizing default tightened from 20% to
+    **5% of capital at defined risk** per the blueprint's 2–5% rule.
+    Default capital 10,000.
+
+### Added
+- **VIX entry filter**: the Desk fetches VIX from the same free CBOE feed,
+  shows it on the card, and warns when it's below a configurable floor
+  (default 13) — "sell premium when IV is elevated, stand aside when dead".
+- **Staggered-entry check** (time diversification): warns when the journal
+  holds an open condor entered fewer than 7 days ago.
+- **Estimated probability of profit** on every card and ticket
+  (≈ 1 − shortCallΔ − |shortPutΔ|; ~70–75% at defaults).
+- **Defend rule** on card + ticket: when a short strike's delta reaches
+  ~0.30, roll the untested side to the new ~0.15Δ for extra credit.
+- **Two dedicated guides**: the Condor Guide became the **Strategy Guide**
+  (understand every rule and number — consensus table, trade lifecycle,
+  worked SPY example, both modes) and a new **Desk Manual** tab covers
+  operation: setup, the 5-minute routine, reading the card, a
+  raise-it/lower-it reference for every config field, presets, journal,
+  troubleshooting.
+- Engine tests 13 → 14 (width-based credit floor, VIX filter, POP, defend
+  ticket line, new sizing math); browser smoke updated for SPY defaults,
+  VIX stub and the new tab.
+
 ## v0.31.0 — 2026-07-11 (Condor Desk: 30–45 DTE managed mode as default + trader-POV polish)
 
 ### Added
