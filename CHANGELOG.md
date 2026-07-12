@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.39.0 — 2026-07-12 (Condor Guide: capital-scaling expectations + 1-DTE worked example)
+
+### Added
+- **§7 (managed mode numbers)** now explains the profit figure against
+  capital, not against a week: a cycle runs ~19–40 days, not one week;
+  dollar profit scales almost linearly with contract count, which the
+  5%-risk sizing rule sets from your capital ($10k → ~1 contract at
+  defaults); expect roughly 10–20%/yr on capital at 1 contract — the
+  strategy compounds through account size, not through squeezing more
+  premium per trade.
+- **§8 (1-DTE mode)** gained a worked numeric example mirroring §7's
+  format — credit per side, per-condor allocation, contract count at
+  $10k, and concrete win-week/stopped-week dollar figures — so the 1-DTE
+  path is fully previewable before switching, not just described in
+  prose. Net: similar expected annualized return to managed mode, just
+  realized weekly in smaller pieces instead of every 3–6 weeks, with a
+  much less forgiving per-side same-day stop.
+- Verified the 1-DTE mode end-to-end via browser smoke (9/9): mode switch,
+  chain fetch + delta-band leg selection, the per-side STOP MARKS tile,
+  LOG THIS TRADE (through the localStorage journal fallback from v0.38.0),
+  and that the logged trade carries 1-DTE's per-side exitPlan shape. No
+  functional gaps found — 1-DTE was already fully wired through sizing,
+  warnings (NFP-Friday, cadence entry-day check), the position tracker's
+  dual gauge, and ticket text; this pass was verification, not new code.
+
 ## v0.38.0 — 2026-07-12 (Condor Desk: journal survives "Missing or insufficient permissions")
 
 ### Fixed

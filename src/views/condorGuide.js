@@ -121,12 +121,22 @@ export function renderCondorGuide(root) {
           <li>Profit exit at $0.55 mark (+$55); time exit ~19 days in; hard stop at $3.30 mark (−$220).</li>
           <li>Est. POP ≈ 70–75%. Expectancy comes from managing, not from any single trade.</li>
         </ul>
+        <p class="muted"><b>Read the dollar figure against your capital, not against a week.</b> A cycle here runs ~19–40 days (the profit target usually hits before the 21-DTE backstop), not one week — so "$50–100 per contract" is a per-cycle number, roughly 3–6 of these a year back-to-back. Dollar profit scales almost linearly with contract count, and contract count is set entirely by the 5%-risk sizing rule against your capital (§2): $10k capital → ~1 contract at these defaults, $20k → ~2, and so on. At 1 contract this nets out to roughly <b>10–20% a year on total capital</b> — a real, low-drawdown edge, but not a "beat an index fund" return until size grows. The lever isn't the strategy's rules, it's account size — this is a compounding-through-capital strategy, not a compounding-through-cleverness one. If weekly cash flow at smaller size matters more to you than the smoother ride, see §8.</p>
       </section>
 
       <section class="guide-section">
         <h2>8. Mode two: the 1-DTE weekly system</h2>
         <p>The Desk's second mode is the strategy from the source video (Sharique's weekly Nifty "1%" system), translated to the S&amp;P: enter the morning before expiry (Thu→Fri), sell ~0.09Δ call + put with 0.65%-of-spot wings, hold to expiry, and stop a <i>side</i> if its loss hits 3× that side's credit. Win weeks ≈ +1% of allocation, stopped weeks ≈ −1%, gap-through-stop worst case ≈ −10%.</p>
-        <p><b>When to use which:</b> the managed 30–45 DTE mode is the high-win-rate, low-attention system — learn on it. The 1-DTE mode is faster, needs a strict morning routine and instant stop discipline, and punishes hesitation. Same tool, same card, different rulebooks — switch modes in the config.</p>
+        <p><b>When to use which:</b> the managed 30–45 DTE mode is the high-win-rate, low-attention system — learn on it. The 1-DTE mode is faster, needs a strict morning routine and instant stop discipline, and punishes hesitation. Same tool, same card, different rulebooks — switch modes in the config (both parameter sets are saved independently, so switching back and forth never loses either one).</p>
+        <p><b>The numbers on a typical SPY trade (defaults), for comparison against §7:</b></p>
+        <ul>
+          <li>SPY at $675 → shorts ≈ 0.09Δ call/put (roughly 1–1.5% OTM day-before-expiry), wings 0.65% of spot further (≈ $4–5 on SPY).</li>
+          <li>Credit per side ≈ $0.15–0.25 (well above the 0.025%-of-spot floor) → total credit ≈ $0.35–0.45 per condor.</li>
+          <li>Sizing rule here is different from managed mode: allocation per condor ≈ credit × 100 × 100 (so the credit lands near 1% of what's allocated) — roughly $3,500–4,500 at these numbers. At $10,000 capital that sizes to <b>~2 contracts</b>, not 1.</li>
+          <li><b>Win week</b> (both sides expire worthless): +$0.40 × 100 × 2 ≈ <b>+$80</b>.</li>
+          <li><b>Stopped week</b> (one side hits its 3×-credit stop, e.g. the call at $0.20 credit stops at a $0.60 mark): that side ≈ −$0.40 × 100 × 2 ≈ −$80, the other side still keeps its full credit ≈ +$0.19 × 100 × 2 ≈ +$38 → net roughly <b>−$40</b> for the week.</li>
+        </ul>
+        <p class="muted">Same $10k, roughly the same annualized return as managed mode in expectation (the source strategy's own "1%/week win, 1%/week stop" framing implies that by design) — but realized weekly instead of every 3–6 weeks, in smaller, more frequent pieces, for meaningfully more screen time and a much less forgiving stop (per-side, same-day, no room to "wait it out"). It doesn't produce a bigger number, it produces the same number faster and in more installments — decide based on how much morning routine and instant-execution discipline you actually want, not on which one sounds like more money.</p>
       </section>
 
       <section class="guide-section">
