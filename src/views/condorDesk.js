@@ -408,48 +408,54 @@ export function renderCondorDesk(root) {
         'Per-side: close that side\'s two legs when its spread mark reaches 4× the credit collected on it.'),
     ];
 
+    const warnCount = c.warnings.length + (entryWarn ? 1 : 0) + (timeWarn ? 1 : 0);
     return `
       ${renderSummary(c, cfg)}
-      ${entryWarn}${timeWarn}
-      ${c.warnings.map(w => `<div class="guide-warn" style="text-align:left">${esc(w)}</div>`).join('')}
-      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;margin:6px 0 10px">
-        <span style="font-size:1.1rem"><b>${esc(c.underlying)}</b> spot <b style="font-family:var(--font-mono)">${fmt2(c.spot)}</b></span>
-        <span>expiry <b>${esc(c.expiry)} (${esc(c.expiryWeekday)}, ${c.dte} DTE)</b></span>
-        <span title="Mid-price credit; the natural (instant-fill) credit is lower.">net credit <b style="font-family:var(--font-mono);color:var(--green)">${fmt2(c.totalCredit)}</b> mid / ${fmt2(c.naturalCredit)} natural</span>
-        <span title="Credit as % of wing width — the risk/reward gauge for a condor.">credit = <b>${c.creditOfWidthPct}%</b> of width</span>
-        ${c.popPct !== null ? `<span title="Estimated probability the index finishes between your short strikes at expiry ≈ 1 − (call Δ + put Δ).">est. POP ≈ <b>${c.popPct}%</b></span>` : ''}
-        ${c.vix !== null ? `<span title="VIX — the market's implied volatility. Premium sellers want this elevated; below your configured floor the Desk warns.">VIX <b style="font-family:var(--font-mono)">${c.vix.toFixed(1)}</b></span>` : ''}
-        <span>contracts <b style="font-family:var(--font-mono)">${c.contracts}</b></span>
-      </div>
-      <div style="overflow-x:auto">
-      <table class="data">
-        <thead><tr><th>Action</th><th>Strike</th><th>Type</th><th>Bid / Ask</th><th>Mid</th><th>|Δ|</th><th>OI</th></tr></thead>
-        <tbody>
-          ${legRow('SELL to open', c.call.sell, 'var(--green)')}
-          ${legRow('BUY to open',  c.call.buy,  'var(--red)')}
-          ${legRow('SELL to open', c.put.sell,  'var(--green)')}
-          ${legRow('BUY to open',  c.put.buy,   'var(--red)')}
-        </tbody>
-      </table>
-      </div>
-      <p class="muted" style="font-size:0.9rem;margin:8px 0" title="Price levels where the position starts losing at expiry.">
-        Profit zone at expiry: <b style="font-family:var(--font-mono)">${fmt2(c.breakevenDown)} — ${fmt2(c.breakevenUp)}</b>
-        (spot ${fmt2(c.spot)} sits ${fmt2(c.spot - c.breakevenDown)} above the lower / ${fmt2(c.breakevenUp - c.spot)} below the upper breakeven)
-      </p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:12px 0">
-        ${mgmtTiles.join('')}
-      </div>
-      ${c.mode === '30-45dte' ? `<p class="muted" style="font-size:0.9rem;margin:8px 0" title="The blueprint's defense move — optional, done before the hard stop is threatened.">
-        <b>Defend (optional):</b> if a short strike's delta reaches ~0.30 (price approaching it), roll the <b>untested</b> side —
-        buy its spread back cheap and re-sell at the new ~0.15Δ closer in. Extra credit collected reduces your max risk.
-      </p>` : ''}
-      <div class="guide-pass" style="text-align:left">
-        <b>Placing in Webull:</b> Options chain → pick the <b>${esc(c.expiry)}</b> expiry → order type <b>Iron Condor</b> (or 4-leg custom) →
-        enter the four legs above → <b>net credit limit ≈ ${fmt2(c.totalCredit)}</b> (start at mid; accept ≥ ${fmt2(Math.max(c.naturalCredit, c.totalCredit * 0.9))}) → review → submit.
-        Then set price alerts at the exit marks above. ${esc(u.note)}
-      </div>
-      <pre id="cd-ticket" style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-family:var(--font-mono);font-size:0.85rem;white-space:pre-wrap">${esc(condorTicketText(c, cfg))}</pre>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <details class="collapsible" id="cd-details">
+        <summary>Full trade details${warnCount ? ` (${warnCount} note${warnCount > 1 ? 's' : ''} inside)` : ''} — legs, breakevens, exit tiles, Webull ticket</summary>
+        <div class="body">
+          ${entryWarn}${timeWarn}
+          ${c.warnings.map(w => `<div class="guide-warn" style="text-align:left">${esc(w)}</div>`).join('')}
+          <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;margin:6px 0 10px">
+            <span style="font-size:1.1rem"><b>${esc(c.underlying)}</b> spot <b style="font-family:var(--font-mono)">${fmt2(c.spot)}</b></span>
+            <span>expiry <b>${esc(c.expiry)} (${esc(c.expiryWeekday)}, ${c.dte} DTE)</b></span>
+            <span title="Mid-price credit; the natural (instant-fill) credit is lower.">net credit <b style="font-family:var(--font-mono);color:var(--green)">${fmt2(c.totalCredit)}</b> mid / ${fmt2(c.naturalCredit)} natural</span>
+            <span title="Credit as % of wing width — the risk/reward gauge for a condor.">credit = <b>${c.creditOfWidthPct}%</b> of width</span>
+            ${c.popPct !== null ? `<span title="Probability of Profit — the estimated chance the index finishes between your short strikes at expiry, so both sides expire worthless and you keep the credit. Computed as 1 − (call Δ + put Δ) using the short legs' deltas.">POP <b>${c.popPct}%</b> <span class="muted" style="font-size:0.8rem">(win prob.)</span></span>` : ''}
+            ${c.vix !== null ? `<span title="VIX — the market's implied volatility. Premium sellers want this elevated; below your configured floor the Desk warns.">VIX <b style="font-family:var(--font-mono)">${c.vix.toFixed(1)}</b></span>` : ''}
+            <span>contracts <b style="font-family:var(--font-mono)">${c.contracts}</b></span>
+          </div>
+          <div style="overflow-x:auto">
+          <table class="data">
+            <thead><tr><th>Action</th><th>Strike</th><th>Type</th><th>Bid / Ask</th><th>Mid</th><th>|Δ|</th><th>OI</th></tr></thead>
+            <tbody>
+              ${legRow('SELL to open', c.call.sell, 'var(--green)')}
+              ${legRow('BUY to open',  c.call.buy,  'var(--red)')}
+              ${legRow('SELL to open', c.put.sell,  'var(--green)')}
+              ${legRow('BUY to open',  c.put.buy,   'var(--red)')}
+            </tbody>
+          </table>
+          </div>
+          <p class="muted" style="font-size:0.9rem;margin:8px 0" title="Price levels where the position starts losing at expiry.">
+            Profit zone at expiry: <b style="font-family:var(--font-mono)">${fmt2(c.breakevenDown)} — ${fmt2(c.breakevenUp)}</b>
+            (spot ${fmt2(c.spot)} sits ${fmt2(c.spot - c.breakevenDown)} above the lower / ${fmt2(c.breakevenUp - c.spot)} below the upper breakeven)
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:12px 0">
+            ${mgmtTiles.join('')}
+          </div>
+          ${c.mode === '30-45dte' ? `<p class="muted" style="font-size:0.9rem;margin:8px 0" title="The blueprint's defense move — optional, done before the hard stop is threatened.">
+            <b>Defend (optional):</b> if a short strike's delta reaches ~0.30 (price approaching it), roll the <b>untested</b> side —
+            buy its spread back cheap and re-sell at the new ~0.15Δ closer in. Extra credit collected reduces your max risk.
+          </p>` : ''}
+          <div class="guide-pass" style="text-align:left">
+            <b>Placing in Webull:</b> Options chain → pick the <b>${esc(c.expiry)}</b> expiry → order type <b>Iron Condor</b> (or 4-leg custom) →
+            enter the four legs above → <b>net credit limit ≈ ${fmt2(c.totalCredit)}</b> (start at mid; accept ≥ ${fmt2(Math.max(c.naturalCredit, c.totalCredit * 0.9))}) → review → submit.
+            Then set price alerts at the exit marks above. ${esc(u.note)}
+          </div>
+          <pre id="cd-ticket" style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-family:var(--font-mono);font-size:0.85rem;white-space:pre-wrap">${esc(condorTicketText(c, cfg))}</pre>
+        </div>
+      </details>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
         <button id="cd-copy" class="btn-bare" type="button">COPY TICKET</button>
         <button id="cd-telegram" class="btn-bare" type="button">SEND TO TELEGRAM</button>
         <button id="cd-log" class="btn-primary" type="button">LOG THIS TRADE</button>
