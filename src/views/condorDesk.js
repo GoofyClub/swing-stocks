@@ -9,7 +9,7 @@
 import {
   UNDERLYINGS, MODE_DEFAULTS, MODE_INFO, DEFAULT_CONDOR_CONFIG, activeParams,
   fetchChainSmart, fetchVixSpot, buildCondor, condorTicketText, daysBetween, etNow,
-  CHAIN_SOURCE_LABEL, formatExitPlan,
+  CHAIN_SOURCE_LABEL, formatExitPlan, computePositionSnapshot, entryBreakevens, derivePositionStatus,
 } from '../data/condor.js';
 import { loadAutomationConfig } from '../data/automation.js';
 import { saveChainCache, loadChainCache } from '../data/condorChainCache.js';
@@ -25,6 +25,149 @@ const usd = n => `$${Number(n).toLocaleString()}`;
 const fmtEtTime = iso => new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 }).format(new Date(iso)) + ' ET';
+
+// ----- open positions (the tracker) — pure HTML generators, no DOM/Firestore -----
+export const CHIP_CLASS = { ok: 'good', target: 'good', watch: 'watch', time: 'watch', stop: 'action' };
+
+export function renderManagedGauge(status) {
+  const pinClass = CHIP_CLASS[status.overall] || 'good';
+  const subtext = status.overall === 'stop'
+    ? `at/above the ${fmt2(status.lossMark)} stop — close everything now`
+    : status.overall === 'target'
+      ? `at/below the ${fmt2(status.targetMark)} target — your GTC buy-back should already have filled`
+      : status.mark <= status.entryCredit
+        ? `down ${Math.round((1 - status.mark / status.entryCredit) * 100)}% from entry, needs ≤ ${fmt2(status.targetMark)} to hit target`
+        : `up ${Math.round((status.mark / status.entryCredit - 1) * 100)}% from entry, ${Math.round(100 - status.pct)}% of the way to the ${fmt2(status.lossMark)} stop`;
+  return `
+    <div class="postrk-gauge-labels">
+      <span style="color:var(--red)">STOP ${fmt2(status.lossMark)}</span>
+      <span class="mid">ENTRY ${fmt2(status.entryCredit)}</span>
+      <span style="color:var(--green)">TARGET ${fmt2(status.targetMark)}</span>
+    </div>
+    <div class="postrk-gauge-wrap">
+      <div class="postrk-gauge-track"></div>
+      <div class="postrk-gauge-tick entry" style="left:${status.entryPct}%"></div>
+      <div class="postrk-gauge-tick" style="left:${status.targetPct}%"></div>
+      <div class="postrk-gauge-pin ${pinClass}" style="left:${status.pct}%"><div class="dot"></div></div>
+    </div>
+    <div class="postrk-gauge-readout">
+      <span class="pct ${pinClass}">Mark ${fmt2(status.mark)}</span>
+      <span class="sub">— ${esc(subtext)}</span>
+    </div>`;
+}
+
+export function renderSideGauge(label, side) {
+  const pinClass = side.state === 'stop' ? 'action' : side.state === 'watch' ? 'watch' : 'good';
+  const subtext = side.state === 'stop' ? 'at/above stop — close this side now'
+    : side.state === 'watch' ? 'approaching the stop — watch closely'
+    : 'holding fine';
+  return `
+    <div>
+      <div class="postrk-side-label">${esc(label)} side</div>
+      <div class="postrk-gauge-labels"><span style="color:var(--red)">STOP ${fmt2(side.stop)}</span><span class="mid">ENTRY ${fmt2(side.entry)}</span><span style="color:var(--green)">$0</span></div>
+      <div class="postrk-gauge-wrap">
+        <div class="postrk-gauge-track"></div>
+        <div class="postrk-gauge-tick entry" style="left:${side.entryPct}%"></div>
+        <div class="postrk-gauge-pin ${pinClass}" style="left:${side.pct}%"><div class="dot"></div></div>
+      </div>
+      <div class="postrk-gauge-readout"><span class="pct ${pinClass}">${fmt2(side.mark)}</span><span class="sub">${esc(subtext)}</span></div>
+    </div>`;
+}
+
+export function rulerHtml(t, spot) {
+  const be = entryBreakevens(t);
+  const domainMin = t.putBuy - (t.callBuy - t.putBuy) * 0.08;
+  const domainMax = t.callBuy + (t.callBuy - t.putBuy) * 0.08;
+  const pos = x => Math.max(0, Math.min(100, (x - domainMin) / (domainMax - domainMin) * 100));
+  return `
+    <div class="postrk-ruler-block">
+      <div class="postrk-ruler-title">Spot vs. strikes</div>
+      <div class="postrk-ruler-wrap">
+        <div class="postrk-ruler-line"></div>
+        <div class="postrk-ruler-zone" style="left:${pos(be.breakevenDown)}%; width:${Math.max(0, pos(be.breakevenUp) - pos(be.breakevenDown))}%"></div>
+        <div class="postrk-ruler-pt strike" style="left:${pos(t.putBuy)}%"><div class="tick"></div><div class="lab">${t.putBuy}P</div></div>
+        <div class="postrk-ruler-pt strike" style="left:${pos(t.putSell)}%"><div class="tick"></div><div class="lab">${t.putSell}P</div></div>
+        <div class="postrk-ruler-pt spot" style="left:${pos(spot)}%"><div class="tick"></div><div class="lab">${fmt2(spot)}</div></div>
+        <div class="postrk-ruler-pt strike" style="left:${pos(t.callSell)}%"><div class="tick"></div><div class="lab">${t.callSell}C</div></div>
+        <div class="postrk-ruler-pt strike" style="left:${pos(t.callBuy)}%"><div class="tick"></div><div class="lab">${t.callBuy}C</div></div>
+      </div>
+    </div>`;
+}
+
+// Answers "how many days until I have to decide anyway" — the ask behind
+// this strip: a separate axis from the profit/loss gauge (the 21-DTE rule
+// fires on a calendar date regardless of where the mark sits).
+export function timeStripHtml(t, status) {
+  if (!t.date || !t.expiry || !t.exitPlan?.timeExitDate) return '';
+  const totalSpan = daysBetween(t.date, t.expiry);
+  if (totalSpan <= 0) return '';
+  const today = etNow().iso;
+  const elapsed = Math.max(0, Math.min(totalSpan, daysBetween(t.date, today)));
+  const markPos = Math.max(0, Math.min(100, daysBetween(t.date, t.exitPlan.timeExitDate) / totalSpan * 100));
+  const fillPct = Math.max(0, Math.min(100, elapsed / totalSpan * 100));
+  const d = status.daysToTimeExit;
+  const text = d > 0
+    ? `${d} day${d === 1 ? '' : 's'} until time-exit (${t.exitPlan.timeExitDate}) — sooner if the profit target hits first`
+    : `time-exit date reached (${t.exitPlan.timeExitDate}) — close or roll today`;
+  return `
+    <div class="postrk-time">
+      <span class="lab">DTE</span>
+      <div class="postrk-time-track"><div class="postrk-time-fill" style="width:${fillPct}%"></div><div class="postrk-time-mark" style="left:${markPos}%"></div></div>
+      <span class="postrk-time-text">${esc(text)}</span>
+    </div>`;
+}
+
+export function renderPositionCard(t) {
+  const today = etNow().iso;
+  const dteLeft = t.expiry ? daysBetween(today, t.expiry) : null;
+  const headHtml = chipHtml => `
+    <div class="postrk-head">
+      <div class="postrk-id">${esc(t.underlying)} <span class="sep">·</span> opened <b>${esc(t.date || '—')}</b> <span class="sep">·</span> exp <b>${esc(t.expiry || '—')}</b>${dteLeft !== null ? ` <span class="sep">·</span> <b>${dteLeft}</b> DTE left` : ''}</div>
+      ${chipHtml}
+    </div>`;
+  const footHtml = asOf => `
+    <div class="postrk-foot">
+      <span class="postrk-as-of">${esc(asOf)}</span>
+      <button class="btn-bare postrk-check" type="button" data-id="${esc(t.id)}">↻ Check status</button>
+    </div>`;
+
+  if (!t.lastCheck) {
+    return `<div class="postrk-card" data-trade-id="${esc(t.id)}">
+      ${headHtml('<span class="postrk-chip watch">NOT YET CHECKED</span>')}
+      <p class="muted" style="margin:0 0 4px">Refresh to see live status.</p>
+      ${footHtml('never checked')}
+    </div>`;
+  }
+
+  let status;
+  try { status = derivePositionStatus(t, t.lastCheck); }
+  catch (e) {
+    return `<div class="postrk-card" data-trade-id="${esc(t.id)}">
+      ${headHtml('<span class="postrk-chip watch">STATUS UNAVAILABLE</span>')}
+      <p class="muted" style="margin:0 0 4px">${esc(e?.message || String(e))}</p>
+      ${footHtml(`as of ${fmtEtTime(t.lastCheck.fetchedAt)}`)}
+    </div>`;
+  }
+
+  const chipClass = CHIP_CLASS[status.overall] || 'good';
+  const body = t.mode === '1dte'
+    ? `<div class="postrk-dual">${renderSideGauge('Call', status.sides.find(s => s.key === 'call'))}${renderSideGauge('Put', status.sides.find(s => s.key === 'put'))}</div>`
+    : renderManagedGauge(status);
+  const ruler = rulerHtml(t, status.spot);
+  const timeStrip = t.mode === '30-45dte' ? timeStripHtml(t, status) : '';
+  const annot = t.mode === '1dte'
+    ? (status.overall === 'stop' ? `<div class="postrk-annot"><b>Action:</b> close the ${esc(status.worstSideLabel)} side's two legs now (sell first, then buy). The other side is untouched and can stay on.</div>` : '')
+    : (status.overall === 'watch' && status.defendSide ? `<div class="postrk-annot"><b>Defend (optional):</b> roll the untested side in to collect extra credit and widen the loss cushion — see Strategy Guide §6.</div>` : '');
+
+  return `<div class="postrk-card" data-trade-id="${esc(t.id)}">
+    ${headHtml(`<span class="postrk-chip ${chipClass}">${esc(status.chipLabel)}</span>`)}
+    ${body}
+    ${ruler}
+    ${timeStrip}
+    ${annot}
+    ${footHtml(`as of ${fmtEtTime(t.lastCheck.fetchedAt)}`)}
+  </div>`;
+}
 
 const FIELD_STYLE = 'display:flex;flex-direction:column;gap:6px;font-size:0.8rem;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.06em';
 
@@ -113,6 +256,17 @@ export function renderCondorDesk(root) {
           </div>
         </div>
       </details>
+
+      <div class="card" id="cd-positions-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <h2 style="margin:0">Open Positions</h2>
+          <button id="cd-check-all" class="btn-bare" type="button" style="font-size:0.82rem">↻ Check all open positions</button>
+        </div>
+        <p style="color:var(--text-dim);font-size:0.92rem;margin:6px 0 12px">
+          Where each open trade stands right now, and whether it's time to close it. Checked once automatically per day; use ↻ for a live update.
+        </p>
+        <div id="cd-positions">Loading…</div>
+      </div>
 
       <div class="card" id="cd-journal-card">
         <h2>Journal</h2>
@@ -501,6 +655,72 @@ export function renderCondorDesk(root) {
     });
   }
 
+  // ----- open positions (the tracker) -------------------------------------------
+  function paintPositions(trades) {
+    const el = $('cd-positions');
+    const open = trades.filter(t => t.status === 'open');
+    if (!open.length) {
+      el.innerHTML = '<p class="muted">No open positions — logged trades appear here once you LOG THIS TRADE, and drop off once their journal status changes from OPEN.</p>';
+      return;
+    }
+    el.innerHTML = open.map(renderPositionCard).join('');
+    el.querySelectorAll('.postrk-check').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const t = open.find(x => x.id === btn.dataset.id);
+        if (!t) return;
+        btn.disabled = true; btn.textContent = 'Checking…';
+        try { await checkOpenPositions([t], { force: true }); await paintJournal(); }
+        catch (e) { alert(e?.message || String(e)); btn.disabled = false; btn.textContent = '↻ Check status'; }
+      });
+    });
+  }
+
+  // Re-prices OPEN trades against a live chain and persists the result onto
+  // each trade doc (lastCheck), so the card renders instantly from stored
+  // data next time — no network call — until a new ET calendar day begins or
+  // force=true (the "↻ Check" controls). Trades sharing an (underlying,
+  // expiry, mode) share a single chain fetch. Returns how many were updated.
+  async function checkOpenPositions(trades, { force = false } = {}) {
+    const todayISO = etNow().iso;
+    const isStale = t => !t.lastCheck?.fetchedAt || etNow(new Date(t.lastCheck.fetchedAt)).iso !== todayISO;
+    const targets = trades.filter(t => t.status === 'open' && (force || isStale(t)));
+    if (!targets.length) return 0;
+    const creds = await loadAutomationConfig().catch(() => ({}));
+    const groups = new Map();
+    for (const t of targets) {
+      const key = `${t.underlying}|${t.expiry}|${t.mode}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(t);
+    }
+    let updated = 0;
+    for (const group of groups.values()) {
+      const { underlying, expiry, mode } = group[0];
+      let chain;
+      try { chain = await fetchChainSmart({ underlying, mode }, creds, undefined, expiry); }
+      catch (e) { console.warn('[condor] position check: chain fetch failed', underlying, expiry, e); continue; }
+      for (const t of group) {
+        try {
+          const snap = computePositionSnapshot(t, chain);
+          await updateCondorTrade(t.id, { lastCheck: snap });
+          updated++;
+        } catch (e) { console.warn('[condor] position check: snapshot failed', t.id, e); }
+      }
+    }
+    return updated;
+  }
+
+  $('cd-check-all').addEventListener('click', async () => {
+    const btn = $('cd-check-all');
+    const prev = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Checking…';
+    try {
+      const trades = await listCondorTrades().catch(() => []);
+      await checkOpenPositions(trades, { force: true });
+      await paintJournal();
+    } catch (e) { alert(e?.message || String(e)); }
+    finally { btn.disabled = false; btn.textContent = prev; }
+  });
+
   // ----- journal ---------------------------------------------------------------
   const STATUSES = ['open', 'profit_target', 'expired_win', 'time_exit', 'stopped', 'closed_manual'];
   const STATUS_LABEL = {
@@ -508,10 +728,21 @@ export function renderCondorDesk(root) {
     time_exit: 'TIME EXIT', stopped: 'STOPPED', closed_manual: 'CLOSED',
   };
 
-
+  // Orchestrator: one trades fetch feeds both the Open Positions cards
+  // (instant, from stored lastCheck) and the Journal table, then kicks a
+  // background check for any stale open position and repaints just the
+  // positions strip if that changed anything.
   async function paintJournal() {
+    const trades = await listCondorTrades().catch(() => []);
+    paintPositions(trades);
+    renderJournalTable(trades);
+    checkOpenPositions(trades)
+      .then(updated => { if (updated > 0) listCondorTrades().then(paintPositions).catch(() => {}); })
+      .catch(e => console.warn('[condor] auto position check failed', e));
+  }
+
+  function renderJournalTable(trades) {
     const el = $('cd-journal');
-    const trades = await listCondorTrades();
     if (!trades.length) { el.innerHTML = '<p class="muted">No condors logged yet.</p>'; return; }
     const settled = trades.filter(t => t.status !== 'open' && Number.isFinite(Number(t.pnlUsd)));
     const wins = settled.filter(t => Number(t.pnlUsd) > 0).length;
