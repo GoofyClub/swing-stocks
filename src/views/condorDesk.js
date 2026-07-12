@@ -804,5 +804,10 @@ export function renderCondorDesk(root) {
     } catch (e) { console.warn('[condor] state load failed', e); }
     paintConfig();
     paintJournal();
+    // Restore today's already-computed card on reload, silently, from the
+    // same-day chain cache — never a network fetch on plain page load. GET
+    // TODAY'S LEGS still requires an explicit click when there's nothing
+    // cached yet; this only avoids losing a result you already paid for.
+    if (loadChainCache(state.config.underlying, state.config.mode)) computeLegs(false);
   })();
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.37.1 — 2026-07-12 (Condor Desk: computed legs survive a page refresh)
+
+### Fixed
+- **GET TODAY'S LEGS card vanished on reload.** The underlying chain was
+  already cached in localStorage for the day, but nothing re-rendered the
+  computed card from it on boot — only a fresh button click did. Now, on
+  load, if a same-day chain cache exists for the active underlying/mode,
+  the Desk silently rebuilds and shows the card from that cache (no network
+  call) instead of leaving the result panel empty. The button still
+  requires an explicit click when nothing has been computed yet today.
+
 ## v0.37.0 — 2026-07-12 (Condor Desk: Open Positions tracker)
 
 ### Added
