@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.41.0 — 2026-07-12 (Open Positions: delete a card directly, display duration clarified)
+
+### Added
+- **✕ Delete on each Open Positions card** — removes the trade from the
+  journal without scrolling down to the Journal table (same action as its
+  ✕ button). Confirms before deleting; not undoable.
+
+### Changed
+- Desk Manual clarifies how long a position stays listed: no day-based
+  cutoff — a card stays as long as its journal status is OPEN, even past
+  its own expiry (it just can't re-price itself once the chain is gone).
+  Only the 100 most recently logged trades are fetched at all, so this
+  only becomes relevant past 100 total logged trades.
+- Browser smoke (6/6): confirms the delete button removes the card, shows
+  the empty state, and actually deletes the underlying record. Engine
+  tests unaffected (43/43).
+
 ## v0.40.0 — 2026-07-12 (Open Positions cards: dollar P&L/target/stop, more compact)
 
 ### Changed

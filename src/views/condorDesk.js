@@ -137,7 +137,10 @@ export function renderPositionCard(t) {
   const footHtml = asOf => `
     <div class="postrk-foot">
       <span class="postrk-as-of">${esc(asOf)}</span>
-      <button class="btn-bare postrk-check" type="button" data-id="${esc(t.id)}">↻ Check status</button>
+      <span style="display:flex;gap:8px">
+        <button class="btn-bare postrk-check" type="button" data-id="${esc(t.id)}">↻ Check status</button>
+        <button class="btn-bare postrk-del" type="button" data-id="${esc(t.id)}" style="color:var(--red)">✕ Delete</button>
+      </span>
     </div>`;
 
   if (!t.lastCheck) {
@@ -683,6 +686,16 @@ export function renderCondorDesk(root) {
         btn.disabled = true; btn.textContent = 'Checking…';
         try { await checkOpenPositions([t], { force: true }); await paintJournal(); }
         catch (e) { alert(e?.message || String(e)); btn.disabled = false; btn.textContent = '↻ Check status'; }
+      });
+    });
+    el.querySelectorAll('.postrk-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const t = open.find(x => x.id === btn.dataset.id);
+        if (!t) return;
+        if (!confirm(`Delete this ${t.underlying} ${t.expiry || ''} position? This removes it from the journal entirely — it can't be undone.`)) return;
+        btn.disabled = true; btn.textContent = 'Deleting…';
+        try { await deleteCondorTrade(t.id); await paintJournal(); }
+        catch (e) { alert(e?.message || String(e)); btn.disabled = false; btn.textContent = '✕ Delete'; }
       });
     });
   }
