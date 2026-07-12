@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.33.1 — 2026-07-12 (fix: crash rendering Alpaca-sourced legs; weekend preview note)
+
+### Fixed
+- **"Cannot read properties of null (reading 'toLocaleString')"** when the
+  chain came from Alpaca: its snapshot feed doesn't report open interest
+  (stored as null), and the legs table still formatted it as a number. OI
+  now renders as "—" with an explanatory tooltip when unknown, and missing
+  OI in any source normalizes to null (skipping the thin-OI liquidity
+  check) instead of a bogus 0.
+
+### Added
+- **Weekend PREVIEW note**: computing on Sat/Sun adds a card warning that
+  quotes are Friday's close — plan with it, recompute on a trading day
+  before placing the order. Engine tests 17 → 19; browser smoke now
+  reproduces the null-OI crash scenario and the weekend note.
+
 ## v0.33.0 — 2026-07-12 (Condor Desk: reliable chain data + compact config)
 
 ### Fixed
