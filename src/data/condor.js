@@ -1,13 +1,21 @@
 // =============================================================================
 // Iron Condor engine — chain fetch + mechanical leg selection.
 //
+// Two DTE modes, each a complete rulebook:
+//   '30-45dte' (DEFAULT) — the classic managed condor (daystoexpiry.com
+//        playbook): enter ~35-40 DTE, 0.15-0.20Δ shorts, wide wings, take
+//        profit at 50% of credit, exit at 21 DTE, stop at 2× credit loss.
+//        Managed win rate historically ~78-82%.
+//   '1dte' — the weekly source strategy (Sharique's "1%" system): enter the
+//        morning before expiry, 0.06-0.12Δ shorts, hold to expiry, per-SIDE
+//        stop at 3× that side's credit. ≈ +1% win weeks / −1% stop weeks.
+//
 // Data source: CBOE's public delayed-quotes JSON (no API key, CORS-enabled,
 // ~15-min delayed). Index symbols are prefixed with "_" (_XSP, _SPX); equities
-// are plain (SPY). Delay caveat: short strikes chosen by delta barely move in
-// 15 minutes; the user confirms the final credit at their broker anyway.
+// are plain (SPY). Strikes chosen by delta barely move in 15 minutes; the user
+// confirms the final credit at the broker.
 //
-// The selection logic is pure and DOM-free so tests/condor.mjs can exercise it
-// in Node with a synthetic chain.
+// Selection logic is pure and DOM-free so tests/condor.mjs runs it in Node.
 // =============================================================================
 
 export const UNDERLYINGS = {
@@ -21,22 +29,56 @@ export const UNDERLYINGS = {
   },
   SPY: {
     key: 'SPY', cboe: 'SPY', roots: ['SPY'], label: 'SPY · ETF (American style)',
-    style: 'american', note: 'American-style with assignment risk — ALWAYS close all legs by 3:30 PM ET on expiry day.',
+    style: 'american', note: 'American-style with assignment risk — never hold short legs into expiry; close early.',
   },
 };
 
-// Base rules from the source strategy, translated to % of spot (see the Condor
-// Guide tab for the full derivation from the Nifty original).
+// Per-mode rule parameters. Each mode is a self-contained playbook; switching
+// modes in the UI swaps the whole parameter set (both are saved).
+export const MODE_DEFAULTS = {
+  '30-45dte': {
+    targetDte: 38, dteMin: 30, dteMax: 45,
+    deltaMin: 0.15, deltaMax: 0.20,   // ~80-85% OTM probability per side at entry
+    wingPct: 1.5,                     // % of spot beyond the short strike
+    minCreditPct: 0.25,               // per-side credit floor, % of spot
+    profitTargetPct: 50,              // close all legs at 50% of max profit
+    timeExitDte: 21,                  // or close/roll at 21 DTE, whichever first
+    lossMult: 2,                      // hard exit when total loss = 2× total credit
+    riskPct: 20,                      // sizing: defined risk per trade ≤ this % of capital
+  },
+  '1dte': {
+    cadence: 'thu-fri',               // 'thu-fri' | 'any-day' | 'twice-weekly'
+    deltaMin: 0.06, deltaMax: 0.12,
+    wingPct: 0.65,
+    minCreditPct: 0.025,
+    stopMult: 3,                      // per-side stop: loss = 3× that side's credit
+  },
+};
+
+export const MODE_INFO = {
+  '30-45dte': {
+    label: '30–45 DTE · managed (enter ~35–40 DTE)',
+    pros: 'Highest managed win rate (~78–82%), big credits, slow gamma — mistakes are survivable, adjustments have time to work. Check the position once a day, not once an hour. Best mode to learn on.',
+    cons: 'Capital is committed for 2–4 weeks per cycle, weeks of overnight/event exposure (CPI, NFP, often FOMC land inside the window — normal for this style, the management rules handle it), and annualized return per dollar is lower than faster cycles.',
+  },
+  '1dte': {
+    label: '1 DTE · weekly (the source "1%" strategy)',
+    pros: 'Fastest theta capture, in-and-out weekly (≈ +1% win weeks / −1% stop weeks), no multi-week exposure, small capital per condor.',
+    cons: 'High gamma — moves near your strike hurt fast and stops MUST be honored instantly; overnight gap through the stop is uncapped down to the wings; requires a disciplined fixed morning routine.',
+  },
+};
+
 export const DEFAULT_CONDOR_CONFIG = {
   underlying: 'XSP',
-  cadence: 'thu-fri',      // 'thu-fri' | 'any-day' | 'twice-weekly'
-  deltaMin: 0.06,          // short-strike |delta| band (≈ "level it won't reach")
-  deltaMax: 0.12,
-  wingPct: 0.65,           // wing distance beyond the short strike, % of spot
-  minCreditPct: 0.025,     // per-side net credit floor, % of spot (else SKIP week)
-  stopMult: 3,             // close a side when its loss = stopMult × its credit
-  capital: 4000,           // account capital used for sizing ($)
+  mode: '30-45dte',
+  capital: 4000,
+  modes: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
 };
+
+export function activeParams(cfg) {
+  const base = MODE_DEFAULTS[cfg.mode] || MODE_DEFAULTS['30-45dte'];
+  return { ...base, ...(cfg.modes?.[cfg.mode] || {}) };
+}
 
 // ---------------------------------------------------------------------------
 // Chain fetch + parse
@@ -57,7 +99,6 @@ export function parseOccSymbol(sym) {
   };
 }
 
-// Normalize one CBOE option row → engine shape (null when unusable).
 function normalizeRow(row) {
   const id = parseOccSymbol(row.option);
   if (!id) return null;
@@ -103,8 +144,7 @@ export async function fetchCboeChain(underlyingKey, fetchImpl = globalThis.fetch
 }
 
 // ---------------------------------------------------------------------------
-// Dates (all reasoning in US-Eastern so a pre-market check from any timezone
-// picks the same expiry the floor sees)
+// Dates (US-Eastern; a pre-market check from any timezone must agree with NY)
 // ---------------------------------------------------------------------------
 
 export function etNow(date = new Date()) {
@@ -116,29 +156,47 @@ export function etNow(date = new Date()) {
   const p = Object.fromEntries(fmt.formatToParts(date).map(x => [x.type, x.value]));
   return {
     iso: `${p.year}-${p.month}-${p.day}`,
-    weekday: p.weekday,                       // 'Mon' … 'Sun'
+    weekday: p.weekday,
     minutes: Number(p.hour) * 60 + Number(p.minute),
   };
 }
 
 function weekdayOfISO(iso) {
-  // Noon UTC avoids TZ date-shift; weekday of a calendar date is TZ-free.
   return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short' });
+}
+
+export function daysBetween(fromISO, toISO) {
+  return Math.round((new Date(`${toISO}T12:00:00Z`) - new Date(`${fromISO}T12:00:00Z`)) / 86400000);
+}
+
+export function addDays(iso, n) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 export function isFirstFriday(iso) {
   return weekdayOfISO(iso) === 'Fri' && Number(iso.slice(8, 10)) <= 7;
 }
 
-// Choose the target expiry from the chain's actual listed expiries.
-//   thu-fri       → the next Friday-dated expiry after today
-//   any-day       → the first listed expiry after today (≈ tomorrow, 1 DTE)
-//   twice-weekly  → the next Tue- or Fri-dated expiry after today
-export function pickExpiry(expiries, cadence, todayISO) {
+// Choose the target expiry from the chain's listed expiries.
+//   30-45dte → DTE closest to targetDte inside [dteMin, dteMax]
+//              (fallback: closest DTE overall, flagged by the caller via dte)
+//   1dte     → by cadence: thu-fri = next Friday; any-day = next expiry;
+//              twice-weekly = next Tue or Fri
+export function pickExpiry(expiries, cfg, todayISO) {
   const future = [...new Set(expiries)].sort().filter(e => e > todayISO);
   if (!future.length) return null;
-  if (cadence === 'any-day') return future[0];
-  const wanted = cadence === 'twice-weekly' ? ['Tue', 'Fri'] : ['Fri'];
+  if (cfg.mode === '30-45dte') {
+    const p = activeParams(cfg);
+    const scored = future.map(e => ({ e, dte: daysBetween(todayISO, e) }));
+    const inRange = scored.filter(x => x.dte >= p.dteMin && x.dte <= p.dteMax);
+    const pool = inRange.length ? inRange : scored;
+    return pool.sort((a, b) => Math.abs(a.dte - p.targetDte) - Math.abs(b.dte - p.targetDte))[0].e;
+  }
+  const cad = activeParams(cfg).cadence || 'thu-fri';
+  if (cad === 'any-day') return future[0];
+  const wanted = cad === 'twice-weekly' ? ['Tue', 'Fri'] : ['Fri'];
   return future.find(e => wanted.includes(weekdayOfISO(e))) || future[0];
 }
 
@@ -148,145 +206,212 @@ export function pickExpiry(expiries, cadence, todayISO) {
 
 const r2 = x => Math.round(x * 100) / 100;
 
-// Pick the short strike for one side: |delta| inside [deltaMin, deltaMax],
-// closest to the band midpoint (ties → further OTM). Fallback when the feed
-// has no greeks: premium closest to 0.04% of spot among OTM strikes.
-function pickShort(cands, spot, cfg, side) {
+// Short strike: |delta| inside the band, closest to the band midpoint
+// (ties → further OTM). Fallback without greeks: premium-target — the band
+// midpoint delta's typical premium expressed as % of spot per mode.
+function pickShort(cands, spot, p, side, premTargetPct) {
   const otm = cands.filter(o => (side === 'C' ? o.strike > spot : o.strike < spot));
   const withDelta = otm.filter(o => o.delta !== null && Math.abs(o.delta) > 0.005);
-  const target = (cfg.deltaMin + cfg.deltaMax) / 2;
+  const target = (p.deltaMin + p.deltaMax) / 2;
   const inBand = withDelta.filter(o => {
     const d = Math.abs(o.delta);
-    return d >= cfg.deltaMin && d <= cfg.deltaMax;
+    return d >= p.deltaMin && d <= p.deltaMax;
   });
   if (inBand.length) {
     return inBand.sort((a, b) => {
       const da = Math.abs(Math.abs(a.delta) - target);
       const db = Math.abs(Math.abs(b.delta) - target);
       if (da !== db) return da - db;
-      return side === 'C' ? b.strike - a.strike : a.strike - b.strike; // further OTM wins ties
+      return side === 'C' ? b.strike - a.strike : a.strike - b.strike;
     })[0];
   }
-  // No greeks (or nothing in band): premium-target fallback.
-  const premTarget = spot * 0.0004;
+  const premTarget = spot * premTargetPct / 100;
   const usable = (withDelta.length ? withDelta : otm).filter(o => o.mid > 0);
   if (!usable.length) return null;
   return usable.sort((a, b) => Math.abs(a.mid - premTarget) - Math.abs(b.mid - premTarget))[0];
 }
 
 // Wing = nearest listed strike at least wingPct-of-spot beyond the short.
-function pickWing(cands, shortStrike, spot, cfg, side) {
-  const dist = spot * (cfg.wingPct / 100);
+function pickWing(cands, shortStrike, spot, p, side) {
+  const dist = spot * (p.wingPct / 100);
   const beyond = cands.filter(o => (side === 'C'
     ? o.strike >= shortStrike + dist
     : o.strike <= shortStrike - dist));
   if (beyond.length) {
     return beyond.sort((a, b) => (side === 'C' ? a.strike - b.strike : b.strike - a.strike))[0];
   }
-  // Grid runs out before full width — take the furthest available beyond short.
   const any = cands.filter(o => (side === 'C' ? o.strike > shortStrike : o.strike < shortStrike));
   if (!any.length) return null;
   return any.sort((a, b) => (side === 'C' ? b.strike - a.strike : a.strike - b.strike))[0];
 }
 
 function buildSide(options, spot, expiry, cfg, side) {
+  const p = activeParams(cfg);
+  const premTargetPct = cfg.mode === '30-45dte' ? 0.5 : 0.04; // fallback only
   const cands = options.filter(o => o.expiry === expiry && o.type === side);
-  const short = pickShort(cands, spot, cfg, side);
+  const short = pickShort(cands, spot, p, side, premTargetPct);
   if (!short) return null;
-  const wing = pickWing(cands, short.strike, spot, cfg, side);
+  const wing = pickWing(cands, short.strike, spot, p, side);
   if (!wing) return null;
-  // Sell at the short's mid, pay the wing's mid — the realistic combined fill.
-  const credit = r2(short.mid - wing.mid);
+  const credit = r2(short.mid - wing.mid);              // mid-based (target fill)
+  const naturalCredit = r2(short.bid - wing.ask);       // worst-case immediate fill
   return {
     side,
     sell: short,
     buy: wing,
     width: r2(Math.abs(wing.strike - short.strike)),
     credit,
-    creditPct: r2(credit / spot * 10000) / 100,      // % of spot, 2dp
-    stopMark: r2(credit * (1 + cfg.stopMult)),        // close side if spread mark ≥ this
+    naturalCredit,
+    creditPct: r2(credit / spot * 10000) / 100,
+    // 1-DTE mode manages per side; stopMark only meaningful there.
+    stopMark: cfg.mode === '1dte' ? r2(credit * (1 + p.stopMult)) : null,
   };
+}
+
+// Liquidity screen a trader would do by eye: thin OI or wide markets on a leg.
+function liquidityWarnings(legs) {
+  const out = [];
+  for (const [name, o] of legs) {
+    if (o.oi < 100) out.push(`${name} (${o.strike}${o.type}) open interest is thin (${o.oi}) — expect worse fills; consider one strike over.`);
+    const spread = r2(o.ask - o.bid);
+    if (o.mid >= 0.10 && spread / o.mid > 0.4) {
+      out.push(`${name} (${o.strike}${o.type}) market is wide (${o.bid.toFixed(2)}/${o.ask.toFixed(2)}) — work the order at mid, never take the natural price.`);
+    }
+  }
+  return out;
 }
 
 // Main entry: chain (+config) → the trade card model.
 export function buildCondor(chain, cfg, now = new Date()) {
+  const p = activeParams(cfg);
   const t = etNow(now);
   const expiries = chain.options.map(o => o.expiry);
-  const expiry = pickExpiry(expiries, cfg.cadence, t.iso);
+  const expiry = pickExpiry(expiries, cfg, t.iso);
   if (!expiry) throw new Error('No future expiry found in chain');
+  const dte = daysBetween(t.iso, expiry);
 
   const call = buildSide(chain.options, chain.spot, expiry, cfg, 'C');
   const put  = buildSide(chain.options, chain.spot, expiry, cfg, 'P');
   if (!call || !put) throw new Error('Could not find quotable strikes for both sides');
 
   const totalCredit = r2(call.credit + put.credit);
+  const naturalCredit = r2(call.naturalCredit + put.naturalCredit);
   const maxWidth = Math.max(call.width, put.width);
-  // Sizing preserves the source strategy's math: total credit ≈ 1% of the
-  // capital allocated to one condor → allocation = credit × 100 (shares) × 100.
-  const allocPerCondor = Math.round(totalCredit * 100 * 100);
-  const contracts = allocPerCondor > 0 ? Math.max(0, Math.floor(cfg.capital / allocPerCondor)) : 0;
-  const qty = Math.max(1, contracts);
+  const creditOfWidthPct = maxWidth > 0 ? Math.round(totalCredit / maxWidth * 100) : 0;
 
   const warnings = [];
-  const minCredit = r2(chain.spot * cfg.minCreditPct / 100);
+  let contracts, allocPerCondor = null, sizedByCapital;
+  if (cfg.mode === '1dte') {
+    // Source-strategy sizing: total credit ≈ 1% of the allocation per condor.
+    allocPerCondor = Math.round(totalCredit * 100 * 100);
+    sizedByCapital = allocPerCondor > 0 ? Math.floor(cfg.capital / allocPerCondor) : 0;
+    if (sizedByCapital === 0) {
+      warnings.push(`Capital ($${cfg.capital.toLocaleString()}) is below one condor's allocation ($${(allocPerCondor || 0).toLocaleString()}). Quoting 1 contract, but weekly swings will exceed ±1% of your capital.`);
+    }
+  } else {
+    // Managed-condor sizing: defined risk per trade ≤ riskPct% of capital.
+    const riskPer = (maxWidth - totalCredit) * 100;
+    sizedByCapital = riskPer > 0 ? Math.floor((cfg.capital * (p.riskPct / 100)) / riskPer) : 0;
+    if (sizedByCapital === 0) {
+      warnings.push(`One condor's defined risk ($${Math.round(riskPer).toLocaleString()}) exceeds ${p.riskPct}% of your capital ($${Math.round(cfg.capital * p.riskPct / 100).toLocaleString()}). Quoting 1 contract — understand you're over the sizing rule, or use narrower wings.`);
+    }
+  }
+  contracts = Math.max(1, sizedByCapital);
+
+  const minCredit = r2(chain.spot * p.minCreditPct / 100);
   if (call.credit < minCredit || put.credit < minCredit) {
-    warnings.push(`SKIP-WEEK RULE: a side's net credit is below the floor of ${minCredit.toFixed(2)} `
-      + `(${cfg.minCreditPct}% of spot). Volatility is too low — do NOT move strikes closer to force it.`);
+    warnings.push(`SKIP RULE: a side's net credit is below the floor of ${minCredit.toFixed(2)} `
+      + `(${p.minCreditPct}% of spot). Premium is too thin to pay for the risk — do NOT move strikes closer to force it.`);
   }
   const big = Math.max(call.credit, put.credit), small = Math.min(call.credit, put.credit);
   if (big > 0 && (big - small) / big > 0.25) {
     warnings.push('Sides are imbalanced (>25% credit difference) — acceptable, but the richer side carries the market\'s feared direction.');
   }
-  if (isFirstFriday(expiry)) {
-    warnings.push('Expiry is the first Friday of the month — likely NFP release at 8:30 AM ET that day. Base rule: skip, or use the Mon→Tue cycle this week.');
+  if (cfg.mode === '1dte' && isFirstFriday(expiry)) {
+    warnings.push('Expiry is the first Friday of the month — likely NFP at 8:30 AM ET that day. Base rule: skip, or use the Mon→Tue cycle this week.');
   }
-  if (contracts === 0) {
-    warnings.push(`Capital ($${cfg.capital.toLocaleString()}) is below one condor's allocation ($${allocPerCondor.toLocaleString()}). `
-      + 'Quoting 1 contract, but weekly swings will exceed ±1% of your capital.');
+  if (cfg.mode === '30-45dte' && (dte < p.dteMin || dte > p.dteMax)) {
+    warnings.push(`No listed expiry inside ${p.dteMin}–${p.dteMax} DTE — using the closest (${dte} DTE). Fine occasionally; don't drift below ~${p.dteMin} DTE at entry.`);
   }
+  warnings.push(...liquidityWarnings([
+    ['Short call', call.sell], ['Call wing', call.buy],
+    ['Short put', put.sell], ['Put wing', put.buy],
+  ]));
+
   const entryDayOK = (() => {
-    if (cfg.cadence === 'any-day') return true;
-    const wd = t.weekday;
-    return cfg.cadence === 'thu-fri' ? wd === 'Thu' : (wd === 'Mon' || wd === 'Thu');
+    if (cfg.mode !== '1dte') return true;             // managed mode: any day works
+    const cad = p.cadence || 'thu-fri';
+    if (cad === 'any-day') return true;
+    return cad === 'thu-fri' ? t.weekday === 'Thu' : (t.weekday === 'Mon' || t.weekday === 'Thu');
   })();
 
-  return {
+  const c = {
+    mode: cfg.mode,
     underlying: cfg.underlying,
     spot: chain.spot,
     asOf: chain.asOf,
     expiry,
     expiryWeekday: weekdayOfISO(expiry),
+    dte,
     call, put,
     totalCredit,
+    naturalCredit,
     totalCreditPct: r2(totalCredit / chain.spot * 10000) / 100,
+    creditOfWidthPct,
     maxWidth,
-    contracts: qty,
-    sizedByCapital: contracts,
+    breakevenUp: r2(call.sell.strike + totalCredit),
+    breakevenDown: r2(put.sell.strike - totalCredit),
+    contracts,
+    sizedByCapital,
     allocPerCondor,
-    maxProfitUsd: Math.round(totalCredit * 100 * qty),
-    definedRiskUsd: Math.round((maxWidth - totalCredit) * 100 * qty),
-    stopLossUsd: Math.round((call.credit * cfg.stopMult) * 100 * qty), // one side stopping
+    maxProfitUsd: Math.round(totalCredit * 100 * contracts),
+    definedRiskUsd: Math.round((maxWidth - totalCredit) * 100 * contracts),
     warnings,
     entryDayOK,
     etToday: t,
   };
+  if (cfg.mode === '30-45dte') {
+    c.profitTargetMark = r2(totalCredit * (1 - p.profitTargetPct / 100)); // buy back at ≤ this
+    c.lossMark = r2(totalCredit * (1 + p.lossMult));                      // hard exit at ≥ this
+    c.plannedLossUsd = Math.round(totalCredit * p.lossMult * 100 * contracts);
+    c.timeExitDate = addDays(expiry, -p.timeExitDte);
+    c.profitTargetUsd = Math.round(totalCredit * (p.profitTargetPct / 100) * 100 * contracts);
+  } else {
+    c.stopLossUsd = Math.round((call.credit * p.stopMult) * 100 * contracts);
+  }
+  return c;
 }
 
 // Plain-text order ticket — pasteable, and what the Telegram button sends.
 export function condorTicketText(c, cfg) {
+  const p = activeParams(cfg);
   const u = UNDERLYINGS[c.underlying];
-  const exp = `${c.expiry} (${c.expiryWeekday})`;
   const L = (act, o) => `${act}  ${c.contracts}x ${c.underlying} ${c.expiry.slice(5)} ${o.strike} ${o.type === 'C' ? 'CALL' : 'PUT'}  @ ~${o.mid.toFixed(2)} mid`;
   const lines = [
-    `IRON CONDOR — ${c.underlying} exp ${exp} · spot ${c.spot.toFixed(2)}`,
+    `IRON CONDOR — ${c.underlying} exp ${c.expiry} (${c.expiryWeekday}, ${c.dte} DTE) · spot ${c.spot.toFixed(2)}`,
     L('SELL to open', c.call.sell),
     L('BUY  to open', c.call.buy),
     L('SELL to open', c.put.sell),
     L('BUY  to open', c.put.buy),
-    `Net credit target ≈ ${c.totalCredit.toFixed(2)}  (call ${c.call.credit.toFixed(2)} + put ${c.put.credit.toFixed(2)}) — reject fills below ~90% of this`,
-    `STOPS: close CALL side if its spread mark ≥ ${c.call.stopMark.toFixed(2)}; PUT side if ≥ ${c.put.stopMark.toFixed(2)}  [${1 + cfg.stopMult}× credit]`,
-    `Max profit ≈ $${c.maxProfitUsd} · defined risk ≈ $${c.definedRiskUsd} · ${c.contracts} contract(s)`,
-    u.style === 'american' ? '⚠ SPY: close ALL legs by 3:30 PM ET on expiry day — never let them expire.' : 'Cash-settled: if both shorts are safely OTM at 3:30 PM ET expiry day, let them expire.',
+    `Net credit: limit ≈ ${c.totalCredit.toFixed(2)} mid (natural ${c.naturalCredit.toFixed(2)}) — start at mid, accept ≥ ${(Math.max(c.naturalCredit, c.totalCredit * 0.9)).toFixed(2)}`,
+    `Breakevens at expiry: ${c.breakevenDown.toFixed(2)} / ${c.breakevenUp.toFixed(2)} · credit = ${c.creditOfWidthPct}% of wing width`,
   ];
+  if (c.mode === '30-45dte') {
+    lines.push(
+      `TAKE PROFIT: buy back all 4 legs when condor mark ≤ ${c.profitTargetMark.toFixed(2)}  [${p.profitTargetPct}% of credit ≈ +$${c.profitTargetUsd}]`,
+      `TIME EXIT: if target not hit, close by ${c.timeExitDate}  [${p.timeExitDte} DTE]`,
+      `HARD STOP: close everything if condor mark ≥ ${c.lossMark.toFixed(2)}  [loss = ${p.lossMult}× credit ≈ −$${c.plannedLossUsd}]`,
+    );
+  } else {
+    lines.push(
+      `STOPS (per side): close CALL side if its spread mark ≥ ${c.call.stopMark.toFixed(2)}; PUT side if ≥ ${c.put.stopMark.toFixed(2)}  [${1 + p.stopMult}× credit]`,
+    );
+  }
+  lines.push(`Max profit ≈ $${c.maxProfitUsd} · defined risk ≈ $${c.definedRiskUsd} · ${c.contracts} contract(s)`);
+  lines.push(u.style === 'american'
+    ? '⚠ SPY: American-style — close ALL legs before expiry day\'s close; never let them expire.'
+    : (c.mode === '1dte'
+        ? 'Cash-settled: if both shorts are safely OTM at 3:30 PM ET expiry day, let them expire.'
+        : 'Cash-settled — but in this mode you exit by the profit target / 21-DTE rule, not at expiry.'));
   return lines.join('\n');
 }

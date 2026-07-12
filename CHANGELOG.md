@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.31.0 — 2026-07-11 (Condor Desk: 30–45 DTE managed mode as default + trader-POV polish)
+
+### Added
+- **Expiry mode switch with 30–45 DTE managed as the DEFAULT** (per the
+  daystoexpiry.com iron-condor entry/exit playbook): enter at the listed
+  expiry closest to ~38 DTE (30–45 accepted), short strikes 0.15–0.20Δ,
+  wings ~1.5% of spot, **take profit at 50% of credit, time-exit at 21 DTE,
+  hard stop at 2× credit loss** (~78–82% managed win rate historically).
+  Sizing rule: defined risk per trade ≤ 20% of capital (configurable).
+  The 1-DTE weekly source strategy remains as the second mode with its
+  per-side 3×-credit stops; each mode is a complete, separately-saved
+  parameter set and the trade card / ticket adapt their management lines.
+- **Pros/cons notes + tooltips**: visible pros/cons panels for each expiry
+  mode in the config, and a hover tooltip on every config field explaining
+  what it does and why the default is what it is.
+- **Trader-POV additions to the trade card**: natural vs mid credit (with a
+  fill-acceptance floor), credit as % of wing width, expiry DTE, breakeven
+  range with distance from spot, per-leg liquidity warnings (thin OI /
+  wide bid-ask), GTC profit-target instruction for Webull, and a
+  RESET MODE DEFAULTS button. Config panel auto-collapses once a trade
+  card is on screen; journal gains TP-HIT / TIME-EXIT statuses and a mode
+  column, and logged trades store their exit plan.
+- Guide rewritten around the two modes with a side-by-side comparison
+  table and a "reading the trade card like a trader" section. Engine tests
+  extended to 12 (managed-mode expiry snapping, marks, sizing, liquidity
+  flags, mode-specific tickets).
+
 ## v0.30.0 — 2026-07-11 (Condor Desk + Condor Guide — weekly S&P iron condor)
 
 ### Added

@@ -4,6 +4,15 @@ A US-market translation of Sharique Samsudheen's "1% Atishaktam" Nifty option-se
 strategy (weekly 1-DTE iron condor). Every rule below is mechanical — no judgment calls
 required to execute the base system. Discretionary enhancements are separated at the end.
 
+> **Note — this documents the 1-DTE weekly mode.** The Condor Desk tab's *default* mode
+> is the classic **managed 30–45 DTE condor** (per the daystoexpiry.com entry/exit
+> playbook): enter ~35–40 DTE, short strikes 0.15–0.20 delta, wings ~1.5% of spot,
+> **close at 50% of max profit or at 21 DTE (whichever first), hard stop at 2× the
+> credit received** — historically ~78–82% win rate when managed by those rules. It
+> needs attention only once a day and is far more forgiving for beginners; the 1-DTE
+> system below is the faster, stricter alternative. The Condor Guide tab compares the
+> two modes side by side.
+
 ---
 
 ## 1. The source strategy in one paragraph

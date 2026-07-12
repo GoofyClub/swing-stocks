@@ -1,40 +1,62 @@
-// Condor Guide — the strategy rulebook behind the Condor Desk tab. A US-market
-// translation of Sharique Samsudheen's "1% Atishaktam" weekly Nifty iron-condor
-// strategy. Educational reference; the Desk tab automates the leg math.
-// Longer-form version: docs/us-weekly-iron-condor-rules.md.
+// Condor Guide — the strategy rulebook behind the Condor Desk tab.
+// Two modes: the classic managed 30–45 DTE condor (default; per the
+// daystoexpiry.com entry/exit playbook) and the 1-DTE weekly translation of
+// Sharique Samsudheen's "1% Atishaktam" Nifty strategy.
+// Longer-form 1-DTE derivation: docs/us-weekly-iron-condor-rules.md.
 
 export function renderCondorGuide(root) {
   root.innerHTML = `
     <div class="view guide-view">
       <h1>Condor Guide</h1>
-      <p class="subtitle">The weekly 1-DTE S&amp;P iron condor — what it is, why each rule exists, and how the <a href="#/condor-desk" style="color:var(--cyan)">Condor Desk</a> computes your legs.</p>
+      <p class="subtitle">S&amp;P iron condors, two ways — what each rule is, why it exists, and how the <a href="#/condor-desk" style="color:var(--cyan)">Condor Desk</a> computes your legs.</p>
 
       <div class="guide-warn" style="text-align:left">
-        <b>Educational only — not financial advice.</b> Option selling has a high win rate and rare-but-real large losses (overnight gaps). Paper-trade at least 4 weekly cycles first, size by the rules, and never skip a stop.
+        <b>Educational only — not financial advice.</b> Option selling has a high win rate and rare-but-real large losses. Paper-trade at least 4 cycles first, size by the rules, and never skip an exit rule.
       </div>
 
       <section class="guide-section">
         <h2>The strategy in one paragraph</h2>
-        <p>Every week, one day before expiry, sell an iron condor on the S&amp;P 500: <b>sell</b> a far out-of-the-money call at a level the index is very unlikely to reach by tomorrow, <b>buy</b> a cheaper call further out as protection, and mirror the same on the put side. All four options expire tomorrow; time decay (theta) is at its fastest, so if the index stays inside your strikes — which it does most weeks — the whole structure decays to zero and you keep the credit: about <b>1% of allocated capital per week</b>. If the market runs at one side, a hard stop cuts that side at 3× its credit while the other side keeps its credit, capping a normal losing week at about −1%.</p>
-        <p class="muted">Source: Sharique Samsudheen's "1% Atishaktam" Nifty strategy (weekly Wed→Thu 1-DTE condor, ₹8–10 premium shorts, 150-pt wings, ~₹6/side credit, 3× per-side stop). Everything below is that system scaled to US products as a % of spot.</p>
+        <p>An iron condor <b>sells</b> an out-of-the-money call and an out-of-the-money put on the S&amp;P 500 (collecting premium), and <b>buys</b> a further-out call and put as fixed protection. If the index stays between the short strikes — which it usually does — the position decays in your favor and you keep the credit. The four legs, entry timing, exits and sizing are all mechanical; the only real skill is following the exit rules without negotiating with yourself.</p>
+      </section>
+
+      <section class="guide-section">
+        <h2>Choose your expiry: 35–40 DTE (default) or 1 DTE weekly</h2>
+        <p>Days-to-expiry is the biggest design decision in a condor — it changes the credit, the pace of decay, the gamma risk, and how often you must look at the screen. The Desk supports both regimes as complete, separate rulebooks:</p>
+        <div style="overflow-x:auto">
+        <table class="data">
+          <thead><tr><th></th><th><b>30–45 DTE · managed</b> (default — enter ~35–40)</th><th><b>1 DTE · weekly</b> (the source "1%" strategy)</th></tr></thead>
+          <tbody>
+            <tr><td><b>Short strikes</b></td><td>0.15–0.20 delta (~80–85% OTM probability/side)</td><td>0.06–0.12 delta (~90%+ OTM probability by tomorrow)</td></tr>
+            <tr><td><b>Wings</b></td><td>~1.5% of spot beyond shorts</td><td>~0.65% of spot beyond shorts</td></tr>
+            <tr><td><b>Exit — profit</b></td><td>Buy back at <b>50% of max profit</b></td><td>Hold to expiry, let it expire (XSP/SPX)</td></tr>
+            <tr><td><b>Exit — time</b></td><td>Close/roll at <b>21 DTE</b> if target not hit</td><td>n/a (expires tomorrow)</td></tr>
+            <tr><td><b>Exit — loss</b></td><td>Hard stop at <b>2× credit</b> loss (whole position)</td><td>Per-<i>side</i> stop at 3× that side's credit</td></tr>
+            <tr><td><b>Historical win rate</b></td><td>~78–82% when managed by these rules</td><td>High weekly win rate; ≈ +1% win weeks / −1% stop weeks</td></tr>
+            <tr><td><b>Attention needed</b></td><td>Once a day</td><td>Fixed morning routine + honor stops intraday</td></tr>
+            <tr><td><b>Pros</b></td><td>Big credits, slow gamma, time to adjust, forgiving for beginners</td><td>Fast theta, weekly cash cycle, no multi-week exposure</td></tr>
+            <tr><td><b>Cons</b></td><td>Capital tied up 2–4 weeks; CPI/NFP/FOMC land inside the window (the management rules are how you live with that)</td><td>High gamma near strikes; overnight gap can blow through the stop; zero tolerance for hesitation</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p class="muted">The 30–45 DTE rules follow the iron-condor entry/exit playbook at daystoexpiry.com (enter 30–45 DTE, ~15–25Δ shorts, close at 50% profit or 21 DTE, exit at 200% of credit loss — managed win rate ~78–82%). The 1-DTE rules are the US translation of Sharique Samsudheen's weekly Nifty system. <b>Start with 30–45 DTE</b>: it forgives mistakes; 1 DTE does not.</p>
       </section>
 
       <section class="guide-section">
         <h2>Why the S&amp;P index — not "stable stocks"</h2>
         <ul>
-          <li><b>Gap risk is the only real enemy.</b> Even boring stocks gap 5–15% overnight on earnings, guidance or news — straight through any stop. A 500-stock index diversifies single-name news away. (The source strategy uses Nifty — an index — for the same reason.)</li>
-          <li><b>Liquidity:</b> SPX/SPY chains are the deepest option markets in the world; you can exit a stopped side instantly at a fair price.</li>
-          <li><b>Structure:</b> index options (SPX/XSP) are cash-settled and European — no early assignment, no shares appearing in your account — and are taxed 60/40 (Section 1256).</li>
-          <li><b>Daily expirations</b> make the 1-DTE cadence possible; most stocks only expire Fridays.</li>
+          <li><b>Gap risk is the only real enemy.</b> Even boring stocks gap 5–15% overnight on earnings, guidance or news — straight through any stop. A 500-stock index diversifies single-name news away.</li>
+          <li><b>Liquidity:</b> SPX/SPY chains are the deepest option markets in the world; exits fill instantly at fair prices.</li>
+          <li><b>Structure:</b> index options (SPX/XSP) are cash-settled and European — no early assignment — and taxed 60/40 (Section 1256).</li>
+          <li><b>Daily expirations</b> make the 1-DTE cadence possible; single stocks mostly expire Fridays only.</li>
           <li>Pros who sell single-stock options are running a different strategy (covered calls / the wheel). Systematic income condors = index.</li>
         </ul>
         <div style="overflow-x:auto">
         <table class="data">
-          <thead><tr><th>Instrument</th><th>Style</th><th>Capital / condor</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Instrument</th><th>Style</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td><b>XSP</b> (Mini-SPX)</td><td>Cash, European</td><td>~$3.5–4k</td><td><b>Recommended start.</b> No assignment risk; can expire safely; on Webull.</td></tr>
-            <tr><td><b>SPX</b></td><td>Cash, European</td><td>~$35–40k</td><td>XSP × 10; best fee economics at scale.</td></tr>
-            <tr><td><b>SPY</b></td><td>Physical, American</td><td>~$3.5–4k</td><td>Fine, but <b>must close all legs by 3:30 PM ET expiry day</b> — assignment/pin risk.</td></tr>
+            <tr><td><b>XSP</b> (Mini-SPX)</td><td>Cash, European</td><td><b>Recommended start.</b> No assignment risk; ~1/10 SPX size; on Webull.</td></tr>
+            <tr><td><b>SPX</b></td><td>Cash, European</td><td>XSP × 10; best fee economics at scale.</td></tr>
+            <tr><td><b>SPY</b></td><td>Physical, American</td><td>Fine, but <b>never hold short legs into expiry</b> — assignment/pin risk; close early.</td></tr>
           </tbody>
         </table>
         </div>
@@ -42,78 +64,70 @@ export function renderCondorGuide(root) {
 
       <section class="guide-section">
         <h2>"With US volatility, what are safe legs?"</h2>
-        <p><b>Don't think in fixed distances — think in delta.</b> The Desk picks short strikes by <b>delta 0.06–0.12</b> (default target ≈ 0.09). Delta approximates the probability the option finishes in-the-money, so the strikes automatically move <i>further away when volatility is high</i> and closer when it's calm — the "safety" stays constant (~90% win rate per side) no matter what VIX is doing. That's the mechanical version of the source rule "ask where it won't go by expiry, then sell there."</p>
-        <p>Two guards on top of delta:</p>
+        <p><b>Don't think in fixed distances — think in delta.</b> The Desk picks short strikes by delta (0.15–0.20 in managed mode, 0.06–0.12 in 1-DTE mode). Delta approximates the probability the option finishes in-the-money, so the strikes automatically move <i>further away when volatility is high</i> and closer when it's calm — the safety margin stays constant no matter what VIX is doing.</p>
+        <p>Guards on top of delta:</p>
         <ul>
-          <li><b>Minimum credit rule:</b> if a side can't collect ≥ 0.025% of spot at that delta, volatility is too low to pay for the risk — <b>skip the week</b>. Never move strikes closer to force a credit.</li>
-          <li><b>Event filter:</b> skip (or shift to Mon→Tue) when FOMC, CPI, or NFP lands between entry and expiry. NFP is always a first-Friday 8:30 AM ET print — the Desk flags first-Friday expiries automatically; check a calendar for FOMC/CPI.</li>
+          <li><b>Minimum credit rule:</b> if a side can't collect its credit floor at the target delta, premium is too thin to pay for the risk — <b>skip the entry</b>. Never move strikes closer to force a credit.</li>
+          <li><b>Liquidity screen:</b> the Desk flags thin open interest and wide bid/ask markets on any leg.</li>
+          <li><b>Event awareness:</b> in 1-DTE mode, first-Friday expiries are flagged (NFP 8:30 AM ET). In 30–45 DTE mode macro prints inside the window are unavoidable — that's what the 50%-profit / 21-DTE / 2×-credit exits are for.</li>
         </ul>
       </section>
 
       <section class="guide-section">
-        <h2>The mechanical rules (what the Desk implements)</h2>
-        <div style="overflow-x:auto">
-        <table class="data">
-          <thead><tr><th>#</th><th>Rule</th><th>Default</th><th>Why</th></tr></thead>
-          <tbody>
-            <tr><td>1</td><td><b>Schedule</b>: enter the morning before expiry, after 10:00 AM ET</td><td>Thu 10:00–10:30 ET → Fri expiry</td><td>1 DTE = peak theta; wait out the open's noise</td></tr>
-            <tr><td>2</td><td><b>Event filter</b>: no FOMC/CPI/NFP between entry and expiry</td><td>skip or Mon→Tue</td><td>Scheduled news = scheduled gaps</td></tr>
-            <tr><td>3</td><td><b>Short strikes</b>: |delta| band, beyond obvious S/R &amp; round numbers</td><td>0.06–0.12</td><td>Volatility-adaptive "won't reach" level</td></tr>
-            <tr><td>4</td><td><b>Wings</b>: same width both sides, % of spot beyond shorts</td><td>0.65%</td><td>Defines max loss; scales the ₹150-pt Nifty wing</td></tr>
-            <tr><td>5</td><td><b>Credit floor</b>: per-side net credit ≥ % of spot, sides balanced</td><td>0.025%</td><td>Else the reward doesn't pay for the risk — skip</td></tr>
-            <tr><td>6</td><td><b>Sizing</b>: 1 condor per (total credit × 100 × 100) of capital</td><td>auto</td><td>Makes a win ≈ +1%, a stop ≈ −1%, a gap ≈ −10%</td></tr>
-            <tr><td>7</td><td><b>Execution</b>: single 4-leg net-credit limit at mid; if legging, buys first</td><td>—</td><td>No naked-short moment; margin recognised</td></tr>
-            <tr><td>8</td><td><b>Stop</b>: close a side when its spread mark ≥ (1 + mult) × its credit; other side stays on</td><td>3× loss (mark 4×)</td><td>Breathing room + hard cap; per-side, not combined</td></tr>
-            <tr><td>9</td><td><b>Expiry</b>: XSP/SPX let it cash-settle if safely OTM at 3:30 ET; SPY always close by 3:30 ET</td><td>—</td><td>Assignment/pin risk exists only on SPY</td></tr>
-            <tr><td>10</td><td><b>Journal every trade</b>, review every 12 weeks</td><td>Desk journal</td><td>The system only compounds if the ±1% profile holds</td></tr>
-          </tbody>
-        </table>
-        </div>
-      </section>
-
-      <section class="guide-section">
-        <h2>The math that makes it work</h2>
-        <ul>
-          <li><b>Winning week</b> (most weeks): both sides expire → keep <b>+2 credits ≈ +1%</b> of allocation.</li>
-          <li><b>Stopped week</b>: one side loses 3 credits, the other keeps 1 → net <b>−2 credits ≈ −1%</b>.</li>
-          <li>So each side individually risks 3:1, but the <i>structure</i> risks ~1:1 per week — with a high win rate. That asymmetry between per-side and whole-position risk is the entire engine of the strategy.</li>
-          <li><b>Worst case</b> (gap through the stop overnight): defined risk = wing width − credit ≈ <b>−10% of allocation</b>. Rare (the author took −5% on the Russia–Ukraine open and still finished +40% that year) but it WILL eventually happen — that's why sizing (rule 6) is not optional.</li>
-          <li><b>Realistic expectation:</b> 25–40%/yr on the allocation from base rules, before fees. Not a get-rich-quick machine; a discipline machine.</li>
-        </ul>
-      </section>
-
-      <section class="guide-section">
-        <h2>A typical week, minute by minute</h2>
+        <h2>The managed 30–45 DTE playbook (default mode)</h2>
         <ol>
-          <li><b>Thu ~10:00 AM ET</b> (coffee break): open Condor Desk → GET TODAY'S LEGS → check no red warnings → place the 4 legs in Webull as one iron-condor net-credit order at ≈ the quoted credit.</li>
-          <li>Set two price alerts at the stop marks (the ticket lists them). Back to work.</li>
-          <li><b>If an alert fires</b>: close that entire side (both legs, shorts first) at market. Leave the other side alone.</li>
-          <li><b>Fri 3:30 PM ET</b>: XSP/SPX safely OTM → do nothing, it cash-settles. SPY → close whatever remains. First Friday of the month? You shouldn't be in the trade (NFP rule).</li>
-          <li>Log the outcome in the Desk journal. Repeat next Thursday.</li>
+          <li><b>Enter</b> any day, targeting the listed expiry closest to ~38 DTE (accept 30–45).</li>
+          <li><b>Sell</b> the ~0.16Δ call and ~0.16Δ put; <b>buy</b> wings ~1.5% of spot further out. Same width both sides.</li>
+          <li><b>Credit check:</b> each side ≥ 0.25% of spot; the Desk also shows credit as % of width — mid-to-high 20s% is typical.</li>
+          <li><b>Size:</b> defined risk (width − credit) ≤ 20% of capital per trade (configurable — lower is better).</li>
+          <li><b>Manage by three exits, first one wins:</b>
+            <ul>
+              <li><b>Profit:</b> buy everything back at 50% of max profit (GTC order the moment you're filled).</li>
+              <li><b>Time:</b> close (or roll to the next cycle) at 21 DTE regardless of P&amp;L.</li>
+              <li><b>Loss:</b> hard stop when total loss = 2× the credit received.</li>
+            </ul>
+          </li>
+          <li><b>Journal it.</b> Managed this way the win rate historically runs ~78–82% — but only with all three exits honored.</li>
         </ol>
       </section>
 
       <section class="guide-section">
-        <h2>After 3 months of clean execution — the discretion layer</h2>
-        <p>The source is explicit: base rules alone earn modest returns; his 40–50% years came from judgment layered on top. Earn these upgrades with reps first:</p>
+        <h2>The 1-DTE weekly playbook (the source strategy)</h2>
+        <ol>
+          <li><b>Thu ~10:00 AM ET</b>: compute legs for Friday's expiry; sell ~0.09Δ call + put, wings 0.65% out. Skip if a side's credit &lt; 0.025% of spot or expiry is an NFP Friday.</li>
+          <li>Place as one net-credit order; set alerts at the two per-side stop marks (4× each side's credit).</li>
+          <li><b>If an alert fires</b>: close that entire side immediately. The other side stays.</li>
+          <li><b>Fri 3:30 PM ET</b>: XSP/SPX safely OTM → let it cash-settle. SPY → close whatever remains.</li>
+          <li>The math: win weeks +2 credits ≈ +1% of allocation; a stopped week −3 +1 ≈ −1%. Per-side risk is 3:1 but the structure is ~1:1 weekly with a high win rate. A gap through the stop ≈ −10% of allocation (rare, real, and the reason sizing is a rule, not a suggestion).</li>
+        </ol>
+      </section>
+
+      <section class="guide-section">
+        <h2>Reading the Desk's trade card like a trader</h2>
         <ul>
-          <li><b>Roll the winner closer:</b> when a short decays to ≤ 20% of its credit early, buy it back and re-sell nearer (same expiry/width) if it still passes the credit test.</li>
-          <li><b>Re-enter after a stop:</b> once the move stalls at a level, sell a fresh spread further out on the stopped side — turns −1% weeks into −0.5%/breakeven/positive.</li>
-          <li><b>Early profit-take:</b> close everything at ~80% of max profit if you prefer sleeping to squeezing the last 20%.</li>
+          <li><b>Mid vs natural credit:</b> "mid" assumes you get filled between bid and ask (usual with patience on S&amp;P products); "natural" is the instant-fill worst case. Start your limit at mid; accepting below ~90% of mid or below natural means the edge is gone — requote.</li>
+          <li><b>Credit as % of width:</b> the risk/reward gauge. Managed mode typically ~25–35%; 1-DTE mode is thinner (~4–8%) because the probability is much higher.</li>
+          <li><b>Profit zone / breakevens:</b> where you stand at expiry. The card shows how much room spot has to each breakeven.</li>
+          <li><b>|Δ| column:</b> the short legs should sit inside your configured band; the wings are just insurance — their delta doesn't matter.</li>
+          <li><b>OI column + liquidity warnings:</b> thin open interest or wide markets on a leg = worse fills; usually one strike over fixes it.</li>
         </ul>
-        <div class="guide-warn" style="text-align:left">
-          <b>The one non-negotiable:</b> when a stop mark trades, close the side. No "there's resistance just above", no waiting for a bounce. Near your short strike, delta and gamma are large — 30 extra points of hope can erase a quarter of profits. High-win-rate systems die from exactly one behaviour: not taking the small loss.
-        </div>
       </section>
 
       <section class="guide-section">
         <h2>Webull specifics</h2>
         <ul>
           <li>You need <b>Level 3</b> options approval (spreads) — Level 2 can't open condors.</li>
-          <li>Order entry: Options chain → strategy <b>Iron Condor</b> → pick the four strikes from the Desk ticket → <b>net credit limit</b> ≈ quoted credit (accept ≥ 90% of it) → day order.</li>
+          <li>Order entry: Options chain → pick the expiry from the Desk ticket → strategy <b>Iron Condor</b> (or 4-leg custom) → the four strikes → <b>net credit limit</b> starting at the mid credit → day order. After the fill, immediately place the GTC buy-back order at the profit-target mark (managed mode).</li>
           <li>Index options (XSP/SPX) carry a small per-contract fee; SPY options are commission-free (regulatory fees only).</li>
-          <li>The Desk's chain data is ~15-min delayed (CBOE public feed). Strikes chosen by delta barely move in 15 minutes — but always sanity-check the live credit in Webull before submitting; if it's far off, re-quote.</li>
+          <li>The Desk's chain is ~15-min delayed (CBOE public feed). Delta-picked strikes barely move in 15 minutes — but always sanity-check the live credit in Webull; if it's far off, recompute.</li>
         </ul>
+      </section>
+
+      <section class="guide-section">
+        <h2>The one non-negotiable</h2>
+        <div class="guide-warn" style="text-align:left">
+          When an exit rule triggers — profit target, 21 DTE, loss stop, per-side stop — <b>execute it</b>. No "there's resistance just above", no waiting for a bounce. Near a short strike, delta and gamma are large; a few extra points of hope can erase a quarter's profits. High-win-rate systems die from exactly one behaviour: not taking the small loss.
+        </div>
       </section>
     </div>
   `;
