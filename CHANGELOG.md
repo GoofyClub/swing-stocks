@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.33.0 — 2026-07-12 (Condor Desk: reliable chain data + compact config)
+
+### Fixed
+- **"Could not compute legs / Failed to fetch"** — CBOE's CDN blocks many
+  networks (bot protection) and doesn't reliably send CORS headers, so the
+  chain fetch now tries three sources in order and reports which one served
+  the card: **1) Alpaca options snapshots** (SPY; uses the Alpaca keys
+  already saved in the Automation tab — real-time indicative feed with
+  greeks, CORS-friendly, spot from the free IEX feed, DTE-windowed +
+  paginated), **2) CBOE direct**, **3) CBOE via a public read-proxy**.
+  VIX fetch gained the same proxy fallback. The error box now lists every
+  failed source and the concrete fixes (add Alpaca keys / whitelist in
+  ad-blocker / retry).
+
+### Changed
+- **Config panel collapsed by default** and retitled "defaults are the
+  recommended setup; open only to customize", with a green note confirming
+  the defaults ARE the successful-trader consensus — no need to touch
+  anything to start. The mode chip next to the button now reads
+  "· recommended defaults" (cyan) or "· customized" (amber) so the state
+  is visible without expanding. Desk Manual setup/troubleshooting updated
+  for the Alpaca source.
+- Liquidity screen skips the open-interest check when the source doesn't
+  report OI (Alpaca snapshots). Engine tests 14 → 17 (Alpaca parsing +
+  DTE windowing, direct→proxy fallback, aggregate error).
+
 ## v0.32.0 — 2026-07-12 (Condor Desk: blueprint alignment — defaults now match the successful-trader consensus)
 
 ### Changed

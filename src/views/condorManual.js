@@ -12,8 +12,9 @@ export function renderCondorManual(root) {
         <ol>
           <li><b>Webull:</b> get <b>Level 3</b> options approval (spreads). Level 2 cannot open condors.</li>
           <li><b>Firestore rules</b> (repo owner, once): <code>firebase deploy --only firestore:rules</code> — until then presets/journal only persist in this browser (localStorage fallback).</li>
+          <li><b>Alpaca keys (recommended):</b> add your Alpaca API key/secret in the <a href="#/automation" style="color:var(--cyan)">Automation</a> tab (paper-account keys are fine). This unlocks Alpaca's <b>real-time indicative options feed</b> for SPY — far more reliable in-browser than the CBOE fallback, which some networks/ad-blockers reject.</li>
           <li><b>Telegram (optional):</b> Settings → Telegram notifications → bot token + chat id → test. The Desk's SEND TO TELEGRAM button reuses this.</li>
-          <li>Open the Desk once and click <b>SAVE AS ACTIVE</b> to store the defaults to your profile.</li>
+          <li>Open the Desk once and click <b>SAVE AS ACTIVE</b> to store the defaults to your profile. <b>The defaults are the recommended setup</b> — the config panel stays collapsed because you don't need to change anything to start.</li>
         </ol>
       </section>
 
@@ -85,8 +86,8 @@ export function renderCondorManual(root) {
       <section class="guide-section">
         <h2>Troubleshooting</h2>
         <ul>
-          <li><b>"Could not compute legs" / fetch error:</b> CBOE's free feed occasionally rejects a request — retry in a minute. Persistent failure: check the browser console (CORS/network) and that the market isn't a holiday.</li>
-          <li><b>Numbers differ from Webull:</b> the feed is ~15-min delayed. Strikes picked by delta barely move in 15 minutes; the credit does. Always set your limit from the card but judge the fill against Webull's live mid; if far off, recompute.</li>
+          <li><b>"Could not compute legs" / "Failed to fetch":</b> the Desk tries three sources in order — Alpaca (needs keys in the Automation tab; SPY only), CBOE direct, CBOE via proxy. Persistent failures almost always mean: no Alpaca keys AND your network/ad-blocker rejects cdn.cboe.com. Fix: add Alpaca keys (best), or whitelist this site in your ad-blocker, or retry later.</li>
+          <li><b>Numbers differ from Webull:</b> the status line under the button names the source. Alpaca is real-time (indicative); CBOE is ~15-min delayed. Strikes picked by delta barely move either way; always set your limit from the card but judge the fill against Webull's live mid — if far off, recompute.</li>
           <li><b>Presets/journal don't persist across devices:</b> Firestore rules not deployed yet (see setup) — data is falling back to this browser's localStorage.</li>
           <li><b>Sizing warning says "over the sizing rule":</b> one condor's defined risk exceeds your risk % of capital. Either accept consciously, add capital, or use narrower wings.</li>
           <li><b>Everything shows a skip warning for weeks:</b> that's a calm market, not a bug. Not trading IS the strategy sometimes.</li>
