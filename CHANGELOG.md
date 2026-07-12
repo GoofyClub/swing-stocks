@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.36.0 — 2026-07-12 (Condor Desk: collapsed trade card + POP clarified)
+
+### Changed
+- **Trade card now shows only the concise summary box by default.** Legs
+  table, breakevens, exit-plan tiles, defend note, Webull placement note,
+  and the ticket text all moved into a collapsed "Full trade details"
+  panel (matching the existing Configuration panel's pattern) — the
+  summary box's header shows how many notes/warnings are inside so nothing
+  is silently hidden. COPY TICKET / SEND TO TELEGRAM / LOG THIS TRADE stay
+  visible without expanding.
+- **POP clarified**: relabeled "est. POP" to "POP (win prob.)" with an
+  explicit tooltip — Probability of Profit, the estimated chance the index
+  finishes between the short strikes at expiry so both sides expire
+  worthless (≈ 1 − call Δ − put Δ from the short legs).
+- Browser smoke covers the collapsed-by-default state, the note count in
+  the summary line, and that expanding reveals the full detail. Engine
+  tests unaffected (29/29).
+
 ## v0.35.0 — 2026-07-12 (Condor Desk: chain caching + Journal Exit Plan column)
 
 ### Fixed
