@@ -52,10 +52,12 @@ export function renderCondorGuide(root) {
             <tr><td>Sizing</td><td><b>2–5% of portfolio</b> at risk per structure</td><td>Defined risk ≤ <b>5% of capital</b></td></tr>
             <tr><td>Frequency</td><td>Staggered entries every 1–2 weeks, not daily</td><td>Warns if an open condor is &lt; 7 days old</td></tr>
             <tr><td>Expected POP</td><td>~70–75% per trade; ~78–82% win rate managed</td><td>Est. POP computed from short deltas on every card</td></tr>
+            <tr><td>Headline/panic regime</td><td>Size down or stand aside when IV is extreme (not just "sell more")</td><td>VIX ≥ <b>27</b> (managed) / <b>25</b> (1-DTE) flags a caution — see §4</td></tr>
           </tbody>
         </table>
         </div>
         <p class="muted">Why these produce survivors: small size means no single trade matters; 50%-profit exits skip the dangerous late-gamma weeks; the 21-DTE rule caps time in the danger zone; the hard stop caps the tail; staggering means one bad market week can't hit every position at its worst.</p>
+        <p class="muted">Every number in the "Desk default" column is a config field, not a hardcoded constant — see the <a href="#/condor-manual" style="color:var(--cyan)">Desk Manual</a>'s configuration reference for what to raise/lower and when.</p>
       </section>
 
       <section class="guide-section">
@@ -73,14 +75,31 @@ export function renderCondorGuide(root) {
         <p><b>Think in delta, not distance.</b> A 0.15Δ short strike sits ~4% away in calm markets and ~7% away in wild ones — the chain reprices distance for you, keeping the probability of a breach roughly constant. That's why the Desk selects by delta band and why "safe" survives any VIX regime.</p>
         <ul>
           <li><b>When IV is high</b> (pullbacks, pre-CPI/Fed): strikes sit further out AND credits are fatter — the best time to sell. This is the blueprint's "optimal entry condition".</li>
-          <li><b>When IV is dead</b> (VIX below ~13): credits are thin, the credit-vs-width floor fails, and the right move is to <b>wait</b> — the Desk warns instead of forcing strikes closer.</li>
-          <li><b>When IV is extreme</b> (VIX 27+ — tariff announcements, geopolitics, crash tape): the Desk flags a <b>headline regime</b>. Understand what's already handled vs. what isn't: your delta-picked strikes are automatically sitting far wider than normal and the credit is fat — that's the built-in accommodation — but <i>unscheduled</i> policy shocks can move the index further than any model prices. No tool can predict a surprise announcement; the honest defenses are structural: <b>half size (or skip), wider staggering, defined-risk wings, and stops taken without hesitation</b>. Historically these high-IV months are also when premium selling pays best — for the traders who sized small enough to survive them.</li>
-          <li><b>Liquidity screen:</b> every leg is checked for thin open interest and wide bid/ask; a flagged leg usually means "move one strike over".</li>
+          <li><b>When IV is dead</b> (VIX below ~13 default): credits are thin, the credit-vs-width floor fails, and the right move is to <b>wait</b> — the Desk warns instead of forcing strikes closer.</li>
+          <li><b>When IV is extreme</b> — tariff announcements, Fed surprises, geopolitics, crash tape — the Desk flags a <b>headline/panic regime</b> once VIX reaches your configured caution level (default <b>27</b> in managed mode, <b>25</b> in 1-DTE mode — 1-DTE gets less warning time before expiry, so it's more sensitive). Understand what's already handled vs. what isn't:
+            <ul>
+              <li><b>Already handled automatically:</b> your delta-picked strikes are sitting far wider than in calm markets (a 0.15Δ strike can be 8–10% away instead of 4%), and the credit collected is meaningfully fatter — options pricing already "knows" volatility is high and pays you for taking the other side.</li>
+              <li><b>Not handled — and can't be, by any tool:</b> an <i>unscheduled</i> policy shock (a surprise tariff announcement, an out-of-cycle Fed statement, a geopolitical headline) can gap the index further and faster than any model prices in advance. No amount of delta-widening guarantees the move stays inside your wings.</li>
+              <li><b>The honest defenses are structural, not predictive:</b> half size (or skip the week entirely), stagger entries further apart so one shock can't hit multiple open positions at their worst, trust the defined-risk wings to cap the loss, and take the hard stop the instant it triggers — no hesitation, no "it'll bounce back."</li>
+            </ul>
+            Historically these high-IV months are also when premium selling pays best per trade — but only for traders sized small enough to still be trading after the bad one.
+          </li>
+          <li><b>Liquidity screen:</b> every leg is checked for thin open interest and wide bid/ask; a flagged leg usually means "move one strike over". (Some data sources, like Alpaca's snapshot feed, don't report open interest at all — the Desk shows "—" for those instead of skipping the check silently.)</li>
         </ul>
       </section>
 
       <section class="guide-section">
-        <h2>5. The lifecycle of one managed trade</h2>
+        <h2>5. The GO / WAIT verdict</h2>
+        <p>Every computed card opens with a compact summary box ending in a verdict:</p>
+        <ul>
+          <li><b style="color:var(--green)">✅ GO</b> — every entry rule in §2 passed for today. Any non-blocking cautions (e.g. wide bid/ask on one leg) are noted but don't stop the trade — read them, then proceed.</li>
+          <li><b style="color:var(--amber)">⏸ WAIT</b> — at least one rule that should stop an entry has fired: the credit-vs-width floor, the low-VIX floor, a weekend/holiday preview, the staggered-entry window, an NFP-Friday expiry (1-DTE), or it's simply not your configured entry day. <b>WAIT means don't place the trade</b> — the numbers on the rest of the card are still useful for planning, but they aren't a live entry.</li>
+        </ul>
+        <p class="muted">The verdict is a convenience read of the same warnings listed in full below it — it doesn't add new rules, it just tells you in one glance whether today clears all of them.</p>
+      </section>
+
+      <section class="guide-section">
+        <h2>6. The lifecycle of one managed trade</h2>
         <ol>
           <li><b>Entry (day 0, ~40 DTE):</b> sell the ~0.15Δ call + put, buy wings 0.75% further out, collect ≥20%-of-width credit as one net-credit order. Immediately place the GTC buy-back at 50% of the credit.</li>
           <li><b>Most weeks:</b> nothing happens. Theta grinds the condor's price down. You check once a day.</li>
@@ -93,7 +112,7 @@ export function renderCondorGuide(root) {
       </section>
 
       <section class="guide-section">
-        <h2>6. The numbers on a typical SPY trade (defaults)</h2>
+        <h2>7. The numbers on a typical SPY trade (defaults)</h2>
         <ul>
           <li>SPY at $680 → shorts ≈ $652 put / $708 call (~0.15Δ), wings $5 further ($647 / $713).</li>
           <li>Credit ≈ $1.00–1.25 → max profit ~$110; defined risk ≈ $5.00 − $1.10 ≈ $390 per contract.</li>
@@ -104,13 +123,13 @@ export function renderCondorGuide(root) {
       </section>
 
       <section class="guide-section">
-        <h2>7. Mode two: the 1-DTE weekly system</h2>
+        <h2>8. Mode two: the 1-DTE weekly system</h2>
         <p>The Desk's second mode is the strategy from the source video (Sharique's weekly Nifty "1%" system), translated to the S&amp;P: enter the morning before expiry (Thu→Fri), sell ~0.09Δ call + put with 0.65%-of-spot wings, hold to expiry, and stop a <i>side</i> if its loss hits 3× that side's credit. Win weeks ≈ +1% of allocation, stopped weeks ≈ −1%, gap-through-stop worst case ≈ −10%.</p>
         <p><b>When to use which:</b> the managed 30–45 DTE mode is the high-win-rate, low-attention system — learn on it. The 1-DTE mode is faster, needs a strict morning routine and instant stop discipline, and punishes hesitation. Same tool, same card, different rulebooks — switch modes in the config.</p>
       </section>
 
       <section class="guide-section">
-        <h2>8. The one non-negotiable</h2>
+        <h2>9. The one non-negotiable</h2>
         <div class="guide-warn" style="text-align:left">
           When an exit rule triggers — 50% target, 21 DTE, hard stop, per-side stop — <b>execute it</b>. No "there's support just below", no waiting for a bounce. Every number above only produces its historical win rate when the exits are taken mechanically. High-win-rate systems die from exactly one behaviour: not taking the small loss.
         </div>

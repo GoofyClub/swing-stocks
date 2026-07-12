@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.34.1 — 2026-07-12 (docs: guides catch up to v0.34's summary box + high-VIX guard)
+
+### Changed
+- **Strategy Guide**: consensus table gained the headline/panic-regime row;
+  the volatility section (§4) now spells out what the high-VIX caution
+  actually does — strikes auto-widen and credit fattens automatically
+  (options pricing already prices elevated IV), but an *unscheduled*
+  shock (tariff announcement, surprise Fed statement, geopolitical
+  headline) can outrun any model, so the real defenses are structural
+  (half size, wider staggering, defined-risk wings, an unhesitating
+  stop) — and it now states the actual configured levels (27 managed /
+  25 for 1-DTE, tweakable) instead of a flat number. New §5 documents
+  the GO/WAIT verdict introduced in v0.34.0 (what blocks it vs. what's
+  just a caution); later sections renumbered 6–9.
+- **Desk Manual**: the routine now leads with "check the summary box's
+  verdict first" instead of scanning warnings manually; "Reading the
+  trade card" documents the summary box itself; the config reference
+  table gained the High-VIX caution level field (both modes); trouble-
+  shooting gained entries for the weekend/holiday PREVIEW note and for
+  what a spiking VIX on a news day does and doesn't mean.
+- No engine or UI logic changed — verified via the existing 20 engine
+  tests (unaffected) plus new browser checks confirming both guide tabs
+  render the updated content without errors.
+
 ## v0.34.0 — 2026-07-12 (Condor Desk: at-a-glance summary + high-VIX headline-regime guard)
 
 ### Added
