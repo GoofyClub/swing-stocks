@@ -1350,9 +1350,9 @@ table.data .remove-btn {
    Static/reusable rules live here; per-instance numbers (pin/tick left:%,
    zone width, chip color) are set inline by condorDesk.js.
 --------------------------------------------------------------------------- */
-.postrk-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px 18px; margin-bottom: 14px; }
+.postrk-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px 16px; margin-bottom: 12px; }
 .postrk-card:last-child { margin-bottom: 0; }
-.postrk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.postrk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .postrk-id { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-dim); }
 .postrk-id b { color: var(--text); font-weight: 600; }
 .postrk-id .sep { color: var(--text-mute); margin: 0 6px; }
@@ -1366,8 +1366,16 @@ table.data .remove-btn {
 .postrk-chip.watch { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber); }
 .postrk-chip.action{ background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
 
-.postrk-gauge-labels { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-dim); margin-bottom: 6px; font-family: var(--font-mono); }
-.postrk-gauge-labels .mid { color: var(--text-mute); }
+/* Dollar stat row — P&L / target / stop in $, replacing the old two-line
+   per-share labels+readout so the card reads at a glance without doing
+   mid-price-to-dollar math yourself. */
+.postrk-stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; font-family: var(--font-mono); font-size: 0.82rem; }
+.postrk-stat { display: inline-flex; align-items: baseline; gap: 5px; }
+.postrk-stat .lab { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-mute); }
+.postrk-stat b { font-weight: 700; }
+.postrk-stat b.pos { color: var(--green); }
+.postrk-stat b.neg { color: var(--red); }
+
 .postrk-gauge-wrap { position: relative; margin-bottom: 4px; height: 10px; }
 .postrk-gauge-track {
   height: 10px; border-radius: 6px; opacity: 0.9;
@@ -1381,39 +1389,34 @@ table.data .remove-btn {
 .postrk-gauge-pin.good .dot { border-color: var(--green); }
 .postrk-gauge-pin.watch .dot { border-color: var(--amber); }
 .postrk-gauge-pin.action .dot { border-color: var(--red); }
-.postrk-gauge-readout { margin-top: 12px; font-family: var(--font-mono); font-size: 0.86rem; color: var(--text); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.postrk-gauge-readout .pct { font-weight: 700; }
-.postrk-gauge-readout .pct.good { color: var(--green); }
-.postrk-gauge-readout .pct.watch { color: var(--amber); }
-.postrk-gauge-readout .pct.action { color: var(--red); }
-.postrk-gauge-readout .sub { color: var(--text-dim); font-size: 0.8rem; }
+.postrk-gauge-caption { margin-top: 6px; font-size: 0.78rem; color: var(--text-dim); }
 
-.postrk-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.postrk-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 560px) { .postrk-dual { grid-template-columns: 1fr; } }
-.postrk-side-label { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); margin-bottom: 8px; }
+.postrk-side-label { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); margin-bottom: 5px; }
 
-.postrk-ruler-block { margin-top: 20px; padding-top: 14px; border-top: 1px dashed var(--line); }
-.postrk-ruler-title { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); margin-bottom: 10px; }
-.postrk-ruler-wrap { position: relative; height: 46px; }
-.postrk-ruler-line { position: absolute; top: 20px; left: 0; right: 0; height: 2px; background: var(--line-soft); }
-.postrk-ruler-zone { position: absolute; top: 17px; height: 8px; background: color-mix(in srgb, var(--green) 22%, transparent); border-radius: 3px; }
-.postrk-ruler-pt { position: absolute; top: 12px; transform: translateX(-50%); text-align: center; }
+.postrk-ruler-block { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.postrk-ruler-title { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); margin-bottom: 6px; }
+.postrk-ruler-wrap { position: relative; height: 40px; }
+.postrk-ruler-line { position: absolute; top: 17px; left: 0; right: 0; height: 2px; background: var(--line-soft); }
+.postrk-ruler-zone { position: absolute; top: 14px; height: 8px; background: color-mix(in srgb, var(--green) 22%, transparent); border-radius: 3px; }
+.postrk-ruler-pt { position: absolute; top: 9px; transform: translateX(-50%); text-align: center; }
 .postrk-ruler-pt .tick { width: 2px; height: 16px; background: var(--text-mute); margin: 0 auto; }
-.postrk-ruler-pt .lab { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-dim); margin-top: 3px; white-space: nowrap; }
+.postrk-ruler-pt .lab { font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-dim); margin-top: 2px; white-space: nowrap; }
 .postrk-ruler-pt.strike .tick { background: var(--text-dim); height: 20px; margin-top: -2px; }
-.postrk-ruler-pt.spot { top: -2px; }
+.postrk-ruler-pt.spot { top: -5px; }
 .postrk-ruler-pt.spot .tick { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid var(--cyan); margin: 0 auto; }
 .postrk-ruler-pt.spot .lab { color: var(--cyan); font-weight: 700; }
 
-.postrk-time { margin-top: 16px; display: flex; align-items: center; gap: 10px; }
-.postrk-time .lab { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-mute); white-space: nowrap; }
+.postrk-time { margin-top: 8px; display: flex; align-items: center; gap: 10px; }
+.postrk-time .lab { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-mute); white-space: nowrap; }
 .postrk-time-track { flex: 1; height: 5px; border-radius: 3px; background: var(--line-soft); position: relative; overflow: hidden; }
 .postrk-time-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--cyan); opacity: 0.55; }
 .postrk-time-mark { position: absolute; top: -3px; width: 1px; height: 11px; background: var(--amber); }
-.postrk-time-text { font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-dim); white-space: nowrap; }
+.postrk-time-text { font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-dim); white-space: nowrap; }
 
-.postrk-annot { font-size: 0.82rem; color: var(--text-dim); margin: 12px 0 0; padding-left: 14px; border-left: 2px solid var(--line-soft); }
+.postrk-annot { font-size: 0.8rem; color: var(--text-dim); margin: 8px 0 0; padding-left: 14px; border-left: 2px solid var(--line-soft); }
 .postrk-annot b { color: var(--text); }
 
-.postrk-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; gap: 10px; flex-wrap: wrap; }
+.postrk-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 10px; flex-wrap: wrap; }
 .postrk-as-of { font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-mute); }

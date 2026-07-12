@@ -29,20 +29,26 @@ const fmtEtTime = iso => new Intl.DateTimeFormat('en-US', {
 // ----- open positions (the tracker) — pure HTML generators, no DOM/Firestore -----
 export const CHIP_CLASS = { ok: 'good', target: 'good', watch: 'watch', time: 'watch', stop: 'action' };
 
-export function renderManagedGauge(status) {
+const usdSigned = n => `${n >= 0 ? '+' : '−'}${usd(Math.abs(Math.round(n)))}`;
+
+export function renderManagedGauge(status, contracts = 1) {
+  const qty = Number(contracts) > 0 ? Number(contracts) : 1;
   const pinClass = CHIP_CLASS[status.overall] || 'good';
-  const subtext = status.overall === 'stop'
-    ? `at/above the ${fmt2(status.lossMark)} stop — close everything now`
-    : status.overall === 'target'
-      ? `at/below the ${fmt2(status.targetMark)} target — your GTC buy-back should already have filled`
-      : status.mark <= status.entryCredit
-        ? `down ${Math.round((1 - status.mark / status.entryCredit) * 100)}% from entry, needs ≤ ${fmt2(status.targetMark)} to hit target`
-        : `up ${Math.round((status.mark / status.entryCredit - 1) * 100)}% from entry, ${Math.round(100 - status.pct)}% of the way to the ${fmt2(status.lossMark)} stop`;
+  const pnlUsd = (status.entryCredit - status.mark) * 100 * qty;
+  const targetUsd = (status.entryCredit - status.targetMark) * 100 * qty;
+  const stopUsd = (status.lossMark - status.entryCredit) * 100 * qty;
+  const targetOfCreditPct = status.entryCredit > 0
+    ? Math.round((status.entryCredit - status.targetMark) / status.entryCredit * 100) : 50;
+  const caption = status.overall === 'stop' ? 'Close everything now.'
+    : status.overall === 'target' ? 'GTC buy-back should already have filled — confirm it closed.'
+    : status.overall === 'time' ? 'Close or roll today.'
+    : status.overall === 'watch' && status.defendSide ? `${esc(status.defendSide)} side tested — optional defend, or just hold to the stop.`
+    : '';
   return `
-    <div class="postrk-gauge-labels">
-      <span style="color:var(--red)">STOP ${fmt2(status.lossMark)}</span>
-      <span class="mid">ENTRY ${fmt2(status.entryCredit)}</span>
-      <span style="color:var(--green)">TARGET ${fmt2(status.targetMark)}</span>
+    <div class="postrk-stat-row">
+      <span class="postrk-stat"><span class="lab">P&amp;L</span> <b class="${pnlUsd >= 0 ? 'pos' : 'neg'}">${usdSigned(pnlUsd)}</b></span>
+      <span class="postrk-stat"><span class="lab">${targetOfCreditPct}% TARGET</span> <b class="pos">${usdSigned(targetUsd)}</b></span>
+      <span class="postrk-stat"><span class="lab">STOP</span> <b class="neg">−${usd(Math.abs(Math.round(stopUsd)))}</b></span>
     </div>
     <div class="postrk-gauge-wrap">
       <div class="postrk-gauge-track"></div>
@@ -50,27 +56,30 @@ export function renderManagedGauge(status) {
       <div class="postrk-gauge-tick" style="left:${status.targetPct}%"></div>
       <div class="postrk-gauge-pin ${pinClass}" style="left:${status.pct}%"><div class="dot"></div></div>
     </div>
-    <div class="postrk-gauge-readout">
-      <span class="pct ${pinClass}">Mark ${fmt2(status.mark)}</span>
-      <span class="sub">— ${esc(subtext)}</span>
-    </div>`;
+    ${caption ? `<div class="postrk-gauge-caption">${caption}</div>` : ''}`;
 }
 
-export function renderSideGauge(label, side) {
+export function renderSideGauge(label, side, contracts = 1) {
+  const qty = Number(contracts) > 0 ? Number(contracts) : 1;
   const pinClass = side.state === 'stop' ? 'action' : side.state === 'watch' ? 'watch' : 'good';
-  const subtext = side.state === 'stop' ? 'at/above stop — close this side now'
-    : side.state === 'watch' ? 'approaching the stop — watch closely'
-    : 'holding fine';
+  const pnlUsd = (side.entry - side.mark) * 100 * qty;
+  const stopUsd = (side.stop - side.entry) * 100 * qty;
+  const caption = side.state === 'stop' ? 'Close this side now.'
+    : side.state === 'watch' ? 'Approaching the stop — watch closely.'
+    : '';
   return `
     <div>
       <div class="postrk-side-label">${esc(label)} side</div>
-      <div class="postrk-gauge-labels"><span style="color:var(--red)">STOP ${fmt2(side.stop)}</span><span class="mid">ENTRY ${fmt2(side.entry)}</span><span style="color:var(--green)">$0</span></div>
+      <div class="postrk-stat-row">
+        <span class="postrk-stat"><span class="lab">P&amp;L</span> <b class="${pnlUsd >= 0 ? 'pos' : 'neg'}">${usdSigned(pnlUsd)}</b></span>
+        <span class="postrk-stat"><span class="lab">STOP</span> <b class="neg">−${usd(Math.abs(Math.round(stopUsd)))}</b></span>
+      </div>
       <div class="postrk-gauge-wrap">
         <div class="postrk-gauge-track"></div>
         <div class="postrk-gauge-tick entry" style="left:${side.entryPct}%"></div>
         <div class="postrk-gauge-pin ${pinClass}" style="left:${side.pct}%"><div class="dot"></div></div>
       </div>
-      <div class="postrk-gauge-readout"><span class="pct ${pinClass}">${fmt2(side.mark)}</span><span class="sub">${esc(subtext)}</span></div>
+      ${caption ? `<div class="postrk-gauge-caption">${caption}</div>` : ''}
     </div>`;
 }
 
@@ -150,9 +159,10 @@ export function renderPositionCard(t) {
   }
 
   const chipClass = CHIP_CLASS[status.overall] || 'good';
+  const contracts = Number(t.contracts) > 0 ? Number(t.contracts) : 1;
   const body = t.mode === '1dte'
-    ? `<div class="postrk-dual">${renderSideGauge('Call', status.sides.find(s => s.key === 'call'))}${renderSideGauge('Put', status.sides.find(s => s.key === 'put'))}</div>`
-    : renderManagedGauge(status);
+    ? `<div class="postrk-dual">${renderSideGauge('Call', status.sides.find(s => s.key === 'call'), contracts)}${renderSideGauge('Put', status.sides.find(s => s.key === 'put'), contracts)}</div>`
+    : renderManagedGauge(status, contracts);
   const ruler = rulerHtml(t, status.spot);
   const timeStrip = t.mode === '30-45dte' ? timeStripHtml(t, status) : '';
   const annot = t.mode === '1dte'
