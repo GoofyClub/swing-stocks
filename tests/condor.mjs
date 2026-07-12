@@ -4,6 +4,7 @@ import {
   parseOccSymbol, parseCboeChain, pickExpiry, isFirstFriday, daysBetween, addDays,
   buildCondor, condorTicketText, DEFAULT_CONDOR_CONFIG, MODE_DEFAULTS,
   fetchAlpacaChain, fetchChainSmart, formatExitPlan,
+  computePositionSnapshot, entryBreakevens, derivePositionStatus,
 } from '../src/data/condor.js';
 import { saveChainCache, loadChainCache, clearChainCache } from '../src/data/condorChainCache.js';
 
@@ -318,6 +319,130 @@ ok('formatExitPlan: missing or malformed exit plan degrades gracefully, never th
   assert.equal(formatExitPlan({ mode: '30-45dte', exitPlan: {} }), 'TP≤— · by — · SL≥—'); // partial data
 });
 
+// ---------------------------------------------------------------------------
+// Position Tracker — re-pricing a logged trade and deriving its status.
+const OPEN_TRADE_M = {
+  mode: '30-45dte', underlying: 'SPY', expiry: '2026-08-21',
+  callSell: 710, callBuy: 720, putSell: 650, putBuy: 640,
+  callCredit: 1.50, putCredit: 1.50, totalCredit: 3.00,
+  exitPlan: { profitTargetMark: 1.50, timeExitDate: '2026-07-31', lossMark: 9.00 },
+};
+const legOpts = (expiry, opts) => ({ expiry, ...opts });
+const repriceChain = (legs, spot = 675, fetchedAt = '2026-07-15T14:00:00.000Z') => ({ spot, fetchedAt, options: legs });
+
+ok('computePositionSnapshot: re-prices the 4 stored legs from a fresh chain', () => {
+  const chain = repriceChain([
+    legOpts('2026-08-21', { type: 'C', strike: 710, mid: 1.80, delta: 0.11 }),
+    legOpts('2026-08-21', { type: 'C', strike: 720, mid: 0.60, delta: 0.05 }),
+    legOpts('2026-08-21', { type: 'P', strike: 650, mid: 1.30, delta: -0.10 }),
+    legOpts('2026-08-21', { type: 'P', strike: 640, mid: 0.40, delta: -0.05 }),
+  ]);
+  const snap = computePositionSnapshot(OPEN_TRADE_M, chain);
+  assert.equal(snap.spot, 675);
+  assert.equal(snap.callMark, 1.20);
+  assert.equal(snap.putMark, 0.90);
+  assert.equal(snap.callDelta, 0.11);
+  assert.equal(snap.putDelta, -0.10);
+  assert.equal(snap.fetchedAt, '2026-07-15T14:00:00.000Z');
+});
+
+ok('computePositionSnapshot: throws a clear error when a leg is missing from the chain', () => {
+  const chain = repriceChain([
+    legOpts('2026-08-21', { type: 'C', strike: 710, mid: 1.80, delta: 0.11 }),
+    // call wing (720C), both puts missing
+  ]);
+  assert.throws(() => computePositionSnapshot(OPEN_TRADE_M, chain), /Could not find all 4 legs/);
+});
+
+ok('entryBreakevens: matches the same formula buildCondor used at entry', () => {
+  const be = entryBreakevens(OPEN_TRADE_M);
+  assert.equal(be.breakevenUp, 713.00);
+  assert.equal(be.breakevenDown, 647.00);
+});
+
+ok('derivePositionStatus (managed): ON TRACK when mark sits between target and stop', () => {
+  const snap = { callMark: 1.20, putMark: 0.90, callDelta: 0.11, putDelta: -0.10, spot: 675, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_M, snap, NOW);
+  assert.equal(s.mode, '30-45dte');
+  assert.equal(s.mark, 2.10);
+  assert.equal(s.overall, 'ok');
+  assert.equal(s.chipLabel, 'ON TRACK');
+  assert.equal(s.entryPct, 66.67);
+  assert.equal(s.targetPct, 83.33);
+});
+
+ok('derivePositionStatus (managed): TARGET HIT when mark reaches the profit-target mark', () => {
+  const snap = { callMark: 0.80, putMark: 0.60, callDelta: 0.05, putDelta: -0.05, spot: 682, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_M, snap, NOW);
+  assert.equal(s.mark, 1.40);
+  assert.equal(s.overall, 'target');
+  assert.equal(s.chipLabel, 'TARGET HIT — CLOSE NOW');
+});
+
+ok('derivePositionStatus (managed): STOP HIT when mark reaches the loss mark', () => {
+  const snap = { callMark: 6.00, putMark: 4.00, callDelta: 0.42, putDelta: -0.06, spot: 705, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_M, snap, NOW);
+  assert.equal(s.mark, 10.00);
+  assert.equal(s.overall, 'stop');
+  assert.equal(s.chipLabel, 'STOP HIT — CLOSE NOW');
+});
+
+ok('derivePositionStatus (managed): TIME EXIT once today reaches the stored time-exit date', () => {
+  const snap = { callMark: 1.20, putMark: 0.90, callDelta: 0.11, putDelta: -0.10, spot: 675, fetchedAt: 'x' };
+  const onTime = new Date('2026-08-01T15:00:00Z'); // after 2026-07-31 time-exit date
+  const s = derivePositionStatus(OPEN_TRADE_M, snap, onTime);
+  assert.equal(s.overall, 'time');
+  assert.equal(s.chipLabel, 'TIME EXIT — CLOSE OR ROLL');
+  assert.equal(s.daysToTimeExit <= 0, true);
+});
+
+ok('derivePositionStatus (managed): WATCH when a short strike enters the defend-delta zone', () => {
+  const snap = { callMark: 2.50, putMark: 0.80, callDelta: 0.34, putDelta: -0.06, spot: 703, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_M, snap, NOW);
+  assert.equal(s.overall, 'watch');
+  assert.equal(s.chipLabel, 'WATCH — CALL SIDE TESTED');
+});
+
+ok('derivePositionStatus (managed): WATCH when mark drifts within 20% of the stop, even without a delta trigger', () => {
+  const snap = { callMark: 5.00, putMark: 3.00, callDelta: 0.18, putDelta: -0.09, spot: 700, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_M, snap, NOW); // mark 8.00, pct = (9-8)/9*100 = 11.1 < 20
+  assert.equal(s.overall, 'watch');
+  assert.equal(s.chipLabel, 'WATCH — approaching stop');
+});
+
+const OPEN_TRADE_1D = {
+  mode: '1dte', underlying: 'SPY', expiry: '2026-07-17',
+  callSell: 696, callBuy: 701, putSell: 664, putBuy: 659,
+  callCredit: 0.20, putCredit: 0.19,
+  exitPlan: { callStopMark: 0.80, putStopMark: 0.76 },
+};
+
+ok('derivePositionStatus (1dte): ON TRACK when both sides are calm', () => {
+  const snap = { callMark: 0.12, putMark: 0.15, callDelta: 0.06, putDelta: -0.07, spot: 682, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_1D, snap, NOW);
+  assert.equal(s.mode, '1dte');
+  assert.equal(s.overall, 'ok');
+  assert.equal(s.chipLabel, 'ON TRACK');
+});
+
+ok('derivePositionStatus (1dte): names the specific side that stopped, leaves the other alone', () => {
+  const snap = { callMark: 0.12, putMark: 0.90, callDelta: 0.06, putDelta: -0.41, spot: 660, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_1D, snap, NOW);
+  assert.equal(s.overall, 'stop');
+  assert.equal(s.chipLabel, 'PUT SIDE — STOP HIT');
+  const call = s.sides.find(x => x.key === 'call'), put = s.sides.find(x => x.key === 'put');
+  assert.equal(call.state, 'ok');
+  assert.equal(put.state, 'stop');
+});
+
+ok('derivePositionStatus (1dte): a delta-triggered watch on one side does not need the other to be stopped', () => {
+  const snap = { callMark: 0.38, putMark: 0.14, callDelta: 0.31, putDelta: -0.05, spot: 692, fetchedAt: 'x' };
+  const s = derivePositionStatus(OPEN_TRADE_1D, snap, NOW);
+  assert.equal(s.overall, 'watch');
+  assert.equal(s.chipLabel, 'WATCH — CALL SIDE TESTED');
+});
+
+
 ok('ticket text: mode-specific management lines', () => {
   const cm = cfg('30-45dte', {}, 30000);
   const tm = condorTicketText(buildCondor(CHAIN_M, cm, NOW, { vix: 17.3 }), cm);
@@ -368,6 +493,42 @@ await (async () => {
     assert.ok(calls.some(u => u.includes('expiration_date_lte=2026-09-01')), 'DTE window upper bound');
     passed++; console.log('  ✓ fetchAlpacaChain: parses snapshots, drops quote-less, windows by DTE');
   } catch (e) { console.error(`  ✗ fetchAlpacaChain\n    ${e.message}`); process.exitCode = 1; }
+
+  try {
+    // Position-tracking call: today is far from the entry-window that
+    // cfg('30-45dte')'s dteMin/dteMax would normally imply (an aging
+    // position has drifted well outside it) — targetExpiry must win.
+    const calls = [];
+    const fetchImpl = async (url) => {
+      calls.push(String(url));
+      if (String(url).includes('/stocks/SPY/trades/latest')) return jsonRes({ trade: { p: 675.10 } });
+      if (String(url).includes('/options/snapshots/SPY')) return jsonRes(ALPACA_SNAPSHOT_PAGE);
+      throw new Error(`unexpected url ${url}`);
+    };
+    const chain = await fetchAlpacaChain('SPY', { apiKey: 'k', apiSecret: 's' },
+      cfg('30-45dte'), fetchImpl, '2026-07-16', '2026-08-21'); // targetExpiry, far outside the 40±7 DTE window from 07-16
+    assert.equal(chain.source, 'alpaca');
+    assert.ok(calls.some(u => u.includes('expiration_date_gte=2026-08-20')), 'targetExpiry lower bound (expiry - 1)');
+    assert.ok(calls.some(u => u.includes('expiration_date_lte=2026-08-22')), 'targetExpiry upper bound (expiry + 1)');
+    assert.ok(!calls.some(u => u.includes('expiration_date_gte=2026-08-13')), 'must NOT fall back to the mode-derived window');
+    passed++; console.log('  ✓ fetchAlpacaChain: targetExpiry overrides the mode-derived DTE window');
+  } catch (e) { console.error(`  ✗ fetchAlpacaChain targetExpiry\n    ${e.message}`); process.exitCode = 1; }
+
+  try {
+    // fetchChainSmart forwards targetExpiry through to the Alpaca branch.
+    const calls = [];
+    const fetchImpl = async (url) => {
+      calls.push(String(url));
+      if (String(url).includes('/stocks/SPY/trades/latest')) return jsonRes({ trade: { p: 675.10 } });
+      if (String(url).includes('/options/snapshots/SPY')) return jsonRes(ALPACA_SNAPSHOT_PAGE);
+      throw new Error(`unexpected url ${url}`);
+    };
+    const chain = await fetchChainSmart({ underlying: 'SPY', mode: '30-45dte' },
+      { apiKey: 'k', apiSecret: 's' }, fetchImpl, '2026-08-21');
+    assert.equal(chain.source, 'alpaca');
+    assert.ok(calls.some(u => u.includes('expiration_date_gte=2026-08-20')), 'fetchChainSmart forwards targetExpiry');
+    passed++; console.log('  ✓ fetchChainSmart: forwards targetExpiry to fetchAlpacaChain');
+  } catch (e) { console.error(`  ✗ fetchChainSmart targetExpiry\n    ${e.message}`); process.exitCode = 1; }
 
   try {
     // No creds → Alpaca skipped; CBOE direct fails; proxy succeeds.

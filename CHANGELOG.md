@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.37.0 — 2026-07-12 (Condor Desk: Open Positions tracker)
+
+### Added
+- **Open Positions tracker** — every logged trade with status OPEN now gets
+  a live status card above the Journal, answering "where does this stand,
+  and is it time to close?" at a glance instead of requiring mental math
+  against the exit plan.
+  - **Managed mode:** a single red→green gauge spanning hard-stop to
+    profit-target, with a pin at the current mark and ticks for entry
+    credit / target. A chip names the state in words: ON TRACK, WATCH (a
+    short strike tested, or within 20% of the stop), TARGET HIT, STOP HIT,
+    or TIME EXIT.
+  - **1-DTE mode:** two independent gauges (call side, put side), since
+    each side stops separately at 3× its own credit — the chip names the
+    specific side that needs closing rather than implying both are at risk.
+  - **Strike ruler** on every checked card: spot's position against the
+    four strikes and the profit zone between breakevens (tastytrade-style
+    payoff-ruler read).
+  - **DTE strip** (managed mode): a second bar tracking calendar days to
+    the stored time-exit date, independent of the profit/loss gauge — the
+    21-DTE rule fires on the calendar regardless of where the mark sits.
+  - **Defend annotation** when a short strike enters the ~0.30-delta
+    defend zone, pointing to the Strategy Guide's roll move.
+  - **Refresh behavior:** auto-checked once per US-Eastern calendar day on
+    page load, then cached — no repeat network calls until the next day.
+    "↻ Check all open positions" (card header) or a single card's "↻ Check
+    status" force a live update any time.
+- New pure engine exports in `src/data/condor.js`: `computePositionSnapshot`
+  (re-prices a stored trade's 4 legs from a freshly fetched chain),
+  `entryBreakevens`, `derivePositionStatus` (managed + 1-DTE state
+  machines), and `DEFEND_DELTA`. `fetchAlpacaChain`/`fetchChainSmart` gained
+  an optional `targetExpiry` parameter so an aging position is re-priced by
+  windowing the fetch around *its own* expiry rather than the entry-time
+  DTE window (an aging managed-mode trade's remaining DTE routinely falls
+  outside the 30–45 DTE entry window).
+- Desk Manual: new "Open Positions (the tracker)" section plus two
+  troubleshooting entries.
+- 12 new unit tests (`tests/condor.mjs`, now 43/43) cover
+  `computePositionSnapshot`/`entryBreakevens`/`derivePositionStatus` across
+  every status branch in both modes, plus 2 async tests confirming
+  `targetExpiry` actually overrides the fetch window. Browser smoke (14/14)
+  covers `renderPositionCard`'s HTML output for every visual state
+  (not-yet-checked, on track, target hit, stop hit, watch by delta, time
+  exit, missing exit plan, both 1-DTE side states) and confirms the ruler
+  appears only once a card has a live snapshot.
+
 ## v0.36.0 — 2026-07-12 (Condor Desk: collapsed trade card + POP clarified)
 
 ### Changed

@@ -48,6 +48,20 @@ export function renderCondorManual(root) {
       </section>
 
       <section class="guide-section">
+        <h2>Open Positions (the tracker)</h2>
+        <p>Above the journal, every trade logged with status <b>OPEN</b> gets its own card showing where it stands right now — no mental math, no re-reading the ticket.</p>
+        <ul>
+          <li><b>Refresh behavior:</b> checked once automatically the first time you open the Desk each day, then cached — no repeat network calls until the next US-Eastern calendar day. Click <b>↻ Check all open positions</b> (top of the card) or a single card's <b>↻ Check status</b> to force a live update any time.</li>
+          <li><b>The gauge</b> (managed mode): a single red→green bar from your <b>hard stop</b> to your <b>profit target</b>, with a pin showing the current mark and tick marks for entry credit and target. Pin on the green end = close to target; pin on the red end = close to the stop. The chip above names the state in words: <b>ON TRACK</b>, <b>WATCH</b> (a short strike is tested, or the mark has drifted within 20% of the stop), <b>TARGET HIT</b>, <b>STOP HIT</b>, or <b>TIME EXIT</b>.</li>
+          <li><b>1-DTE mode</b> shows two independent gauges, one per side (call and put), since each side is stopped separately at 3× its own credit — a stop on one side never implies anything about the other, and the chip names exactly which side needs closing.</li>
+          <li><b>Strike ruler:</b> spot's position relative to your four strikes and the profit zone between the breakevens — the same read as the tastytrade-style payoff ruler, at a glance.</li>
+          <li><b>DTE strip</b> (managed mode only): a second, independent bar tracking calendar days toward the stored <b>time-exit date</b> — the 21-DTE rule fires on the calendar regardless of where the mark sits, so this is deliberately separate from the profit/loss gauge above it.</li>
+          <li><b>Defend annotation:</b> appears when a short strike enters the ~0.30-delta defend zone, pointing back to the optional roll move in the Strategy Guide §6.</li>
+          <li>Cards disappear once you set the trade's journal status to anything other than OPEN.</li>
+        </ul>
+      </section>
+
+      <section class="guide-section">
         <h2>Configuration reference (every field is tweakable and saved)</h2>
         <p>Hover any field in the Desk for its tooltip. Summary:</p>
         <div style="overflow-x:auto">
@@ -99,6 +113,8 @@ export function renderCondorManual(root) {
           <li><b>Verdict says WAIT but I don't see why:</b> the summary box only shows the verdict, not the reason — scroll to the amber warning boxes just below it; the specific rule that fired is spelled out there.</li>
           <li><b>Big news day (Fed, tariffs, geopolitics) and VIX is spiking:</b> the Desk will flag a high-VIX caution once it crosses your configured level (default 27 managed / 25 for 1-DTE) — read the Strategy Guide §4 for what's automatic (wider strikes, fatter credit) vs. what isn't (predicting the headline itself). The guidance is size down or stand aside, not "the tool has it covered."</li>
           <li><b>Status line says "(cached)" and I want a fresh quote:</b> click <b>↻ Refresh data</b> next to it — it bypasses the cache for that one compute. The cache is tied to the calendar date (US-Eastern) it was fetched on and is never reused once that date has passed, so you'll never see yesterday's — or last week's — chain silently.</li>
+          <li><b>An open position's card says "NOT YET CHECKED":</b> the automatic check hasn't run yet (or failed silently, e.g. no network) — click <b>↻ Check all open positions</b> to force it.</li>
+          <li><b>A position's card won't refresh / status looks stale:</b> position checks re-fetch the chain windowed around <i>that trade's own expiry</i>, not today's entry window — if the expiry has been delisted (e.g. very old 1-DTE trade you never closed), the check will keep failing; close it out manually in the journal.</li>
         </ul>
       </section>
     </div>

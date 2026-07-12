@@ -178,7 +178,15 @@ export async function fetchVixSpot(fetchImpl = globalThis.fetch) {
 
 const ALPACA_DATA = 'https://data.alpaca.markets';
 
-export async function fetchAlpacaChain(underlyingKey, creds, cfg, fetchImpl = globalThis.fetch, todayISO = etNow().iso) {
+// `targetExpiry` (YYYY-MM-DD), when given, fetches a tight window around a
+// SPECIFIC already-known expiry instead of deriving one from cfg's mode/DTE
+// bounds. Entry-time calls (finding a NEW trade) never pass it; position
+// tracking (re-pricing an EXISTING logged trade) always does — an aging
+// position's remaining DTE routinely falls outside the entry window (e.g. a
+// managed-mode trade opened at 40 DTE has drifted to 10 DTE by the time you
+// check it, well below dteMin), so deriving the window from today's config
+// would silently miss it.
+export async function fetchAlpacaChain(underlyingKey, creds, cfg, fetchImpl = globalThis.fetch, todayISO = etNow().iso, targetExpiry = null) {
   if (underlyingKey !== 'SPY') throw new Error('Alpaca source supports SPY only');
   if (!creds?.apiKey || !creds?.apiSecret) throw new Error('No Alpaca keys configured');
   const headers = {
@@ -197,11 +205,15 @@ export async function fetchAlpacaChain(underlyingKey, creds, cfg, fetchImpl = gl
   const spot = Number(trade?.trade?.p);
   if (!Number.isFinite(spot)) throw new Error('Alpaca spot price unavailable');
 
-  // Snapshot window sized to the active mode so we never page the whole chain.
+  // Snapshot window: a tight band around a known expiry when tracking an
+  // existing position, else sized to the active mode so entry-time calls
+  // never page the whole chain.
   const p = activeParams(cfg);
-  const [gte, lte] = cfg.mode === '30-45dte'
-    ? [addDays(todayISO, Math.max(1, (p.dteMin ?? 30) - 2)), addDays(todayISO, (p.dteMax ?? 45) + 2)]
-    : [addDays(todayISO, 1), addDays(todayISO, 8)];
+  const [gte, lte] = targetExpiry
+    ? [addDays(targetExpiry, -1), addDays(targetExpiry, 1)]
+    : cfg.mode === '30-45dte'
+      ? [addDays(todayISO, Math.max(1, (p.dteMin ?? 30) - 2)), addDays(todayISO, (p.dteMax ?? 45) + 2)]
+      : [addDays(todayISO, 1), addDays(todayISO, 8)];
 
   const options = [];
   let pageToken = null;
@@ -242,11 +254,11 @@ export async function fetchAlpacaChain(underlyingKey, creds, cfg, fetchImpl = gl
 // successful chain is stamped with fetchedAt (client clock, ISO) so callers
 // can cache it and judge staleness without depending on a source's own
 // asOf field (Alpaca doesn't set one).
-export async function fetchChainSmart(cfg, creds, fetchImpl = globalThis.fetch) {
+export async function fetchChainSmart(cfg, creds, fetchImpl = globalThis.fetch, targetExpiry = null) {
   const failures = [];
   let chain = null;
   if (cfg.underlying === 'SPY' && creds?.apiKey && creds?.apiSecret) {
-    try { chain = await fetchAlpacaChain(cfg.underlying, creds, cfg, fetchImpl); }
+    try { chain = await fetchAlpacaChain(cfg.underlying, creds, cfg, fetchImpl, etNow().iso, targetExpiry); }
     catch (e) { failures.push(`Alpaca: ${e.message}`); }
   }
   if (!chain) {
@@ -593,4 +605,109 @@ export function formatExitPlan(trade) {
     return `stop C≥${f(ep.callStopMark)} · P≥${f(ep.putStopMark)}`;
   }
   return `TP≤${f(ep.profitTargetMark)} · by ${ep.timeExitDate || '—'} · SL≥${f(ep.lossMark)}`;
+}
+
+// =============================================================================
+// Position Tracker — "where does this open trade stand, and is it time to
+// close it?" Re-prices a logged trade's exact 4 legs from a freshly fetched
+// chain, then derives the same GO/WAIT-style verdict the entry card uses,
+// applied to today's live mark instead of the entry credit.
+// =============================================================================
+
+// Short-strike |delta| at/above this is the "defend zone" — same threshold as
+// the entry card's optional defend note (Strategy Guide §6: roll the
+// untested side once a short strike's delta reaches ~0.30).
+export const DEFEND_DELTA = 0.30;
+
+function findLeg(chain, expiry, strike, type) {
+  return chain.options.find(o => o.expiry === expiry && o.strike === strike && o.type === type) || null;
+}
+
+// Re-price a logged trade's 4 stored legs against a chain fetched for ITS
+// expiry (see fetchChainSmart's targetExpiry param). Mirrors the same
+// (short.mid − wing.mid) math buildCondor used at entry, so "mark" always
+// means the same thing: today's cost to close that side.
+export function computePositionSnapshot(trade, chain) {
+  const callSell = findLeg(chain, trade.expiry, trade.callSell, 'C');
+  const callBuy  = findLeg(chain, trade.expiry, trade.callBuy,  'C');
+  const putSell  = findLeg(chain, trade.expiry, trade.putSell,  'P');
+  const putBuy   = findLeg(chain, trade.expiry, trade.putBuy,   'P');
+  if (!callSell || !callBuy || !putSell || !putBuy) {
+    throw new Error(`Could not find all 4 legs for ${trade.underlying} ${trade.expiry} in the fetched chain (expired, delisted, or wrong expiry?).`);
+  }
+  const r2 = x => Math.round(x * 100) / 100;
+  return {
+    spot: chain.spot,
+    callMark: r2(callSell.mid - callBuy.mid),
+    putMark: r2(putSell.mid - putBuy.mid),
+    callDelta: callSell.delta,
+    putDelta: putSell.delta,
+    fetchedAt: chain.fetchedAt || new Date().toISOString(),
+  };
+}
+
+// Entry-time breakevens for an already-logged trade, from its stored strikes
+// + credit (same formula buildCondor used when the card was first computed).
+export function entryBreakevens(trade) {
+  const r2 = x => Math.round(x * 100) / 100;
+  return {
+    breakevenUp: r2(trade.callSell + trade.totalCredit),
+    breakevenDown: r2(trade.putSell - trade.totalCredit),
+  };
+}
+
+// Pure "is it time to close" verdict for one open trade, given its current
+// snapshot. Everything the Position Tracker card renders comes from here —
+// no DOM, no network — so it's fully unit-tested.
+export function derivePositionStatus(trade, snap, now = new Date()) {
+  const r2 = x => Math.round(x * 100) / 100;
+  const pctOf = (mark, stop) => (stop > 0 ? Math.max(0, Math.min(100, r2((stop - mark) / stop * 100))) : 0);
+  const todayISO = etNow(now).iso;
+
+  if (trade.mode === '1dte') {
+    const ep = trade.exitPlan || {};
+    const raw = [
+      { key: 'call', label: 'CALL', mark: snap.callMark, stop: ep.callStopMark, entry: trade.callCredit, delta: snap.callDelta },
+      { key: 'put', label: 'PUT', mark: snap.putMark, stop: ep.putStopMark, entry: trade.putCredit, delta: snap.putDelta },
+    ];
+    const sides = raw.map(s => {
+      const pct = pctOf(s.mark, s.stop);
+      let state = 'ok';
+      if (s.mark >= s.stop) state = 'stop';
+      else if (s.delta !== null && Math.abs(s.delta) >= DEFEND_DELTA) state = 'watch';
+      else if (pct < 20) state = 'watch';
+      return { ...s, pct, entryPct: pctOf(s.entry, s.stop), state };
+    });
+    const overall = sides.some(s => s.state === 'stop') ? 'stop' : sides.some(s => s.state === 'watch') ? 'watch' : 'ok';
+    const worstSide = sides.find(s => s.state === overall) || sides[0];
+    const chipLabel = overall === 'stop' ? `${worstSide.label} SIDE — STOP HIT`
+      : overall === 'watch' ? `WATCH — ${worstSide.label} SIDE TESTED`
+      : 'ON TRACK';
+    return {
+      mode: '1dte', sides, overall, chipLabel, spot: snap.spot, fetchedAt: snap.fetchedAt,
+      worstSideLabel: overall === 'ok' ? null : worstSide.label,
+    };
+  }
+
+  const ep = trade.exitPlan || {};
+  const lossMark = ep.lossMark, targetMark = ep.profitTargetMark, timeExitDate = ep.timeExitDate;
+  const mark = r2((snap.callMark ?? 0) + (snap.putMark ?? 0));
+  const pct = pctOf(mark, lossMark);
+  const entryPct = pctOf(trade.totalCredit, lossMark);
+  const targetPct = pctOf(targetMark, lossMark);
+  const daysToTimeExit = timeExitDate ? daysBetween(todayISO, timeExitDate) : null;
+  const defendSide = (snap.callDelta !== null && Math.abs(snap.callDelta) >= DEFEND_DELTA) ? 'CALL'
+    : (snap.putDelta !== null && Math.abs(snap.putDelta) >= DEFEND_DELTA) ? 'PUT' : null;
+
+  let overall = 'ok', chipLabel = 'ON TRACK';
+  if (mark >= lossMark) { overall = 'stop'; chipLabel = 'STOP HIT — CLOSE NOW'; }
+  else if (mark <= targetMark) { overall = 'target'; chipLabel = 'TARGET HIT — CLOSE NOW'; }
+  else if (daysToTimeExit !== null && daysToTimeExit <= 0) { overall = 'time'; chipLabel = 'TIME EXIT — CLOSE OR ROLL'; }
+  else if (defendSide) { overall = 'watch'; chipLabel = `WATCH — ${defendSide} SIDE TESTED`; }
+  else if (pct < 20) { overall = 'watch'; chipLabel = 'WATCH — approaching stop'; }
+
+  return {
+    mode: '30-45dte', mark, pct, entryPct, targetPct, daysToTimeExit, overall, chipLabel, defendSide,
+    lossMark, targetMark, entryCredit: trade.totalCredit, spot: snap.spot, fetchedAt: snap.fetchedAt,
+  };
 }
