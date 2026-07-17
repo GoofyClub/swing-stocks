@@ -155,13 +155,31 @@ export function regimeAllowsEntry(regime, side = 'buy') {
   return { ok: true, reason: null };
 }
 
-// Skip if the live price has already run past the entry beyond the slippage
-// budget (for a buy: price gapped up; for a sell: price gapped down).
-export function slippageOk(cfg, entry, livePrice, side = 'buy') {
+// Skip if the live price has moved past the entry beyond the slippage budget —
+// in EITHER direction. The run-away direction (buy: gapped up) means chasing a
+// worse fill. The opposite direction (buy: gapped down) is just as bad for a
+// different reason: the signal's price levels are stale — the bracket SL was
+// computed off the signal bar, so a fill 2-4% below it lands at or through its
+// own stop and the position is stopped out seconds after entry.
+// Buy-stop strategies (pendingEntry) skip the gap-down check: price sitting
+// below the entry trigger is their normal waiting state, and their trigger
+// sits above the SL by construction so a fill implies stop clearance.
+export function slippageOk(cfg, entry, livePrice, side = 'buy', { pendingEntry = false } = {}) {
   if (cfg.slippageBudgetPct == null || livePrice == null || entry == null || entry <= 0) return true;
   const budget = cfg.slippageBudgetPct / 100;
-  if (side === 'sell') return livePrice >= entry * (1 - budget);
-  return livePrice <= entry * (1 + budget);
+  const lo = entry * (1 - budget), hi = entry * (1 + budget);
+  if (side === 'sell') return livePrice >= lo && (pendingEntry || livePrice <= hi);
+  return livePrice <= hi && (pendingEntry || livePrice >= lo);
+}
+
+// Hard backstop for the same failure mode independent of the slippage budget
+// (which is user-configurable and may be generous or unset): never open a
+// position whose bracket stop-loss would trigger the moment the entry fills.
+// For a buy that means the live price must be ABOVE the stop; for a short,
+// below it. Fails open when either price is unknown, like slippageOk.
+export function stopClearanceOk({ slPrice, side = 'buy', pendingEntry = false }, livePrice) {
+  if (pendingEntry || slPrice == null || livePrice == null) return true;
+  return side === 'sell' ? livePrice < slPrice : livePrice > slPrice;
 }
 
 // Entry limit price, bounded by the slippage budget so a fill can never be worse

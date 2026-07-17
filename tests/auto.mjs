@@ -8,7 +8,7 @@
 
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
+  isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
   marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -126,6 +126,27 @@ console.log('\n--- slippageOk ---');
   t('buy within budget ok', slippageOk(baseCfg, 100, 100.2, 'buy'));
   t('buy past budget skipped', !slippageOk(baseCfg, 100, 100.5, 'buy'));
   t('sell gapped down skipped', !slippageOk(baseCfg, 100, 99.5, 'sell'));
+  // Two-sided: a buy that gapped DOWN past the budget is a stale signal whose
+  // bracket SL may sit at/above the fill (the CSCO/ARWR instant stop-outs).
+  t('buy gapped down within budget ok', slippageOk(baseCfg, 100, 99.8, 'buy'));
+  t('buy gapped down past budget skipped', !slippageOk(baseCfg, 100, 99.5, 'buy'));
+  t('buy-stop below trigger still ok (pendingEntry)', slippageOk(baseCfg, 100, 97, 'buy', { pendingEntry: true }));
+  t('buy-stop still capped on run-away', !slippageOk(baseCfg, 100, 100.5, 'buy', { pendingEntry: true }));
+  t('sell gapped up past budget skipped', !slippageOk(baseCfg, 100, 100.5, 'sell'));
+  t('sell-stop above trigger still ok (pendingEntry)', slippageOk(baseCfg, 100, 103, 'sell', { pendingEntry: true }));
+  t('no budget = always ok', slippageOk({ ...baseCfg, slippageBudgetPct: null }, 100, 90, 'buy'));
+}
+
+console.log('\n--- stopClearanceOk ---');
+{
+  t('live above SL ok', stopClearanceOk({ slPrice: 98.5, side: 'buy' }, 100));
+  t('live at SL skipped', !stopClearanceOk({ slPrice: 98.5, side: 'buy' }, 98.5));
+  t('live through SL skipped', !stopClearanceOk({ slPrice: 109.13, side: 'buy' }, 108.64)); // the CSCO Jul-16 fill
+  t('pendingEntry exempt', stopClearanceOk({ slPrice: 98.5, side: 'buy', pendingEntry: true }, 97));
+  t('no SL = ok', stopClearanceOk({ slPrice: null, side: 'buy' }, 100));
+  t('no live price fails open', stopClearanceOk({ slPrice: 98.5, side: 'buy' }, null));
+  t('short: live below SL ok', stopClearanceOk({ slPrice: 105, side: 'sell' }, 100));
+  t('short: live at/above SL skipped', !stopClearanceOk({ slPrice: 105, side: 'sell' }, 105));
 }
 
 console.log('\n--- drawdownHalted ---');

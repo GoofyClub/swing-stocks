@@ -29,7 +29,7 @@
 import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
+  isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
   marketClock, inEntryWindow, modelExitAction,
 } from '../src/auto/engine.js';
 import { settleSignal, entryIndexFor } from '../src/strategy/normalize.js';
@@ -267,8 +267,11 @@ async function processUser(db, uid, cfg) {
     // Prefer a live trade price for the slippage check; fall back to the cron's
     // last close if the data API is unavailable.
     const livePrice = (await client.getLatestPrice(sig.ticker)) ?? sig.currentPrice;
-    if (!slippageOk(cfg, sig.entryPrice, livePrice, sig.side || 'buy')) {
-      log(`skip ${sig.ticker}: slippage (live ${livePrice} vs entry ${sig.entryPrice})`); skipped++; continue;
+    if (!slippageOk(cfg, sig.entryPrice, livePrice, sig.side || 'buy', { pendingEntry: !!sig.pendingEntry })) {
+      log(`skip ${sig.ticker}: slippage (live ${livePrice} vs entry ${sig.entryPrice} ± ${cfg.slippageBudgetPct}%)`); skipped++; continue;
+    }
+    if (!stopClearanceOk({ slPrice: sig.slPrice, side: sig.side || 'buy', pendingEntry: !!sig.pendingEntry }, livePrice)) {
+      log(`skip ${sig.ticker}: live ${livePrice} at/through SL ${sig.slPrice} — bracket stop would fire on fill`); skipped++; continue;
     }
 
     const sec = sig.sector || SECTOR_BY_TICKER.get(sig.ticker) || '?';
