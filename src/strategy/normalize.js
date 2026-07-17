@@ -57,6 +57,13 @@ const STRATEGY_TARGETS = {
   pullback:     { targetPct: 5,    minR: 1.5, maxR: 3.5, minSlPct: 0.7, maxSlPct: 5,  source: '20-EMA pullback continuation, 42-48% WR, 2:1 R:R typical' },
   quality_dip:  { targetPct: 10,   minR: 1.5, maxR: 4.0, minSlPct: 0.8, maxSlPct: 8,  source: 'Quality Dip (mean-reversion on quality), 60-70% WR, +5-15%' },
   vcp:          { targetPct: 18,   minR: 2.0, maxR: 8.0, minSlPct: 1.0, maxSlPct: 7,  source: 'Minervini VCP, 55-68% WR, +10-30% target' },
+  // OPEN QUESTION (Jul 2026 paper run): the 0.5-3% stop here conflicts with
+  // Connors' published results, which use NO stop — exit only on close>5-SMA
+  // (his testing showed stops materially lower RSI(2)'s win rate, since the
+  // stop fires at peak oversoldness, i.e. the entry condition). In the Jul 9-16
+  // paper account every loss was a stop fill (12/12) while wins were TP/native
+  // exits; live WR came in at 43% vs the settled 75%. Candidate change: widen
+  // rsi2 maxSlPct toward a disaster stop (~8-10%) and lean on the native exit.
   rsi2:         { targetPct: 2,    minR: 0.7, maxR: 1.5, minSlPct: 0.5, maxSlPct: 3,  source: 'Connors RSI(2), 75-85% WR, +1-3% mean-reversion bounce' },
   pocket_pivot: { targetPct: 8,    minR: 1.5, maxR: 3.5, minSlPct: 0.7, maxSlPct: 5,  source: 'Kacher/Morales Pocket Pivot, 55-65% WR, +5-15%' },
   htf:          { targetPct: 100,  minR: 3.0, maxR: 12.0, minSlPct: 2.0, maxSlPct: 30, source: "O'Neil High Tight Flag, 65-75% WR, +50-300% — home-runs" },
