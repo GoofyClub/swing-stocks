@@ -12,6 +12,7 @@ import {
   marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
+import { INDEX_OPTIONS } from '../src/data/indexes.js';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -97,6 +98,20 @@ console.log('\n--- signalMatchesRules ---');
     !signalMatchesRules(sig({ index: 'sp600', largeCap: false }), { ...baseCfg, indexes: ['largecap'] }).ok);
   t('per-strategy largecap override blocks non-large-cap rsi2',
     !signalMatchesRules(sig({ strategyKey: 'rsi2', index: 'sp600', largeCap: false }), { ...baseCfg, strategyIndexes: { rsi2: ['largecap'] } }).ok);
+  // The Automation page's chips/table read each INDEX_OPTIONS entry's value the
+  // same way this line does. If that field ever drifts from what the option
+  // objects actually expose, every saved index resolves to the string
+  // 'undefined' and the engine rejects EVERY signal on the index filter (the
+  // "last auto trade was on the 17th" bug). Assert the chip value the UI would
+  // persist is a real membership the engine honors, not undefined.
+  for (const opt of INDEX_OPTIONS) {
+    const chipValue = opt.value ?? opt.v; // mirrors src/views/automation.js chips()
+    t(`index option '${opt.label}' exposes a real chip value (not undefined)`,
+      typeof chipValue === 'string' && chipValue.length > 0);
+    const member = chipValue === 'largecap' ? { largeCap: true } : { index: chipValue };
+    t(`selecting index '${chipValue}' matches its own members`,
+      signalMatchesRules(sig({ ...member }), { ...baseCfg, indexes: [chipValue] }).ok);
+  }
   t('empty strategy allow-list = all allowed', signalMatchesRules(sig({ strategyKey: 'vcp' }), baseCfg).ok);
   t('strategy allow-list excludes others', !signalMatchesRules(sig({ strategyKey: 'vcp' }), { ...baseCfg, strategies: ['rsi2'] }).ok);
   t('reasons listed on failure', signalMatchesRules(sig({ tier: 'Tier 2', ticker: 'TSLA' }), baseCfg).reasons.length === 2);

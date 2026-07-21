@@ -33,7 +33,7 @@ function chips(name, options, current) {
   const set = new Set(current || []);
   return `<div class="auto-chips" data-group="${name}" style="display:flex;gap:8px;flex-wrap:wrap">
     ${options.map(o => {
-      const v = typeof o === 'string' ? o : o.v;
+      const v = typeof o === 'string' ? o : (o.value ?? o.v);
       const label = typeof o === 'string' ? o : o.label;
       const on = set.has(v);
       return `<label class="auto-chip" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${on ? 'var(--cyan)' : 'var(--line-soft)'};border-radius:6px;cursor:pointer;color:var(--text)">
@@ -142,7 +142,7 @@ export async function renderAutomation(root) {
               ${Object.entries(STRATEGIES).map(([k, v]) => {
                 const sel = new Set((cfg.strategyIndexes && cfg.strategyIndexes[k]) || []);
                 const cell = (ix) => `<td class="num"><input type="checkbox" data-si-strat="${k}" data-si-index="${ix}" ${sel.has(ix) ? 'checked' : ''}></td>`;
-                return `<tr><td>${escapeHtml(v.short || k)}</td>${INDEXES.map(ix => cell(ix.v)).join('')}</tr>`;
+                return `<tr><td>${escapeHtml(v.short || k)}</td>${INDEXES.map(ix => cell(ix.value ?? ix.v)).join('')}</tr>`;
               }).join('')}
             </tbody>
           </table>
