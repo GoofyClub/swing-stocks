@@ -244,6 +244,13 @@ const BROAD_EXTRA_INDIA = [
 export const WATCHLIST_BROAD       = [...STARTER_WATCHLIST,       ...BROAD_EXTRA_US];
 export const WATCHLIST_BROAD_INDIA = [...STARTER_WATCHLIST_INDIA, ...BROAD_EXTRA_INDIA];
 
+// India NIFTY 50 constituents — the curated core India watchlist IS the NIFTY 50
+// set. A signal on any of these is tagged `index:'nifty50'`, powering the India
+// index filter (India has no S&P buckets — its indices are Nifty-based). The
+// broad extras (BROAD_EXTRA_INDIA) are deliberately excluded: they're a curated
+// mix, not official NIFTY 50 members. Kept as a Set for O(1) membership at scan.
+export const NIFTY50_TICKERS = new Set(STARTER_WATCHLIST_INDIA.map(x => x.t));
+
 // Pick the watchlist for a market + set. set: 'core' (default) | 'broad'.
 export function watchlistFor(market, set = 'core') {
   const broad = String(set).toLowerCase() === 'broad';

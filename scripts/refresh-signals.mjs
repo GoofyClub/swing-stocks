@@ -28,7 +28,7 @@ import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
 import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
-import { MARKET_CONFIGS, watchlistFor, DATA_SOURCE_ORDER, companyName, LARGE_CAP_TICKERS } from '../src/data/markets.js';
+import { MARKET_CONFIGS, watchlistFor, DATA_SOURCE_ORDER, companyName, LARGE_CAP_TICKERS, NIFTY50_TICKERS } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
 
 // Signals are retained (and re-gradable) for this many days. Drives both the
@@ -47,6 +47,15 @@ const __dir = path.dirname(fileURLToPath(import.meta.url));
 const UNIVERSE = JSON.parse(readFileSync(path.join(__dir, '../src/data/universe.json'), 'utf8'));
 const UNIVERSE_INDEX = new Map(Object.entries(UNIVERSE).map(([sym, v]) => [sym, v.index]));
 const UNIVERSE_LIST_US = Object.entries(UNIVERSE).map(([t, v]) => ({ t, s: v.sector, name: v.name }));
+
+// The index-membership tag stored on a signal, per market. US names map to their
+// S&P bucket (sp500 | sp400 | sp600 | null) via the universe map; India names map
+// to 'nifty50' when they're a NIFTY 50 constituent, else null. Keeping this in one
+// place means the live-scan and the historical-resettle paths tag identically.
+function indexTagFor(market, ticker, usUniverseIndex) {
+  if (market === 'INDIA') return NIFTY50_TICKERS.has(ticker) ? 'nifty50' : null;
+  return usUniverseIndex.get(ticker) || null;
+}
 
 // Capture notable console output so the app's Cron Status page can show the last
 // run's log. We skip the chatty per-ticker [fetchBars] lines but keep summaries,
@@ -210,8 +219,8 @@ async function scanMarket(db, market, ctxIn) {
         ticker,
         name:         companyName(item),
         sector:       item.s,
-        // Index membership (sp500 | sp400 | sp600 | null) for the universe filter.
-        index:        universeIndex.get(ticker) || null,
+        // Index membership for the universe filter — S&P bucket (US) or 'nifty50' (India).
+        index:        indexTagFor(market, ticker, universeIndex),
         // Curated large-cap membership — overlaps sp500, so a separate flag.
         largeCap:     LARGE_CAP_TICKERS.has(ticker),
         market,
@@ -391,7 +400,7 @@ async function resettleRecentSignals(db, market, ctxIn) {
           settlementVersion: SETTLEMENT_VERSION,
           currentPrice: lastClose,
           pctChange,
-          index:       UNIVERSE_INDEX.get(sig.ticker) || null,
+          index:       indexTagFor(market, sig.ticker, UNIVERSE_INDEX),
           largeCap:    LARGE_CAP_TICKERS.has(sig.ticker),
         });
         if (wasClosed) regraded++; else settled++;
@@ -404,7 +413,7 @@ async function resettleRecentSignals(db, market, ctxIn) {
           currentPrice: lastClose,
           currentPriceTs: new Date().toISOString(),
           pctChange,
-          index: UNIVERSE_INDEX.get(sig.ticker) || null,
+          index: indexTagFor(market, sig.ticker, UNIVERSE_INDEX),
           largeCap: LARGE_CAP_TICKERS.has(sig.ticker),
         };
         if (wasClosed) {

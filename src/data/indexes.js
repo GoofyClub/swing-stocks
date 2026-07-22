@@ -15,14 +15,44 @@
 // import it too.
 // =============================================================================
 
-// Filter dropdown / chip options. Large Cap first so it reads as the "premium"
-// curated set above the raw index partitions.
-export const INDEX_OPTIONS = [
-  { value: 'largecap', label: 'Large Cap' },
-  { value: 'sp500',    label: 'S&P 500' },
-  { value: 'sp400',    label: 'MidCap 400' },
-  { value: 'sp600',    label: 'SmallCap 600' },
-];
+// Filter dropdown / chip options, per market. US uses the S&P partitions (Large
+// Cap first, as the "premium" curated set); India uses Nifty-based indices — its
+// stocks are never tagged with an S&P bucket, so showing S&P options for India
+// would silently match nothing. Callers with a market context should use
+// indexOptionsForMarket(); INDEX_OPTIONS stays as the US set for back-compat.
+export const INDEX_OPTIONS_BY_MARKET = {
+  US: [
+    { value: 'largecap', label: 'Large Cap' },
+    { value: 'sp500',    label: 'S&P 500' },
+    { value: 'sp400',    label: 'MidCap 400' },
+    { value: 'sp600',    label: 'SmallCap 600' },
+  ],
+  INDIA: [
+    { value: 'nifty50',  label: 'NIFTY 50' },
+  ],
+};
+
+// Back-compat: the default (US) option set for callers without a market context.
+export const INDEX_OPTIONS = INDEX_OPTIONS_BY_MARKET.US;
+
+// Index filter options for a single market (falls back to US for unknowns).
+export function indexOptionsForMarket(market) {
+  return INDEX_OPTIONS_BY_MARKET[market] || INDEX_OPTIONS_BY_MARKET.US;
+}
+
+// Union of index options across several markets, de-duped by value — used by the
+// Automation page whose `markets` setting can span US + India at once. Empty =
+// default to US.
+export function indexOptionsForMarkets(markets) {
+  const seen = new Set();
+  const out = [];
+  for (const m of (markets && markets.length ? markets : ['US'])) {
+    for (const o of indexOptionsForMarket(m)) {
+      if (!seen.has(o.value)) { seen.add(o.value); out.push(o); }
+    }
+  }
+  return out;
+}
 
 // Tier options for the (now multi-select) tier filter. `label` is the compact
 // chip text; `value` is the value stored on each signal's `tier` field.
@@ -33,7 +63,7 @@ export const TIER_OPTIONS = [
 ];
 
 // Short labels for the INDEX-column badge.
-const INDEX_BADGE = { largecap: 'Large Cap', sp500: 'S&P 500', sp400: 'Mid 400', sp600: 'Small 600' };
+const INDEX_BADGE = { largecap: 'Large Cap', sp500: 'S&P 500', sp400: 'Mid 400', sp600: 'Small 600', nifty50: 'NIFTY 50' };
 
 // Every index bucket a signal belongs to. A large-cap S&P-500 name returns
 // ['largecap', 'sp500'] so it matches EITHER filter. Used by the multi-select

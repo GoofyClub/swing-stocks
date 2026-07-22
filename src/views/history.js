@@ -16,7 +16,7 @@ import { computeEntryStatus, entryStatusBadge, indexMultiSignal, multiSignalBadg
 import { sectorName } from '../data/markets.js';
 import { loadColumnPrefs, saveColumnPrefs, resetColumnPrefs, visibleColumns, openColumnConfig } from '../ui/column-prefs.js';
 import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
-import { INDEX_OPTIONS, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
+import { indexOptionsForMarket, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
 
 const FILTERS_LS_KEY = 'swing.history.filters';
 const COLS_TABLE_KEY = 'history';
@@ -337,7 +337,7 @@ export async function renderHistory(root) {
   const $ = (id) => document.getElementById(id);
   // Static multi-selects (index + tier) — fixed options, filled once. Must run
   // before deep-link params + saved filters apply their selections below.
-  fillMultiSelect('f-index', INDEX_OPTIONS);
+  fillMultiSelect('f-index', indexOptionsForMarket(state.market));
   fillMultiSelect('f-tier', TIER_OPTIONS);
   // Collapsible filter bar; choice persists per view (hidden by default on phones).
   initFilterCollapse({ viewKey: 'history', bodyEl: $('history-filter-body'), btnEl: $('btn-toggle-filters') });

@@ -12,7 +12,7 @@ import {
   marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
-import { INDEX_OPTIONS } from '../src/data/indexes.js';
+import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets } from '../src/data/indexes.js';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -112,6 +112,21 @@ console.log('\n--- signalMatchesRules ---');
     t(`selecting index '${chipValue}' matches its own members`,
       signalMatchesRules(sig({ ...member }), { ...baseCfg, indexes: [chipValue] }).ok);
   }
+  // India index filter — India signals are Nifty-tagged (index:'nifty50'), never
+  // S&P. The filter options are market-aware so India users can't pick an S&P
+  // bucket that would silently match nothing.
+  t('india nifty50 signal matches nifty50 filter',
+    signalMatchesRules(sig({ market: 'INDIA', index: 'nifty50', largeCap: false }), { ...baseCfg, markets: ['INDIA'], indexes: ['nifty50'] }).ok);
+  t('india nifty50 signal blocked by an S&P filter',
+    !signalMatchesRules(sig({ market: 'INDIA', index: 'nifty50', largeCap: false }), { ...baseCfg, markets: ['INDIA'], indexes: ['sp500'] }).ok);
+  t('india nifty50 signal passes when index filter empty',
+    signalMatchesRules(sig({ market: 'INDIA', index: 'nifty50', largeCap: false }), { ...baseCfg, markets: ['INDIA'] }).ok);
+  t('US index options are the S&P buckets', indexOptionsForMarket('US').map(o => o.value).join(',') === 'largecap,sp500,sp400,sp600');
+  t('India index options are Nifty-based (nifty50)', indexOptionsForMarket('INDIA').map(o => o.value).join(',') === 'nifty50');
+  t('unknown market falls back to US options', indexOptionsForMarket('MARS').map(o => o.value).join(',') === 'largecap,sp500,sp400,sp600');
+  t('multi-market options union US+India (nifty50 last, no dupes)',
+    indexOptionsForMarkets(['US', 'INDIA']).map(o => o.value).join(',') === 'largecap,sp500,sp400,sp600,nifty50');
+  t('empty markets defaults to US options', indexOptionsForMarkets([]).map(o => o.value).join(',') === 'largecap,sp500,sp400,sp600');
   t('empty strategy allow-list = all allowed', signalMatchesRules(sig({ strategyKey: 'vcp' }), baseCfg).ok);
   t('strategy allow-list excludes others', !signalMatchesRules(sig({ strategyKey: 'vcp' }), { ...baseCfg, strategies: ['rsi2'] }).ok);
   t('reasons listed on failure', signalMatchesRules(sig({ tier: 'Tier 2', ticker: 'TSLA' }), baseCfg).reasons.length === 2);

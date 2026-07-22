@@ -6,7 +6,7 @@
 import { navigate } from '../core/router.js';
 import { STRATEGIES } from '../strategy/normalize.js';
 import { loadAutomationConfig, saveAutomationConfig, DEFAULT_AUTOMATION } from '../data/automation.js';
-import { INDEX_OPTIONS } from '../data/indexes.js';
+import { indexOptionsForMarkets } from '../data/indexes.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../broker/alpaca.js';
 
 const ALPACA_PAPER_URL = 'https://paper-api.alpaca.markets';
@@ -17,7 +17,6 @@ function escapeHtml(s) {
 }
 
 const TIERS = ['A+', 'Tier 1', 'Tier 2'];
-const INDEXES = INDEX_OPTIONS;
 const MARKETS = ['US', 'INDIA'];
 const SIDES = ['buy', 'sell'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -63,6 +62,9 @@ export async function renderAutomation(root) {
 
   const cfg = await loadAutomationConfig();
   const $ = (id) => document.getElementById(id);
+  // Index options follow the selected markets: US → S&P buckets, India → NIFTY 50.
+  // (Union when both are selected.) Re-selecting markets updates these on next render.
+  const INDEXES = indexOptionsForMarkets(cfg.markets);
 
   $('auto-body').innerHTML = `
     <div class="guide-warn" style="text-align:left">

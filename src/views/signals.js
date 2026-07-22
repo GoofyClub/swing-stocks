@@ -27,7 +27,7 @@ import { openModal } from '../ui/modal.js';
 import { mobileRowsHTML, guardMobileRowButtons, isPhoneLayout } from '../ui/mobile-rows.js';
 import { initFilterCollapse } from '../ui/filter-collapse.js';
 import { multiSelectHtml, fillMultiSelect, getMultiSelectValues, setMultiSelectValues, wireMultiSelect } from '../ui/multiselect.js';
-import { INDEX_OPTIONS, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
+import { indexOptionsForMarket, TIER_OPTIONS, indexMemberships, indexBadgeLabel } from '../data/indexes.js';
 import { initFirebase } from '../data/firebase.js';
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
@@ -487,7 +487,7 @@ export async function renderSignals(root) {
   const $ = (id) => document.getElementById(id);
   // Static multi-selects (index + tier). Options are fixed, so fill once here —
   // strategy/sector are data-driven and filled in renderResults instead.
-  fillMultiSelect('f-index', INDEX_OPTIONS);
+  fillMultiSelect('f-index', indexOptionsForMarket(state.market));
   fillMultiSelect('f-tier', TIER_OPTIONS);
   // Collapsible filter bar; choice persists per view (hidden by default on phones).
   initFilterCollapse({ viewKey: 'signals', bodyEl: $('filter-body'), btnEl: $('btn-toggle-filters') });
