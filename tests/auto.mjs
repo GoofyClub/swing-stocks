@@ -12,7 +12,7 @@ import {
   marketClock, inEntryWindow, entryLimitPrice,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
-import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets } from '../src/data/indexes.js';
+import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets, indexAllowed } from '../src/data/indexes.js';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -127,6 +127,17 @@ console.log('\n--- signalMatchesRules ---');
   t('multi-market options union US+India (nifty50 last, no dupes)',
     indexOptionsForMarkets(['US', 'INDIA']).map(o => o.value).join(',') === 'largecap,sp500,sp400,sp600,nifty50');
   t('empty markets defaults to US options', indexOptionsForMarkets([]).map(o => o.value).join(',') === 'largecap,sp500,sp400,sp600');
+  // Self-heal: an allow-list of only unmatchable tokens (e.g. the stale
+  // 'undefined' an old UI bug persisted) must NOT block every signal — it's
+  // semantically empty, so it means "all allowed". This is the durable guard
+  // against the automation index-filter outage (all indexes silently blocked).
+  t('indexAllowed: only-garbage allow-list = all allowed', indexAllowed(sig({ index: 'sp500' }), ['undefined', 'undefined']));
+  t('indexAllowed: garbage mixed with a real token still filters', indexAllowed(sig({ index: 'sp500' }), ['undefined', 'sp500']));
+  t('indexAllowed: garbage mixed with a real token blocks non-members', !indexAllowed(sig({ index: 'sp600' }), ['undefined', 'sp500']));
+  t('corrupt global indexes self-heal to all-allowed (rsi2 sp500 places)',
+    signalMatchesRules(sig({ strategyKey: 'rsi2', index: 'sp500' }), { ...baseCfg, indexes: ['undefined', 'undefined'] }).ok);
+  t('corrupt per-strategy override self-heals to global/all',
+    signalMatchesRules(sig({ strategyKey: 'rsi2', index: 'sp500' }), { ...baseCfg, strategyIndexes: { rsi2: ['undefined'] } }).ok);
   t('empty strategy allow-list = all allowed', signalMatchesRules(sig({ strategyKey: 'vcp' }), baseCfg).ok);
   t('strategy allow-list excludes others', !signalMatchesRules(sig({ strategyKey: 'vcp' }), { ...baseCfg, strategies: ['rsi2'] }).ok);
   t('reasons listed on failure', signalMatchesRules(sig({ tier: 'Tier 2', ticker: 'TSLA' }), baseCfg).reasons.length === 2);

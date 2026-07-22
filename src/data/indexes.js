@@ -82,8 +82,20 @@ export function indexBadgeLabel(sig) {
   return INDEX_BADGE[sig?.index] || null;
 }
 
+// Every real index token a signal can ever carry, across all markets. Anything
+// outside this set (e.g. the string 'undefined' an old UI bug persisted into a
+// user's config) can NEVER match a signal.
+const VALID_INDEX_VALUES = new Set(
+  Object.values(INDEX_OPTIONS_BY_MARKET).flat().map(o => o.value),
+);
+
 // True when the signal passes an index allow-list (empty list = no restriction).
+// Unknown/unmatchable tokens are dropped first: an allow-list of only such tokens
+// is semantically empty, so it means "all allowed" rather than "block everything".
+// Without this, a single corrupt entry silently halts ALL trading (the automation
+// index-filter bug) — an all-or-nothing failure mode a filter should never have.
 export function indexAllowed(sig, allow) {
-  if (!allow || !allow.length) return true;
-  return indexMemberships(sig).some(m => allow.includes(m));
+  const clean = Array.isArray(allow) ? allow.filter(v => VALID_INDEX_VALUES.has(v)) : [];
+  if (!clean.length) return true;
+  return indexMemberships(sig).some(m => clean.includes(m));
 }
