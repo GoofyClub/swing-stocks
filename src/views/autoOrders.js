@@ -99,11 +99,14 @@ async function loadAutoOrders() {
   const orders = ordSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   orders.sort((a, b) => orderMillis(b) - orderMillis(a));
 
-  // Join each order to its settled signal for outcome data. De-dupe by
-  // sessionDate/signalId so shared signals are read once; failures are non-fatal
-  // (the row just shows no result).
+  // Join each order to its settled signal for outcome data — but ONLY for orders
+  // the worker hasn't already realized (those carry their own broker outcome, so
+  // no read is needed). De-dupe by sessionDate/signalId so shared signals are read
+  // once; failures are non-fatal (the row just shows no result). Skipping realized
+  // orders keeps this light on the Firestore read quota.
   try {
-    const keyOf = (o) => (o.sessionDate && o.signalId) ? `${o.sessionDate}/${o.signalId}` : null;
+    const needsSignal = (o) => !(o.realizedWinLoss || o.realizedPct != null);
+    const keyOf = (o) => (needsSignal(o) && o.sessionDate && o.signalId) ? `${o.sessionDate}/${o.signalId}` : null;
     const uniq = [...new Set(orders.map(keyOf).filter(Boolean))];
     const sigMap = new Map();
     await Promise.all(uniq.map(async (k) => {
