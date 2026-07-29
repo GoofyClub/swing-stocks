@@ -97,8 +97,13 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
     },
 
     // Order status by Alpaca order id (reconciliation).
-    async getOrder(orderId) {
-      return req('GET', `/v2/orders/${encodeURIComponent(orderId)}`);
+    // With { nested: true } the bracket parent comes back with its child legs
+    // (TP limit + SL stop) in `legs[]`, each carrying its own status and
+    // filled_avg_price — that's how we recover the actual exit fill of a
+    // bracket-closed position for realized-P&L journaling.
+    async getOrder(orderId, { nested = false } = {}) {
+      const q = nested ? '?nested=true' : '';
+      return req('GET', `/v2/orders/${encodeURIComponent(orderId)}${q}`);
     },
 
     // Cancel an order by Alpaca id. Used by the stale-entry sweep to kill a

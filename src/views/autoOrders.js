@@ -55,9 +55,23 @@ function resultRFor(s) {
   if (p == null || slp == null) return null;
   return p / slp;
 }
-// The trade outcome for one order, derived from its joined signal. Uses the
-// order's ACTUAL fill price + qty for the $ figure when available.
+// The trade outcome for one order. Prefers the worker's broker-realized fields
+// (actual exit fill → the true win/loss, %, R, $) recorded on the order doc;
+// falls back to the settled signal it came from when realized data isn't there
+// yet (e.g. still-open trade, or a run hasn't journaled it).
 function outcomeFor(o) {
+  // 1) Broker-realized outcome (authoritative, owned on the order).
+  if (o.realizedWinLoss || o.realizedPct != null) {
+    const pct = o.realizedPct ?? null;
+    return {
+      closed: true, pct,
+      r: o.realizedR ?? null,
+      winLoss: o.realizedWinLoss || (pct != null ? (pct >= 0 ? 'win' : 'loss') : null),
+      pnl: o.realizedPnl ?? null,
+      filled: true, source: 'broker',
+    };
+  }
+  // 2) Settled-signal fallback (proxy — same entry/TP/SL geometry).
   const s = o._sig;
   if (!s) return null;
   const closed = s.status === 'closed';
@@ -69,7 +83,7 @@ function outcomeFor(o) {
   // Real $ only for actually-filled (non-dry-run) trades; hypothetical otherwise.
   const filled = !o.dryRun && o.status !== 'dryrun' && qty > 0 && entryPx != null;
   const pnl = (closed && pct != null && filled) ? qty * entryPx * (pct / 100) : null;
-  return { closed, pct, r, winLoss, pnl, filled };
+  return { closed, pct, r, winLoss, pnl, filled, source: 'signal' };
 }
 
 async function loadAutoOrders() {

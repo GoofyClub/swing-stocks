@@ -420,8 +420,65 @@ async function processUser(db, uid, cfg) {
     }
   } catch (e) { log(`exit management failed: ${e.message}`); }
 
+  // --- Realized-outcome journaling: record each CLOSED trade's actual exit,
+  // realized %, R, $ P&L, and win/loss onto its order doc — so the Auto Orders
+  // page shows real broker results (not the settled-signal proxy) and never
+  // depends on signal settlement. Backfills existing closed trades too, since
+  // Alpaca retains the bracket order (with its filled leg) after the position
+  // is gone. Skipped in dry-run (no real fills to read).
+  if (!DRY_RUN) {
+    try { await realizeOutcomes(db, uid, client, log); }
+    catch (e) { log(`realize outcomes failed: ${e.message}`); }
+  }
+
   log(`done: placed=${placed} skipped=${skipped} of ${signals.length} signals`);
   return { placed, skipped };
+}
+
+// For every closed order lacking a realized outcome, recover the exit price and
+// compute realized %, R, $ P&L, and win/loss. Exit source: the model-exit price
+// when the exit model fired (already journaled), else the filled bracket leg
+// (TP=win / SL=loss) fetched from the retained parent order. Long-only.
+async function realizeOutcomes(db, uid, client, log) {
+  const snap = await db.collection('users').doc(uid).collection('autoOrders')
+    .where('status', 'in', ['position_closed', 'exit_submitted']).get();
+  for (const d of snap.docs) {
+    const o = d.data();
+    if (o.realizedWinLoss) continue;                     // already realized
+    if ((o.side || 'buy') !== 'buy') continue;           // long-only
+    const entry = o.filledAvgPrice ?? o.entry;
+    const qty = o.filledQty || o.qty;
+    if (entry == null || !qty) continue;
+
+    let exit = null, reason = o.exitReason || null;
+    if (o.exitModelPrice != null) {
+      exit = Number(o.exitModelPrice);                    // model/native/time/trail exit
+    } else if (o.brokerOrderId) {
+      try {
+        const parent = await client.getOrder(o.brokerOrderId, { nested: true });
+        const leg = (parent?.legs || []).find(l =>
+          (l.side === 'sell') && l.status === 'filled' && l.filled_avg_price != null);
+        if (leg) {
+          exit = Number(leg.filled_avg_price);
+          reason = /stop/i.test(leg.type || '') ? 'stop' : 'target';
+        }
+      } catch (e) { log(`realize ${o.ticker}: fetch failed ${e.message}`); continue; }
+    }
+    if (exit == null || !Number.isFinite(exit)) continue; // exit not recoverable (e.g. manual close) — retry next run
+
+    const pct = ((exit - entry) / entry) * 100;
+    const slPct = (o.sl != null && entry > o.sl) ? ((entry - o.sl) / entry) * 100 : null;
+    await d.ref.update({
+      realizedExit: exit,
+      realizedPct: pct,
+      realizedR: slPct ? pct / slPct : null,
+      realizedPnl: qty * (exit - entry),
+      realizedWinLoss: pct >= 0 ? 'win' : 'loss',
+      realizedExitReason: reason,
+      realizedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    log(`REALIZED ${o.ticker}: ${pct >= 0 ? 'win' : 'loss'} ${pct.toFixed(2)}%${slPct ? ` ${(pct / slPct).toFixed(2)}R` : ''} exit ${exit} (${reason || 'exit'})`);
+  }
 }
 
 // Record this run to /cronRuns (job='auto-trade') so the app's Execution Status
