@@ -313,9 +313,19 @@ export async function renderAutoOrders(root) {
           { k: 'SL', v: o.sl != null ? Number(o.sl).toFixed(2) : '—', color: 'var(--red)' },
           { k: 'Qty', v: String(o.qty ?? '—') },
         ];
+        // Outcome badge shown ON the row (not hidden in the expander), so win/loss
+        // reads at a glance on phones — matching the desktop RESULT column.
+        const resultBadge = oc && oc.winLoss === 'win' ? '<span class="badge win">WIN</span>'
+          : oc && oc.winLoss === 'loss' ? '<span class="badge loss">LOSS</span>'
+          : oc && !oc.closed && oc.pct != null ? '<span class="badge open">OPEN</span>' : '';
+        // Right-aligned figure on line 3: realized R when known, else %.
+        const right = oc && oc.r != null
+          ? { v: (oc.r >= 0 ? '+' : '') + oc.r.toFixed(2) + 'R', color: oc.r >= 0 ? 'var(--green)' : 'var(--red)' }
+          : oc && oc.pct != null
+            ? { v: (oc.pct >= 0 ? '+' : '') + oc.pct.toFixed(2) + '%', color: oc.pct >= 0 ? 'var(--green)' : 'var(--red)' }
+            : null;
         const detail = [];
         if (oc && (oc.closed || oc.pct != null)) {
-          detail.push({ k: 'Result', v: oc.winLoss ? oc.winLoss.toUpperCase() : (oc.closed ? '—' : 'OPEN') });
           if (oc.pct != null) detail.push({ k: '%', v: (oc.pct >= 0 ? '+' : '') + oc.pct.toFixed(2) + '%' });
           if (oc.r != null) detail.push({ k: 'R', v: (oc.r >= 0 ? '+' : '') + oc.r.toFixed(2) + 'R' });
           if (oc.pnl != null) detail.push({ k: 'P&L', v: (oc.pnl >= 0 ? '+$' : '-$') + Math.abs(oc.pnl).toFixed(2) });
@@ -328,9 +338,10 @@ export async function renderAutoOrders(root) {
         return {
           ticker: escapeHtml(o.ticker || ''),
           name: escapeHtml(o.strategy || o.strategyKey || ''),
-          badgesHtml: `<span class="badge ${o.side === 'sell' ? 'loss' : 'open'}">${escapeHtml(o.side || '—')}</span>` + statusBadge(o),
+          badgesHtml: `<span class="badge ${o.side === 'sell' ? 'loss' : 'open'}">${escapeHtml(o.side || '—')}</span>` + resultBadge + statusBadge(o),
           meta: [escapeHtml(sectorName(o.sector) || ''), escapeHtml(fmtTs(o.createdAt))].filter(Boolean).join(' · '),
           nums,
+          right,
           detail,
         };
       }))}</div>`;
