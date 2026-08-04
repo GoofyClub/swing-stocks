@@ -17,6 +17,7 @@
     "refresh:signals": "node scripts/refresh-signals.mjs",
     "refresh:universe": "node scripts/refresh-universe.mjs",
     "auto:trade": "node scripts/auto-trade.mjs",
+    "backtest:stop": "node scripts/backtest-stop.mjs",
     "auto:smoketest": "node scripts/alpaca-smoketest.mjs"
   },
   "dependencies": {

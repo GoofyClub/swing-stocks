@@ -1,0 +1,58 @@
+name: Backtest stop distance (read-only)
+
+# Manual-only. This never runs on a schedule: it reads signal history and daily
+# bars, and the project has hit the Firestore free-tier read cap before, so it
+# runs when you ask for it and not otherwise.
+#
+# READ-ONLY — re-settles existing signal history under candidate stop distances
+# and prints a comparison. It writes nothing to Firestore and places no orders.
+on:
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: 'Strategy key to test (e.g. rsi2)'
+        required: false
+        default: 'rsi2'
+      market:
+        description: 'US or INDIA'
+        required: false
+        default: 'US'
+      days:
+        description: 'Lookback window in days (larger = more Firestore reads)'
+        required: false
+        default: '180'
+      stops:
+        description: "Stop variants, comma-separated. 'natural' = as recorded, 'none' = no stop"
+        required: false
+        default: 'natural,3,5,8,none'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Run backtest
+        env:
+          FIREBASE_PROJECT_ID:           ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          ALPHAVANTAGE_KEY:              ${{ secrets.ALPHAVANTAGE_KEY }}
+          FINNHUB_KEY:                   ${{ secrets.FINNHUB_KEY }}
+          FMP_KEY:                       ${{ secrets.FMP_KEY }}
+          ALPACA_KEY:                    ${{ secrets.ALPACA_KEY }}
+          ALPACA_SECRET:                 ${{ secrets.ALPACA_SECRET }}
+        run: |
+          node scripts/backtest-stop.mjs \
+            --strategy='${{ github.event.inputs.strategy }}' \
+            --market='${{ github.event.inputs.market }}' \
+            --days='${{ github.event.inputs.days }}' \
+            --stops='${{ github.event.inputs.stops }}'
