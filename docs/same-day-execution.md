@@ -29,7 +29,28 @@ of the close *and* carries TP/SL from the moment it fills. That trade is worth
 making. A limit order is the wrong instrument here: for a trade-the-close entry,
 not filling means missing the trade, not getting a better price.
 
-## Known limitations
+## Timing: will it actually fire in the window?
+
+**Not on GitHub Actions — and it is built to fail safe there.** The runner checks
+`inCloseWindow()` at startup and exits doing nothing if it is outside 15:35-15:50
+ET. So a GitHub cron that fires 2 hours late does not place late trades; it
+simply no-ops. That is deliberate: the wrong outcome is trading at the wrong
+price, not missing a day.
+
+**On a VM with a systemd timer, yes.** Timers fire within seconds of schedule.
+
+Two timing details that matter:
+
+- **Scan duration counts.** The runner fetches bars for every ticker in the
+  watchlist before placing anything: roughly 0.2-0.4 s per symbol, so ~20-30 s for
+  the `core` list (~50 US names) but **many minutes** for `broad` (~1,500). Start
+  the timer at **15:42** with the `core` watchlist and it finishes comfortably.
+- **There is a hard per-order deadline at 15:58 ET.** The clock is re-checked
+  before *every* order, not just at startup, so a slow scan stops placing rather
+  than firing entries after the bell. If you see the `DEADLINE:` log line, start
+  the timer earlier or shrink the watchlist.
+
+
 
 - **The signal is computed on a near-final price, not the settled close.** A
   late-session reversal can invalidate it. This is inherent to any trade-the-close

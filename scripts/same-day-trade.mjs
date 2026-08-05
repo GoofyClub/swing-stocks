@@ -67,6 +67,9 @@ const ENV_KILL = String(process.env.KILL_SWITCH ?? 'false').toLowerCase() === 't
 const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === 'true';
 const FORCE_WINDOW = String(process.env.FORCE_WINDOW ?? 'false').toLowerCase() === 'true';
 const ONLY_STRATEGIES = (process.env.STRATEGIES || '').split(',').map(s => s.trim()).filter(Boolean);
+// Last minute (ET) at which an entry may still be submitted. Past this a market
+// order no longer approximates the close, so we stop rather than trade badly.
+const ORDER_DEADLINE_ET_MIN = 15 * 60 + 58;
 
 const RUN_LOG = [];
 {
@@ -254,14 +257,26 @@ async function processUser(db, uid, cfg, now) {
   log(`mode=${modeLabel} equity=${equity.toFixed(0)} open=${openCount} session=${sessionDate} dryRun=${DRY_RUN}`);
 
   const markets = cfg.markets || ['US'];
+  const scanStarted = Date.now();
   let signals = [];
   for (const m of markets) signals = signals.concat(await scanForSignals(m, cfg, sessionDate, log));
   const tierRank = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
   signals.sort((a, b) => (tierRank[a.tier] ?? 9) - (tierRank[b.tier] ?? 9));
-  log(`scanned ${signals.length} candidate signal(s)`);
+  const scanSecs = Math.round((Date.now() - scanStarted) / 1000);
+  log(`scanned ${signals.length} candidate signal(s) in ${scanSecs}s (ET now ${marketClock(new Date()).minutes} min)`);
 
   let placed = 0, skipped = 0;
   for (const sig of signals) {
+    // HARD DEADLINE. The window is checked once at startup, but the scan fetches
+    // bars for the whole watchlist and takes real time — on a broad watchlist it
+    // can run for many minutes. Without this, a slow scan would keep firing
+    // entries after the bell, when a market order no longer gets anything like
+    // the closing price (and may just be rejected). Re-check the clock before
+    // EVERY order and stop dead once we're too close to the close.
+    if (!FORCE_WINDOW && marketClock(new Date()).minutes >= ORDER_DEADLINE_ET_MIN) {
+      log(`DEADLINE: past ${Math.floor(ORDER_DEADLINE_ET_MIN / 60)}:${String(ORDER_DEADLINE_ET_MIN % 60).padStart(2, '0')} ET — stopping, ${signals.length - placed - skipped} candidate(s) not placed. Start the timer earlier or use a smaller watchlist.`);
+      break;
+    }
     // A buy-stop setup needs price to trade UP through entry — that cannot be
     // resolved in the final minutes, so those strategies stay on the morning path.
     if (sig.pendingEntry) { skipped++; continue; }

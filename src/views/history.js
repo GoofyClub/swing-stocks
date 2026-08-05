@@ -7,7 +7,7 @@
 
 import { state, subscribe } from '../core/state.js';
 import { initFirebase } from '../data/firebase.js';
-import { collection, query, orderBy, limit, getDocs, collectionGroup } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, collectionGroup } from 'firebase/firestore';
 import { enterTrade, removeTrade, loadEnteredTradeIds, tradeIdFor } from '../data/trades.js';
 import { openModal } from '../ui/modal.js';
 import { mobileRowsHTML, guardMobileRowButtons, isPhoneLayout } from '../ui/mobile-rows.js';
@@ -88,11 +88,26 @@ function parseHashParams() {
 // We then filter client-side by the user-chosen date range so users can flip
 // timeframes without re-reading from the backend. The cap is high enough to cover
 // 1Y+ of daily signals across the watchlist; the timeframe chips slice this set.
-async function loadHistory() {
+// Signals for the selected timeframe. The window is pushed INTO the query
+// (`signalTs >= cutoff`) rather than fetched wholesale and filtered in the
+// browser: the old unbounded `limit(3000)` billed 3,000 document reads on every
+// page load — about 16 loads exhausted the whole Firestore free daily quota, and
+// it was the 10-15s page load. A 7D view now reads only the 7D docs.
+//
+// `days === 'all'` still has to sweep the retention window, so it keeps the cap.
+async function loadHistory(days = 90) {
   const { db, ok } = initFirebase();
   if (!ok) return { rows: [], err: 'Firebase not configured (see SETUP.md)' };
   try {
-    const q1 = query(collectionGroup(db, 'signals'), orderBy('signalTs', 'desc'), limit(3000));
+    const base = collectionGroup(db, 'signals');
+    const q1 = (days === 'all')
+      ? query(base, orderBy('signalTs', 'desc'), limit(3000))
+      : query(
+          base,
+          where('signalTs', '>=', new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10) + 'T00:00:00Z'),
+          orderBy('signalTs', 'desc'),
+          limit(3000),
+        );
     const snap = await getDocs(q1);
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     return { rows };
@@ -325,10 +340,17 @@ export async function renderHistory(root) {
     </div>
   `;
 
-  const [{ rows, err }, enteredIds] = await Promise.all([
-    loadHistory(),
-    loadEnteredTradeIds(),
-  ]);
+  // Seed the initial fetch from the saved timeframe so a user who lives on 7D
+  // doesn't pay for 90D of documents on every visit.
+  let savedPrefs = null;
+  try { savedPrefs = JSON.parse(localStorage.getItem(FILTERS_LS_KEY) || 'null'); } catch {}
+  const initialDays = savedPrefs?.tfCustom ? 'all' : (savedPrefs?.tfDays ?? 90);
+
+  let { rows, err } = await loadHistory(initialDays);
+  const enteredIds = await loadEnteredTradeIds();
+  // How much history the current `rows` covers. Narrowing the timeframe filters
+  // the set we already hold (free); widening past it needs a new query.
+  let loadedDays = initialDays;
   const entered = new Set(enteredIds);
 
   // User-customizable column order/visibility for the Signals table.
@@ -433,8 +455,26 @@ export async function renderHistory(root) {
     $('tf-label').textContent = from ? `${from} → ${to}` : `all → ${to}`;
   }
 
+  // True when `want` reaches further back than what we've already fetched.
+  const needsWiderFetch = (want) => {
+    if (loadedDays === 'all') return false;          // already have everything
+    if (want === 'all') return true;
+    return Number(want) > Number(loadedDays);
+  };
+
+  // Fetch a wider window and swap it in. Narrowing never calls this.
+  async function widenTo(want) {
+    const tableEl = $('history-table');
+    if (tableEl) tableEl.innerHTML = '<div class="empty">Loading…</div>';
+    const res = await loadHistory(want);
+    if (res.err) { if (tableEl) tableEl.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(res.err)}</div>`; return; }
+    rows = res.rows;
+    loadedDays = want;
+    refresh();
+  }
+
   // Wire timeframe chips
-  $$('tf-chip').forEach(btn => btn.addEventListener('click', () => {
+  $$('tf-chip').forEach(btn => btn.addEventListener('click', async () => {
     $$('tf-chip').forEach(b => b.classList.toggle('active', b === btn));
     const v = btn.dataset.days;
     if (v === 'custom') {
@@ -446,12 +486,17 @@ export async function renderHistory(root) {
       $('f-to').value   = fmtDate(today);
       tfCustom = { from: $('f-from').value, to: $('f-to').value };
       $('tf-range').style.display = 'inline-flex';
-    } else {
-      tfDays = v === 'all' ? 'all' : Number(v);
-      tfCustom = null;
-      $('tf-range').style.display = 'none';
+      // A custom range can reach arbitrarily far back — load the full window.
+      refreshTfLabel();
+      if (needsWiderFetch('all')) { await widenTo('all'); return; }
+      refresh();
+      return;
     }
+    tfDays = v === 'all' ? 'all' : Number(v);
+    tfCustom = null;
+    $('tf-range').style.display = 'none';
     refreshTfLabel();
+    if (needsWiderFetch(tfDays)) { await widenTo(tfDays); return; }
     refresh();
   }));
 
