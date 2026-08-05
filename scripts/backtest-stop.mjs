@@ -50,6 +50,9 @@
 //   --stops=<list>     stop variants as % of entry (default natural,3,5,8,none)
 //                      'natural' = the recorded stop; 'none' = no stop at all
 //   --limit=<n>        max signals to read         (default 3000)
+//   --cache[=path]     cache the Firestore read to disk and reuse it on later
+//                      runs (0 reads). Iterate on --stops for free.
+//   --refresh          force a re-read even when a cache file exists
 //
 // Required env: FIREBASE_PROJECT_ID, FIREBASE_SERVICE_ACCOUNT_JSON
 // Bar data env: same keys as refresh-signals (ALPACA_KEY/SECRET, ALPHAVANTAGE_KEY, ...)
@@ -60,6 +63,8 @@
 // =============================================================================
 
 import admin from 'firebase-admin';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
 import { fetchBars } from '../src/data/fetchers.js';
 import { settleSignal, entryIndexFor } from '../src/strategy/normalize.js';
 import { DATA_SOURCE_ORDER } from '../src/data/markets.js';
@@ -75,6 +80,15 @@ const MARKET   = args.market || 'US';
 const DAYS     = Number(args.days || 180);
 const LIMIT    = Number(args.limit || 3000);
 const STOPS    = (args.stops || 'natural,3,5,8,none').split(',').map(s => s.trim()).filter(Boolean);
+// Signal cache. Trying different stop variants shouldn't re-read Firestore — the
+// signals don't change between runs, and this project's free-tier daily read cap
+// is a real constraint (it has blocked runs outright). Write once, iterate free.
+const CACHE    = args.cache === 'true' ? defaultCachePath() : (args.cache || null);
+const REFRESH  = args.refresh === 'true';
+
+function defaultCachePath() {
+  return path.join('.cache', `signals-${STRATEGY}-${MARKET}-${DAYS}d.json`);
+}
 
 function initAdmin() {
   if (admin.apps.length) return admin.firestore();
@@ -109,6 +123,12 @@ const daysAgo = (n) => new Date(Date.now() - n * 86400_000).toISOString().slice(
 // strategyKey filter; falls back to an unfiltered window scan when the composite
 // index isn't deployed (same defensive pattern the workers use).
 async function loadSignals(db) {
+  // Serve from cache when asked — zero Firestore reads.
+  if (CACHE && !REFRESH && existsSync(CACHE)) {
+    const rows = JSON.parse(readFileSync(CACHE, 'utf8'));
+    console.log(`[backtest] loaded ${rows.length} signal(s) from cache ${CACHE} (0 Firestore reads; --refresh to re-read)`);
+    return rows;
+  }
   const cutoff = daysAgo(DAYS) + 'T00:00:00Z';
   const base = db.collectionGroup('signals').where('signalTs', '>=', cutoff);
   let snap;
@@ -118,11 +138,25 @@ async function loadSignals(db) {
     console.warn(`[backtest] filtered query unavailable (${e.message}) — scanning the window and filtering in memory.`);
     snap = await base.orderBy('signalTs', 'desc').limit(LIMIT).get();
   }
-  return snap.docs
+  const rows = snap.docs
     .map(d => ({ id: d.id, ...d.data() }))
     .filter(r => r.strategyKey === STRATEGY)
     .filter(r => !r.market || r.market === MARKET)
-    .filter(r => r.entryPrice > 0 && r.tpPrice != null && r.slPrice != null);
+    .filter(r => r.entryPrice > 0 && r.tpPrice != null && r.slPrice != null)
+    // Firestore Timestamps don't survive JSON; only these fields are ever read.
+    .map(r => ({
+      id: r.id, ticker: r.ticker, market: r.market ?? null, strategyKey: r.strategyKey,
+      signalTs: r.signalTs, entryPrice: r.entryPrice, tpPrice: r.tpPrice, slPrice: r.slPrice,
+      pendingEntry: !!r.pendingEntry,
+    }));
+  if (CACHE) {
+    try {
+      mkdirSync(path.dirname(CACHE), { recursive: true });
+      writeFileSync(CACHE, JSON.stringify(rows));
+      console.log(`[backtest] cached ${rows.length} signal(s) to ${CACHE} — later runs reuse it for free`);
+    } catch (e) { console.warn(`[backtest] cache write failed: ${e.message}`); }
+  }
+  return rows;
 }
 
 // The stop price a variant would have placed for a given signal.
