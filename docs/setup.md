@@ -1,0 +1,256 @@
+# Setting up from scratch
+
+Start-to-finish for a new deployment. Roughly 45 minutes, most of it waiting on
+Google Cloud.
+
+Read [going-live.md](going-live.md) before pointing any of this at real money —
+this guide gets you to a working **paper** system, which is where you should stay
+for weeks.
+
+## What you are building
+
+| Piece | Runs where | Schedule | Purpose |
+|---|---|---|---|
+| Web app | GitHub Pages | on push to `main` | signals, history, config UI |
+| `refresh-signals` | GitHub Actions | cron, several/day | scans the universe, writes signals, settles outcomes |
+| `same-day-trade` | **your VM** | systemd timer, 15:38 ET | scans and enters at the close ← the trading path |
+| `auto-trade` | GitHub Actions | cron, mornings | previous-session entries, reconcile, exits |
+| `telegram-bot` | **your VM** | always on | monitor and control from a phone |
+
+The VM pieces are on a VM because GitHub Actions cron runs **2–3 hours late** on
+this repo — unusable for a 15-minute close window.
+
+## Prerequisites
+
+- A **Firebase project** with Firestore enabled
+- An **Alpaca paper account** (keys used for both trading and market data)
+- A **GCE VM** (Debian/Ubuntu, e2-micro is plenty)
+- Optionally a **Telegram bot** from [@BotFather](https://t.me/BotFather)
+
+---
+
+## 1. Firebase
+
+1. Create the project, enable **Firestore** and **Authentication** (Google
+   sign-in).
+2. Deploy the security rules and indexes — the app will not work without them:
+   ```bash
+   npx firebase deploy --only firestore:rules,firestore:indexes
+   ```
+3. **Strongly consider the Blaze plan.** The free tier's 50k daily reads has
+   repeatedly been exhausted here and takes the trading worker down with it
+   (`RESOURCE_EXHAUSTED`). At this volume Blaze is typically cents per day, and
+   it removes an entire class of outage.
+
+## 2. Web app (GitHub Pages)
+
+Add these repo **Secrets** (Settings → Secrets → Actions):
+
+```
+VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID,
+VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID,
+VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY
+```
+
+Push to `main` and the deploy workflow publishes the site. Sign in once — that
+creates your user document.
+
+## 3. GitHub Actions workers
+
+Same Secrets page:
+
+```
+FIREBASE_PROJECT_ID              your project id
+FIREBASE_SERVICE_ACCOUNT_JSON    service-account key JSON (CI only; the VM uses ADC)
+ALPACA_KEY / ALPACA_SECRET       market data — without these the keyless
+                                 endpoints rate-limit on the 1503-name universe
+ALPHAVANTAGE_KEY / FINNHUB_KEY   optional fallbacks
+FMP_KEY                          optional; enables PEAD/Insider/Analyst
+```
+
+Run **Refresh shared signals** manually once and confirm it succeeds.
+
+> If your org enforces `iam.disableServiceAccountKeyCreation` you cannot create
+> the JSON key. CI needs one; the VM does not (it uses ADC — step 5).
+
+## 4. Automation settings (in the app)
+
+Automation page:
+
+- **Broker**: Alpaca, REST base `https://paper-api.alpaca.markets`
+- **API key / secret**: your Alpaca paper keys
+- Markets, tiers, indices, strategies — start narrow
+- Risk: `riskPerTradePct`, `maxConcurrentPositions`, `minAdvUsd`
+- **Enabled**: on
+
+These live in Firestore, not on the VM. Change them later via the UI,
+`npm run config`, or Telegram `/set`.
+
+> `maxConcurrentPositions` is usually the binding constraint. In one dry run 8
+> fully-qualified signals were turned away because all 4 slots were full.
+
+## 5. The VM
+
+SSH in (Cloud Console → Compute Engine → **SSH** button).
+
+```bash
+# Node 20 + git
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+
+# clone
+cd ~ && git clone https://github.com/GoofyClub/swing-stocks.git
+cd ~/swing-stocks && npm ci
+
+# provision (idempotent — safe to re-run)
+./scripts/setup-vm.sh
+```
+
+The script checks prerequisites, creates `~/swing-config/swing.env` from the
+generated template, verifies Firestore connectivity, and installs the systemd
+units. It **cannot** grant Google Cloud permissions — the VM has no authority to
+grant itself any — so it prints the exact Cloud Shell commands with your values
+filled in.
+
+### 5a. Google Cloud permissions (from **Cloud Shell**, not the VM)
+
+Running these on the VM fails with `Request had insufficient authentication
+scopes`, because there `gcloud` authenticates *as* the VM.
+
+```bash
+# Firestore access, ON THE FIREBASE PROJECT (often not the VM's project)
+gcloud projects add-iam-policy-binding FIREBASE_PROJECT_ID \
+  --member="serviceAccount:VM_SERVICE_ACCOUNT_EMAIL" \
+  --role="roles/datastore.user"
+
+# cloud-platform scope — requires the VM to be STOPPED, so do it outside market hours
+gcloud compute instances stop INSTANCE --zone=ZONE
+gcloud compute instances set-service-account INSTANCE --zone=ZONE \
+  --service-account=VM_SERVICE_ACCOUNT_EMAIL --scopes=cloud-platform
+gcloud compute instances start INSTANCE --zone=ZONE
+```
+
+Use `cloud-platform`, not something narrower: this command **replaces** the whole
+scope list, and a narrow scope would strip whatever else the box runs on.
+
+### 5b. Fill in the config
+
+```bash
+nano ~/swing-config/swing.env
+```
+
+Minimum:
+
+```bash
+FIREBASE_PROJECT_ID=your-project-id
+ALPACA_KEY=...            # market data (paper keys are fine)
+ALPACA_SECRET=...
+WATCHLIST_SET=broad       # 1503 names, matches refresh-signals
+DRY_RUN=true
+```
+
+No Firebase credential line — with none set it uses the VM's own service account.
+Every setting is documented in `config/swing.env.example`, generated from
+`src/config/env.js`.
+
+### 5c. Verify
+
+```bash
+./scripts/setup-vm.sh --check
+
+cd ~/swing-stocks && set -a && . ~/swing-config/swing.env && set +a
+FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
+```
+
+You want:
+
+```
+using Application Default Credentials (GCE attached service account)
+scanning US watchlist=1503 (set=broad) strategies=[rsi2,...]
+US bars: 1495 ok, 8 failed (1%)
+scanned 55 candidate signal(s) in 297s
+skip AFL (rsi2): ADV 9M < min 20M          ← a real filter
+DRYRUN would buy 3 CTAS @ market ~213.40   ← the line that proves the path works
+```
+
+**If you never see a `DRYRUN would buy` line, nothing has been proven.** Every
+skip should name a rule you recognise. `tier null` or `index none` mean a bug.
+
+## 6. Telegram bot (optional)
+
+```bash
+# token from @BotFather; message the bot once, then:
+curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id":[0-9-]*'
+
+cat >> ~/swing-config/swing.env <<'EOF'
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_ALLOWED_CHAT_IDS=your-chat-id
+EOF
+
+sudo systemctl enable --now swing-bot
+```
+
+Send `/health`. Full command list in [telegram-bot.md](telegram-bot.md).
+
+The allow-list is mandatory — the bot **refuses to start** without it rather than
+defaulting to open, because it can `/flatten` your account.
+
+## 7. Confirm the schedule
+
+```bash
+systemctl list-timers swing-sameday.timer     # NEXT should be a weekday 15:38 ET
+journalctl -u swing-sameday.service -n 100    # after it fires
+```
+
+Leave `DRY_RUN=true` for several sessions. Intended orders appear on the Auto
+Orders page marked `DRY-RUN`, so you can review exactly what it would have done.
+
+---
+
+## Where everything is configured
+
+| Layer | File / place | Examples | To change |
+|---|---|---|---|
+| Deployment | `~/swing-config/swing.env` | credentials, `DRY_RUN`, `ALLOW_LIVE`, `WATCHLIST_SET` | edit + next run |
+| Trading knobs | `src/config/trading.js` | close window, re-entry cooldown, order deadline | edit, commit, `git pull` on VM |
+| Per-user risk | Firestore automation config | risk %, max positions, tiers, indices | UI / `npm run config` / `/set` |
+| Strategy definitions | `src/strategy/normalize.js` | targets, stop bounds, hold periods | code change — see [strategies.md](strategies.md) |
+
+## Routine operations
+
+```bash
+# update the VM copy (it does not follow main on its own)
+cd ~/swing-stocks && git pull && npm ci && ./scripts/setup-vm.sh --units
+
+npm run config                              # show trading limits
+npm run config maxConcurrentPositions 8     # change one
+
+journalctl -u swing-sameday.service -n 100  # last run
+journalctl -u swing-bot -f                  # bot, live
+systemctl list-timers                       # schedules
+```
+
+From Telegram: `/health`, `/status`, `/positions`, `/pnl`, `/log`, `/errors`,
+`/pause`, `/resume`, `/flatten CONFIRM`.
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `RESOURCE_EXHAUSTED: Quota exceeded` | Firestore free-tier daily reads. Consider Blaze (step 1). |
+| `Could not load the default credentials` | VM missing the `cloud-platform` scope (5a). |
+| `PERMISSION_DENIED` on Firestore | Missing `roles/datastore.user` **on the Firebase project** (5a). |
+| `Request had insufficient authentication scopes` from `gcloud` | You ran it on the VM. Use Cloud Shell. |
+| `FIREBASE_PROJECT_ID must be set` | Config dir exists but `swing.env` doesn't (5b). |
+| Many `bars unavailable … blocked or timed out` | Keyless endpoints rate-limiting. Set `ALPACA_KEY`/`SECRET`. |
+| `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
+| `DEADLINE: past 15:58 ET` | Scan outran the window. Fire earlier or use `core`. |
+| `placed=0` with only recognisable skips | Working as intended — no signal passed your filters. |
+| `tier null` / `index none` in skips | A bug. These should never occur. |
+
+## Related
+
+- [going-live.md](going-live.md) — `DRY_RUN`/`ALLOW_LIVE`, promotion checklist, security
+- [same-day-execution.md](same-day-execution.md) — how the close runner works
+- [telegram-bot.md](telegram-bot.md) — commands and security
+- [strategies.md](strategies.md) — rules, parameters, measured performance

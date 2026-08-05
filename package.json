@@ -22,7 +22,8 @@
     "auto:smoketest": "node scripts/alpaca-smoketest.mjs",
     "bot": "node scripts/telegram-bot.mjs",
     "config:example": "node scripts/print-env-example.mjs > config/swing.env.example",
-    "config": "node scripts/config-set.mjs"
+    "config": "node scripts/config-set.mjs",
+    "setup": "bash scripts/setup-vm.sh"
   },
   "dependencies": {
     "chart.js": "^4.4.0",
