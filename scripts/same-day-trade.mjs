@@ -43,13 +43,16 @@
 // Actions cron is routinely 2-3 h late and cannot hit a 15-minute window)
 //   DRY_RUN=false node scripts/same-day-trade.mjs
 //
-// Required env: FIREBASE_PROJECT_ID, FIREBASE_SERVICE_ACCOUNT_JSON
+// Required env: FIREBASE_PROJECT_ID, plus the service-account key as either
+//               FIREBASE_SERVICE_ACCOUNT_FILE (path — preferred on a VM) or
+//               FIREBASE_SERVICE_ACCOUNT_JSON (raw JSON — used by CI)
 // Bar data env: ALPACA_KEY/ALPACA_SECRET (preferred), ALPHAVANTAGE_KEY, ...
 // Optional env: DRY_RUN, ONLY_UID, KILL_SWITCH, ALLOW_LIVE, FORCE_WINDOW,
 //               STRATEGIES (comma list; default: every strategy the user allows)
 // =============================================================================
 
 import admin from 'firebase-admin';
+import { readFileSync } from 'node:fs';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
@@ -83,9 +86,20 @@ const RUN_LOG = [];
 function initAdmin() {
   if (admin.apps.length) return admin.firestore();
   const projectId = process.env.FIREBASE_PROJECT_ID;
-  const saJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!projectId || !saJson) throw new Error('FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_JSON must be set.');
-  admin.initializeApp({ credential: admin.credential.cert(JSON.parse(saJson)), projectId });
+  // The service-account key can come from a FILE or the raw env var. The file is
+  // the sane option on a VM: systemd's EnvironmentFile does not parse quoted or
+  // multi-line values the way a shell does, and the key JSON is a big quoted blob
+  // — pasting it inline is the classic way to get an unhelpful JSON.parse error
+  // at 15:42 on a trading day. CI keeps using the env var (GitHub Secrets).
+  const saFile = process.env.FIREBASE_SERVICE_ACCOUNT_FILE;
+  const saJson = saFile ? readFileSync(saFile, 'utf8') : process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!projectId || !saJson) {
+    throw new Error('FIREBASE_PROJECT_ID plus FIREBASE_SERVICE_ACCOUNT_FILE (path, preferred on a VM) or FIREBASE_SERVICE_ACCOUNT_JSON must be set.');
+  }
+  let creds;
+  try { creds = JSON.parse(saJson); }
+  catch (e) { throw new Error(`service account key is not valid JSON (${saFile ? `file ${saFile}` : 'FIREBASE_SERVICE_ACCOUNT_JSON'}): ${e.message}`); }
+  admin.initializeApp({ credential: admin.credential.cert(creds), projectId });
   return admin.firestore();
 }
 

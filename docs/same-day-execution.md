@@ -63,6 +63,54 @@ Two timing details that matter:
 - **Symbols already held are skipped.** Alpaca positions are per-symbol, so a
   second position on the same ticker would be indistinguishable to the exit model.
 
+## Setup (Google Compute Engine VM)
+
+Roughly 15 minutes. Steps 1-3 you may already have if the box runs other automation.
+
+**1. Node 20+ and git**
+
+```bash
+node -v   # need >= 18; 20 matches CI
+# if missing:
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+```
+
+**2. Clone and install**
+
+```bash
+sudo mkdir -p /opt/swing-stocks && sudo chown "$USER" /opt/swing-stocks
+git clone https://github.com/GoofyClub/swing-stocks.git /opt/swing-stocks
+cd /opt/swing-stocks && npm ci
+```
+
+**3. Credentials**
+
+Put the Firebase service-account key on disk as a *file* (see the env note below
+for why), and lock it down:
+
+```bash
+sudo mkdir -p /etc/swing-stocks
+sudo cp service-account.json /etc/swing-stocks/service-account.json
+sudo chmod 600 /etc/swing-stocks/service-account.json
+sudo chmod 600 /etc/swing-stocks.env
+```
+
+**4. Prove it works before scheduling anything**
+
+```bash
+cd /opt/swing-stocks
+set -a && . /etc/swing-stocks.env && set +a
+FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
+```
+
+`FORCE_WINDOW=true` bypasses the 15:35-15:50 gate so you can test at any hour;
+`DRY_RUN=true` means nothing is submitted. You should see the scan run and
+`DRYRUN would buy ...` lines. **Do not continue until this is clean** — debugging
+credentials at 15:42 on a live afternoon is the thing to avoid.
+
+**5. Schedule it** — units below.
+
 ## Setup (systemd timer, recommended)
 
 Use a timer rather than crontab so the schedule is **timezone-aware**: a fixed UTC
@@ -107,8 +155,11 @@ systemctl list-timers swing-sameday.timer   # confirm the next fire time
 `/etc/swing-stocks.env` (mode 600 — it holds credentials):
 
 ```bash
-FIREBASE_PROJECT_ID=...
-FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+FIREBASE_PROJECT_ID=your-project-id
+# Point at the key FILE. Do NOT paste the JSON inline: systemd's EnvironmentFile
+# is not a shell and mishandles the quotes in the blob, which fails at parse time
+# on a trading afternoon rather than when you set it up.
+FIREBASE_SERVICE_ACCOUNT_FILE=/etc/swing-stocks/service-account.json
 ALPACA_KEY=...
 ALPACA_SECRET=...
 # Start in dry-run. Flip to false only after reviewing a dry-run's log.
@@ -124,6 +175,33 @@ DRY_RUN=true
 3. **Go live** by setting `DRY_RUN=false`. Real-money (non-paper) orders
    additionally require `ALLOW_LIVE=true` — the in-app flag alone can never place
    them.
+
+## Keeping the VM copy current
+
+The VM runs whatever it cloned — it does not follow `main` on its own. After
+merging changes:
+
+```bash
+cd /opt/swing-stocks && git pull && npm ci
+```
+
+The timer picks up the new code on its next fire; no restart needed (the service
+is `Type=oneshot`, started fresh each time).
+
+## Troubleshooting
+
+```bash
+systemctl list-timers swing-sameday.timer   # next scheduled fire
+journalctl -u swing-sameday.service -n 100  # last run's output
+```
+
+| Symptom | Cause |
+|---|---|
+| `service account key is not valid JSON` | Key pasted inline instead of via `FIREBASE_SERVICE_ACCOUNT_FILE`. |
+| `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
+| `DEADLINE: past 15:58 ET` | Scan outran the window — start earlier or use the `core` watchlist. |
+| Nothing placed, no errors | Expected when no signal passes the filters. Check the `scanned N candidate(s)` line. |
+| `RESOURCE_EXHAUSTED` | Firestore daily read quota — unrelated to the VM. |
 
 ## Interaction with the morning worker
 
