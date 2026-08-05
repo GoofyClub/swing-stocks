@@ -100,18 +100,19 @@ scanning US watchlist=1503 (set=broad) strategies=[rsi2,...]
 
 If that says `watchlist=51`, the env var isn't reaching the process.
 
-
+## Known limitations
 
 - **The signal is computed on a near-final price, not the settled close.** A
   late-session reversal can invalidate it. This is inherent to any trade-the-close
   system — Connors' own rule has the same practical issue — not a defect here.
-- **The regime gate is not evaluated** on this path: no finalised intraday regime
-  snapshot exists. The run logs this explicitly rather than silently skipping it.
 - **Buy-stop strategies are excluded** (`pendingEntry`) — they need price to trade
   up through the entry trigger, which can't resolve in the final minutes. Those
   stay on the morning path.
 - **Symbols already held are skipped.** Alpaca positions are per-symbol, so a
   second position on the same ticker would be indistinguishable to the exit model.
+- **The regime gate IS evaluated** here, computed live from index + VIX bars
+  rather than read from the post-close snapshot the morning path uses. If the
+  index bars can't be fetched the gate is skipped and the run says so.
 
 ## Setup (Google Compute Engine VM)
 
