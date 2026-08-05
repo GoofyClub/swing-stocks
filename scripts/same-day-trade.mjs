@@ -61,7 +61,7 @@ import path from 'node:path';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
-  marketClock, inCloseWindow, placedStopPrice, stopClearanceOk,
+  marketClock, inCloseWindow, placedStopPrice, stopClearanceOk, inReentryCooldown, REENTRY_COOLDOWN_DAYS,
 } from '../src/auto/engine.js';
 import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -362,6 +362,24 @@ async function processUser(db, uid, cfg, now) {
     sectorCount.set(sec, (sectorCount.get(sec) || 0) + 1);
   }
   const heldSymbols = new Set(positions.map(p => p.symbol));
+
+  // Recent LOSING exits, for the re-entry cooldown. Read from the order journal's
+  // realized outcomes; a missing/failed read yields an empty list, which disables
+  // the cooldown rather than blocking every entry.
+  let recentLosses = [];
+  if (REENTRY_COOLDOWN_DAYS > 0) {
+    try {
+      const since = new Date(now.getTime() - (REENTRY_COOLDOWN_DAYS + 1) * 86400_000);
+      const snap = await db.collection('users').doc(uid).collection('autoOrders')
+        .where('realizedWinLoss', '==', 'loss').get();
+      recentLosses = snap.docs.map(d => {
+        const o = d.data();
+        const at = o.realizedAt?.toDate ? o.realizedAt.toDate() : (o.realizedAt ? new Date(o.realizedAt) : null);
+        return at && at >= since ? { ticker: o.ticker, exitedAt: at } : null;
+      }).filter(Boolean);
+      if (recentLosses.length) log(`re-entry cooldown active for: ${recentLosses.map(l => l.ticker).join(', ')}`);
+    } catch (e) { log(`cooldown lookup failed (${e.message}) — not applied`); }
+  }
   let openHeatPct = openCount * (cfg.riskPerTradePct || 0);
   let availableBp = account.buyingPower;
 
@@ -418,6 +436,12 @@ async function processUser(db, uid, cfg, now) {
     // may already own it, and Alpaca positions are per-symbol so the exit model
     // could not tell the two apart.
     if (heldSymbols.has(sig.ticker)) { log(`skip ${sig.ticker}: already holding`); skipped++; continue; }
+
+    // Don't immediately re-take a name that just stopped out — a still-falling
+    // stock keeps re-qualifying for a mean-reversion setup (ARWR: 3 losses in 3
+    // sessions).
+    const cool = inReentryCooldown(sig.ticker, recentLosses, now);
+    if (cool.blocked) { log(`skip ${sig.ticker}: ${cool.reason}`); skipped++; continue; }
 
     if (cfg.respectRegime !== false) {
       const reg = regimeAllowsEntry(regimes[sig.market || markets[0]], sig.side || 'buy');

@@ -76,6 +76,46 @@ export function placedStopPrice(signal) {
   return natural == null ? wide : Math.min(wide, natural);
 }
 
+// =============================================================================
+// Re-entry cooldown — how many days after a LOSING exit a ticker is untradeable.
+//
+// A mean-reversion setup keeps firing on a name that is still falling: the stop
+// takes you out, the stock is now even more oversold, so the scan flags it again
+// tomorrow. ARWR was entered and stopped out THREE times in three sessions
+// (Jul 13/14/15), each a fresh loss, because nothing remembered the previous
+// one. That is the same trade re-taken, not three independent edges.
+//
+// Only LOSING exits start a cooldown. A winner that sets up again is a working
+// strategy and should be allowed straight back in.
+//
+// 0 disables it. Default 3 sessions ≈ half rsi2's 7-bar hold: long enough that a
+// stopped-out name must actually base before re-entry, short enough not to miss
+// the next genuine setup.
+// =============================================================================
+export const REENTRY_COOLDOWN_DAYS = 3;
+
+// Is `ticker` still cooling off? `recentLosses` is [{ ticker, exitedAt }] where
+// exitedAt is a Date/ms/ISO of the losing exit.
+export function inReentryCooldown(ticker, recentLosses, now = new Date(), cooldownDays = REENTRY_COOLDOWN_DAYS) {
+  if (!cooldownDays || !ticker || !Array.isArray(recentLosses)) return { blocked: false };
+  const cutoffMs = now.getTime() - cooldownDays * 86400_000;
+  for (const l of recentLosses) {
+    if (!l || l.ticker !== ticker) continue;
+    const t = l.exitedAt instanceof Date ? l.exitedAt.getTime()
+      : typeof l.exitedAt === 'number' ? l.exitedAt
+      : l.exitedAt ? Date.parse(l.exitedAt) : NaN;
+    if (!Number.isFinite(t)) continue;
+    if (t >= cutoffMs) {
+      const daysAgo = Math.max(0, (now.getTime() - t) / 86400_000);
+      return {
+        blocked: true,
+        reason: `re-entry cooldown: stopped out ${daysAgo.toFixed(1)}d ago (${cooldownDays}d cooldown)`,
+      };
+    }
+  }
+  return { blocked: false };
+}
+
 // Position size. Two modes:
 //   • 'risk'  (default) — fixed-fractional risk: shares = (equity × risk%) ÷
 //                         |entry − stop|. Capital deployed varies with stop width.

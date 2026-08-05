@@ -255,7 +255,69 @@ credentials at 15:42 on a live afternoon is the thing to avoid.
 
 **5. Schedule it** — units below.
 
-## Setup (systemd timer, recommended)
+## Timer — install and adjust
+
+Copy-paste to install. Adjust the time later by editing `OnCalendar` in the
+`.timer` file and running `sudo systemctl daemon-reload`.
+
+```bash
+sudo tee /etc/systemd/system/swing-sameday.service >/dev/null <<'EOF'
+[Unit]
+Description=Swing same-day (trade-the-close) execution
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=srinathrn89
+WorkingDirectory=/home/srinathrn89/swing-stocks
+EnvironmentFile=/home/srinathrn89/swing-config/swing.env
+ExecStart=/usr/bin/node scripts/same-day-trade.mjs
+EOF
+
+sudo tee /etc/systemd/system/swing-sameday.timer >/dev/null <<'EOF'
+[Unit]
+Description=Fire the same-day runner before the US close
+
+[Timer]
+# 15:38 ET for the broad universe (~5-6 min scan, done by ~15:44).
+# Use 15:42 for the core watchlist (~15 s scan).
+# The timezone is part of OnCalendar, so DST is handled — a fixed UTC cron would
+# drift an hour twice a year, fatal for a 15-minute window.
+OnCalendar=Mon-Fri 15:38 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now swing-sameday.timer
+systemctl list-timers swing-sameday.timer     # confirm NEXT fire time
+```
+
+Changing the schedule:
+
+```bash
+sudo systemctl edit --full swing-sameday.timer   # edit OnCalendar
+sudo systemctl daemon-reload
+systemctl list-timers swing-sameday.timer
+```
+
+Checking a run afterwards:
+
+```bash
+journalctl -u swing-sameday.service -n 100 --no-pager
+systemctl status swing-sameday.service
+```
+
+Run it by hand at any time (bypasses the window check, submits nothing):
+
+```bash
+cd ~/swing-stocks && set -a && . ~/swing-config/swing.env && set +a
+FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
+```
+
+## Setup (systemd unit reference)
 
 Use a timer rather than crontab so the schedule is **timezone-aware**: a fixed UTC
 cron drifts by an hour twice a year at the DST boundary, which for a 15-minute
@@ -373,3 +435,21 @@ from the morning worker's allow-list in Automation settings.
 This path scans in-process from live bars and never reads or writes a signal
 document, so it costs **no signal quota** — unlike the morning path, which reads
 a finalised bucket.
+
+## Re-entry cooldown
+
+A mean-reversion setup keeps re-firing on a name that is still falling: the stop
+takes you out, the stock is now *more* oversold, so it qualifies again tomorrow.
+ARWR was entered and stopped out three times in three sessions (Jul 13/14/15),
+each a fresh loss, because nothing remembered the previous one.
+
+After a **losing** exit a ticker is untradeable for `REENTRY_COOLDOWN_DAYS`
+(default 3, in `src/auto/engine.js`). Winners are never cooled down — a name that
+sets up again after a win is the strategy working.
+
+```
+skip ARWR: re-entry cooldown: stopped out 1.2d ago (3d cooldown)
+```
+
+Set it to `0` to disable. The cooldown reads realized losses from the order
+journal, so it only sees exits the worker has journalled.

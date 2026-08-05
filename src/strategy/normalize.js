@@ -445,7 +445,7 @@ export const SETTLEMENT_VERSION = 4;
 
 // Documented max hold per strategy, in trading bars. After this many held bars
 // with no TP/SL/native exit, settle at that bar's close.
-const STRATEGY_HOLD = {
+export const STRATEGY_HOLD = {
   rsi2: 7, nr7: 7, pocket_pivot: 15, peg: 20, pullback: 15, vcp: 25,
   htf: 40, fifty_two_wh: 30, quality_dip: 30, pead: 60, insider: 60,
   analyst: 45, fvg: 60,

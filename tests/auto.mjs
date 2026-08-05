@@ -10,6 +10,7 @@ import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
   marketClock, inEntryWindow, entryLimitPrice, placedStopPrice, PLACED_STOP_PCT, inCloseWindow,
+  inReentryCooldown, REENTRY_COOLDOWN_DAYS,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets, indexAllowed } from '../src/data/indexes.js';
@@ -176,6 +177,33 @@ console.log('\n--- slippageOk ---');
   t('sell gapped up past budget skipped', !slippageOk(baseCfg, 100, 100.5, 'sell'));
   t('sell-stop above trigger still ok (pendingEntry)', slippageOk(baseCfg, 100, 103, 'sell', { pendingEntry: true }));
   t('no budget = always ok', slippageOk({ ...baseCfg, slippageBudgetPct: null }, 100, 90, 'buy'));
+}
+
+console.log('\n--- inReentryCooldown (stop-out churn guard) ---');
+{
+  const now = new Date('2026-07-16T14:00:00Z');
+  const ago = (d) => new Date(now.getTime() - d * 86400_000);
+  // The ARWR case: stopped out Jul 15, re-qualifies Jul 16 because the stock is
+  // now even MORE oversold. Without a cooldown that is the same losing trade
+  // taken again.
+  const losses = [{ ticker: 'ARWR', exitedAt: ago(1) }, { ticker: 'CSCO', exitedAt: ago(9) }];
+  t('blocks a name stopped out yesterday', inReentryCooldown('ARWR', losses, now).blocked === true);
+  t('reason names the cooldown', /cooldown/.test(inReentryCooldown('ARWR', losses, now).reason || ''));
+  t('allows a name whose cooldown has expired', inReentryCooldown('CSCO', losses, now).blocked === false);
+  t('allows an unrelated name', inReentryCooldown('AAPL', losses, now).blocked === false);
+  // Boundary: exactly at the cooldown edge is still blocked; just past it is free.
+  t('inside the window by a hair is blocked',
+    inReentryCooldown('X', [{ ticker: 'X', exitedAt: ago(REENTRY_COOLDOWN_DAYS - 0.01) }], now).blocked === true);
+  t('just outside the window is allowed',
+    inReentryCooldown('X', [{ ticker: 'X', exitedAt: ago(REENTRY_COOLDOWN_DAYS + 0.01) }], now).blocked === false);
+  // Winners must NOT cool down — only losing exits are ever passed in.
+  t('cooldown disabled with 0 days', inReentryCooldown('ARWR', losses, now, 0).blocked === false);
+  t('empty/absent history never blocks', inReentryCooldown('ARWR', [], now).blocked === false);
+  t('null history never blocks', inReentryCooldown('ARWR', null, now).blocked === false);
+  t('unparseable timestamp is ignored, not fatal',
+    inReentryCooldown('X', [{ ticker: 'X', exitedAt: 'not-a-date' }], now).blocked === false);
+  t('accepts ISO strings', inReentryCooldown('X', [{ ticker: 'X', exitedAt: ago(1).toISOString() }], now).blocked === true);
+  t('accepts epoch ms', inReentryCooldown('X', [{ ticker: 'X', exitedAt: ago(1).getTime() }], now).blocked === true);
 }
 
 console.log('\n--- inCloseWindow + market entry (same-day close path) ---');

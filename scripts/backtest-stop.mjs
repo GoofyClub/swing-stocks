@@ -66,7 +66,7 @@ import admin from 'firebase-admin';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fetchBars } from '../src/data/fetchers.js';
-import { settleSignal, entryIndexFor } from '../src/strategy/normalize.js';
+import { settleSignal, entryIndexFor, STRATEGY_HOLD } from '../src/strategy/normalize.js';
 import { DATA_SOURCE_ORDER } from '../src/data/markets.js';
 
 // ---- args -------------------------------------------------------------------
@@ -257,7 +257,7 @@ async function main() {
         );
         byVariant[variant] = { verdict, stopPx };
       }
-      perSignal.push({ sig, byVariant });
+      perSignal.push({ sig, byVariant, postBarCount: postBars.length });
     }
   }
 
@@ -272,14 +272,35 @@ async function main() {
     return st;
   };
 
-  // Signals every variant resolved — the bias-free comparison.
+  // Signals every variant resolved. NOTE this is still biased — see below.
   const commonRows = perSignal.filter(r => STOPS.every(v => r.byVariant[v].verdict?.status === 'closed'));
 
-  report('ALL RESOLVED PER VARIANT (each row uses its own closed set)', aggregate(perSignal));
-  console.log(`\n\nCOMMON SUBSET — ${commonRows.length} of ${perSignal.length} signal(s) closed under EVERY variant.`);
-  console.log('Same trades in every row, so differences are caused only by the stop.');
-  if (!commonRows.length) console.log('  (empty — nothing to compare)');
-  else report('COMMON SUBSET (identical trade set across rows)', aggregate(commonRows));
+  // MATURE signals: enough post-entry bars that the strategy's TIME STOP forces a
+  // close under EVERY variant, whatever the stop does. This is the only unbiased
+  // set. Both other tables condition on whether a trade closed, which is itself
+  // an outcome of the stop being tested:
+  //   • "all resolved" lets wide stops drop their still-running (underwater)
+  //     trades   → flatters WIDE stops.
+  //   • "common subset" drops trades only the tight stop closed, and those are
+  //     precisely the tight stop's losses → flatters the TIGHT stop.
+  // Selecting on age instead is independent of the stop, so nothing is dropped
+  // for a reason correlated with the thing being measured.
+  const hold = STRATEGY_HOLD[STRATEGY] ?? 0;
+  const matureRows = hold ? perSignal.filter(r => r.postBarCount >= hold) : [];
+
+  report('ALL RESOLVED PER VARIANT (biased: flatters wide stops)', aggregate(perSignal));
+  console.log(`\n\nCOMMON SUBSET — ${commonRows.length} of ${perSignal.length} closed under EVERY variant.`);
+  console.log('BIASED the other way: excludes trades only the tight stop closed (its losses).');
+  if (commonRows.length) report('COMMON SUBSET (biased: flatters tight stops)', aggregate(commonRows));
+
+  if (hold) {
+    console.log(`\n\n=== UNBIASED: MATURE SIGNALS ===`);
+    console.log(`${matureRows.length} of ${perSignal.length} signal(s) have >= ${hold} post-entry bars, so ${STRATEGY}'s`);
+    console.log(`${hold}-bar time stop forces a close under EVERY variant. Selection is by AGE, which is`);
+    console.log('independent of the stop — this is the table to trust.');
+    if (!matureRows.length) console.log('  (none yet — widen --days)');
+    else report('MATURE SIGNALS (unbiased — every variant resolves 100%)', aggregate(matureRows));
+  }
 
   console.log(`
 INTERPRETATION
