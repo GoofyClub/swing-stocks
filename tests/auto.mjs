@@ -9,7 +9,7 @@
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
-  marketClock, inEntryWindow, entryLimitPrice,
+  marketClock, inEntryWindow, entryLimitPrice, placedStopPrice, PLACED_STOP_PCT,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets, indexAllowed } from '../src/data/indexes.js';
@@ -176,6 +176,31 @@ console.log('\n--- slippageOk ---');
   t('sell gapped up past budget skipped', !slippageOk(baseCfg, 100, 100.5, 'sell'));
   t('sell-stop above trigger still ok (pendingEntry)', slippageOk(baseCfg, 100, 103, 'sell', { pendingEntry: true }));
   t('no budget = always ok', slippageOk({ ...baseCfg, slippageBudgetPct: null }, 100, 90, 'buy'));
+}
+
+console.log('\n--- placedStopPrice (broker stop override) ---');
+{
+  // rsi2's natural ATR stop (0.5-3%) fires on the very dip the setup is buying.
+  // The override widens ONLY the placed stop; the signal set and target upstream
+  // are untouched. Backtested at 5% (see PLACED_STOP_PCT).
+  t('rsi2 stop widens to the override', placedStopPrice({ strategyKey: 'rsi2', entryPrice: 100, slPrice: 98 }) === 95);
+  t('override is 5% for rsi2', PLACED_STOP_PCT.rsi2 === 5);
+  t('strategy without an override keeps its natural stop',
+    placedStopPrice({ strategyKey: 'vcp', entryPrice: 100, slPrice: 93 }) === 93);
+  // Must only ever loosen — a stop already further out than the override stays.
+  t('never tightens an already-wider stop',
+    placedStopPrice({ strategyKey: 'rsi2', entryPrice: 100, slPrice: 90 }) === 90);
+  // Shorts hold their stop ABOVE entry; widening that is a different calculation.
+  t('short signal passes through untouched',
+    placedStopPrice({ strategyKey: 'rsi2', entryPrice: 100, slPrice: 103, side: 'sell' }) === 103);
+  t('missing entry falls back to the natural stop',
+    placedStopPrice({ strategyKey: 'rsi2', entryPrice: 0, slPrice: 98 }) === 98);
+  t('null stop with no override stays null', placedStopPrice({ strategyKey: 'vcp', entryPrice: 100 }) === null);
+  // The whole point: a wider stop must shrink size so dollar risk stays constant.
+  const tight = sizePosition({ equity: 5000, riskPerTradePct: 0.5, entry: 100, sl: 98 });
+  const wide  = sizePosition({ equity: 5000, riskPerTradePct: 0.5, entry: 100, sl: 95 });
+  t('wider placed stop shrinks position size', wide.shares < tight.shares);
+  t('dollar risk stays within one share of target', Math.abs(wide.dollarRisk - 25) <= 5);
 }
 
 console.log('\n--- stopClearanceOk ---');

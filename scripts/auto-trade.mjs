@@ -30,7 +30,7 @@ import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
-  marketClock, inEntryWindow, modelExitAction,
+  marketClock, inEntryWindow, modelExitAction, placedStopPrice,
 } from '../src/auto/engine.js';
 import { settleSignal, entryIndexFor } from '../src/strategy/normalize.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -264,14 +264,22 @@ async function processUser(db, uid, cfg) {
       if (!reg.ok) { log(`skip ${sig.ticker}: ${reg.reason}`); skipped++; continue; }
     }
 
+    // The stop we actually PLACE may be wider than the signal's natural stop
+    // (see PLACED_STOP_PCT). Everything downstream — the entry guard, sizing,
+    // the bracket leg and the journal — must use the SAME number, so derive it
+    // once here and carry it on a shadow signal. The natural stop has already
+    // done its job (it gated signal quality and set the target upstream).
+    const placedSl = placedStopPrice(sig);
+    const sigPlaced = { ...sig, slPrice: placedSl };
+
     // Prefer a live trade price for the slippage check; fall back to the cron's
     // last close if the data API is unavailable.
     const livePrice = (await client.getLatestPrice(sig.ticker)) ?? sig.currentPrice;
     if (!slippageOk(cfg, sig.entryPrice, livePrice, sig.side || 'buy', { pendingEntry: !!sig.pendingEntry })) {
       log(`skip ${sig.ticker}: slippage (live ${livePrice} vs entry ${sig.entryPrice} ± ${cfg.slippageBudgetPct}%)`); skipped++; continue;
     }
-    if (!stopClearanceOk({ slPrice: sig.slPrice, side: sig.side || 'buy', pendingEntry: !!sig.pendingEntry }, livePrice)) {
-      log(`skip ${sig.ticker}: live ${livePrice} at/through SL ${sig.slPrice} — bracket stop would fire on fill`); skipped++; continue;
+    if (!stopClearanceOk({ slPrice: placedSl, side: sig.side || 'buy', pendingEntry: !!sig.pendingEntry }, livePrice)) {
+      log(`skip ${sig.ticker}: live ${livePrice} at/through SL ${placedSl} — bracket stop would fire on fill`); skipped++; continue;
     }
 
     const sec = sig.sector || SECTOR_BY_TICKER.get(sig.ticker) || '?';
@@ -284,17 +292,19 @@ async function processUser(db, uid, cfg) {
     const size = sizePosition({
       equity, sizingMode: cfg.sizingMode, riskPerTradePct: cfg.riskPerTradePct,
       fixedNotional: cfg.fixedNotional, maxPositionNotional: cfg.maxPositionNotional,
-      entry: sig.entryPrice, sl: sig.slPrice,
+      entry: sig.entryPrice, sl: placedSl,
     });
     if (size.shares < 1) { log(`skip ${sig.ticker}: size < 1 share (budget too small for price ${sig.entryPrice})`); skipped++; continue; }
     if (size.notional > availableBp + 1e-6) { log(`skip ${sig.ticker}: notional $${size.notional.toFixed(0)} > buying power $${availableBp.toFixed(0)}`); skipped++; continue; }
 
-    const intent = buildBracketOrder({ signal: sig, shares: size.shares, clientOrderId: coid, slippageBudgetPct: cfg.slippageBudgetPct });
+    const intent = buildBracketOrder({ signal: sigPlaced, shares: size.shares, clientOrderId: coid, slippageBudgetPct: cfg.slippageBudgetPct });
     const journal = {
       clientOrderId: coid, signalId: sig.id, ticker: sig.ticker, sector: sec,
       strategy: sig.strategy || null, strategyKey: sig.strategyKey || null, tier: sig.tier || null,
       side: intent.side, qty: size.shares, entry: sig.entryPrice, limitPrice: intent.limitPrice ?? null,
-      tp: sig.tpPrice, sl: sig.slPrice,
+      // `sl` is the stop actually placed (the exit model replays against it too);
+      // `naturalSl` keeps the signal's original stop for diagnostics.
+      tp: sig.tpPrice, sl: placedSl, naturalSl: sig.slPrice ?? null,
       // Session bucket this entry came from — the stale-entry sweep cancels an
       // unfilled entry once its session is no longer the current one.
       sessionDate: bucket,

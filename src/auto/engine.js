@@ -16,6 +16,51 @@ export function clientOrderId(uid, signalId) {
   return `at.${uid}.${signalId}`.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 120);
 }
 
+// =============================================================================
+// PLACED stop override — the stop actually sent to the broker, per strategy.
+//
+// Three different stops were previously the same number, which conflated three
+// jobs: (1) the quality filter that decides which signals are tradeable at all
+// (applyTarget's minSlPct/maxSlPct), (2) the geometry the target is derived
+// from, and (3) the protective stop actually placed. This overrides ONLY (3).
+//
+// WHY rsi2 IS HERE
+//   RSI2's natural ATR stop lands at 0.5-3% of entry. That fires during the
+//   normal post-entry dip — which for a mean-reversion setup IS the entry
+//   condition — so winners were being converted into losses. Measured over 180d
+//   of signal history (scripts/backtest-stop.mjs), holding the signal set and
+//   target fixed and varying only this number: the natural stop nets -44.58R
+//   (43.5% WR, PF 0.80) while a 5% stop nets +20.33R (75.6% WR, PF 1.33). The
+//   stopped-out trades convert into target hits and close>5-SMA native exits.
+//
+//   5% rather than 8%: net R is a dead heat (+20.33R vs +19.79R) but 5% gets
+//   there with half the worst case. No-stop scores best on paper (PF 2.17) and
+//   is rejected — its worst single trade is -30.43% and it has no defined risk,
+//   so risk-based sizing cannot size it.
+//
+// Strategies absent from this map are untouched and keep their natural stop.
+// Tune by editing the percentage here; tests/auto.mjs pins the behaviour.
+// =============================================================================
+export const PLACED_STOP_PCT = {
+  rsi2: 5,
+};
+
+// The stop price to actually place for a signal. Falls back to the signal's own
+// stop when the strategy has no override. Long-only: a short's stop sits ABOVE
+// entry, and widening that correctly is a different calculation than this one,
+// so shorts are passed through untouched.
+export function placedStopPrice(signal) {
+  const natural = signal?.slPrice ?? null;
+  const pct = PLACED_STOP_PCT[signal?.strategyKey];
+  if (pct == null) return natural;
+  if (!(signal?.entryPrice > 0)) return natural;
+  if ((signal.side || 'buy') !== 'buy') return natural;
+  const wide = signal.entryPrice * (1 - pct / 100);
+  // Only ever LOOSEN. If a signal already carries a stop further from entry than
+  // the override, keep it — this must never tighten a stop.
+  return natural == null ? wide : Math.min(wide, natural);
+}
+
 // Position size. Two modes:
 //   • 'risk'  (default) — fixed-fractional risk: shares = (equity × risk%) ÷
 //                         |entry − stop|. Capital deployed varies with stop width.
