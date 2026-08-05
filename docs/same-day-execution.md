@@ -41,14 +41,37 @@ price, not missing a day.
 
 Two timing details that matter:
 
-- **Scan duration counts.** The runner fetches bars for every ticker in the
-  watchlist before placing anything: roughly 0.2-0.4 s per symbol, so ~20-30 s for
-  the `core` list (~50 US names) but **many minutes** for `broad` (~1,500). Start
-  the timer at **15:42** with the `core` watchlist and it finishes comfortably.
+- **Scan duration counts.** The runner fetches bars for every ticker before
+  placing anything — measured at ~255 ms/symbol:
+
+  | `WATCHLIST_SET` | US tickers | Scan time | Start the timer |
+  |---|---|---|---|
+  | `core` (default) | 51 | ~15 s | 15:42 |
+  | `broad` | 1,503 | **~6-7 min** | **15:38** |
+
 - **There is a hard per-order deadline at 15:58 ET.** The clock is re-checked
   before *every* order, not just at startup, so a slow scan stops placing rather
   than firing entries after the bell. If you see the `DEADLINE:` log line, start
   the timer earlier or shrink the watchlist.
+
+## Matching the morning worker's universe
+
+The two entry paths must scan the same names or they cannot be compared. The
+runner defaults to `core` (51 names); `refresh-signals` is usually run with
+`broad`, which for US means the **full S&P universe file (1,503 names)** — *not*
+the 113-name broad watchlist. To match, add to `~/swing-config/swing.env`:
+
+```bash
+WATCHLIST_SET=broad
+```
+
+Confirm from the run's own log line, which prints the universe it actually used:
+
+```
+scanning US watchlist=1503 (set=broad) strategies=[rsi2,...]
+```
+
+If that says `watchlist=51`, the env var isn't reaching the process.
 
 
 
@@ -166,6 +189,9 @@ gives `FIREBASE_PROJECT_ID must be set.`
 mkdir -p ~/swing-config && chmod 700 ~/swing-config
 cat > ~/swing-config/swing.env <<'EOF'
 FIREBASE_PROJECT_ID=your-firebase-project-id
+# Universe to scan. 'core' = 51 names (~15 s). 'broad' = the full S&P universe,
+# 1503 names (~6-7 min) — use this to match what refresh-signals scans.
+WATCHLIST_SET=core
 # Optional: only improves market-data quality. Without them bar fetching falls
 # back to other sources. These are NOT the broker credentials — those live in
 # each user's Firestore automation config.

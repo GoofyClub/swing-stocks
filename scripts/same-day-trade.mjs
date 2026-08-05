@@ -56,6 +56,8 @@
 
 import admin from 'firebase-admin';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
@@ -121,6 +123,18 @@ function initAdmin() {
   }
   return admin.firestore();
 }
+
+// US 'broad' means the full S&P universe (~1500 names), NOT the 113-name broad
+// watchlist — that is what refresh-signals scans, so matching it here is what
+// makes the two entry paths see the same stocks. Getting this wrong silently
+// shrinks the same-day universe by ~13x.
+const __dir = path.dirname(fileURLToPath(import.meta.url));
+const UNIVERSE_LIST_US = (() => {
+  try {
+    const u = JSON.parse(readFileSync(path.join(__dir, '../src/data/universe.json'), 'utf8'));
+    return Object.entries(u).map(([t, v]) => ({ t, s: v.sector, name: v.name }));
+  } catch { return null; }
+})();
 
 const SECTOR_BY_TICKER = (() => {
   const m = new Map();
@@ -192,7 +206,10 @@ async function notify(db, uid, text) {
 async function scanForSignals(market, cfg, sessionDate, log) {
   const ctx = buildCtx(market);
   const watchlistSet = process.env.WATCHLIST_SET || 'core';
-  const watchlist = watchlistFor(market, watchlistSet);
+  // Mirror refresh-signals: US 'broad' = the full S&P universe file.
+  const watchlist = (market === 'US' && watchlistSet === 'broad' && UNIVERSE_LIST_US?.length)
+    ? UNIVERSE_LIST_US
+    : watchlistFor(market, watchlistSet);
   // Only scan strategies this user could actually trade — a strategy they've
   // filtered out can never produce an order, so fetching bars for it is waste.
   const allowed = new Set(
