@@ -36,6 +36,23 @@ import { sendTelegram } from '../src/data/telegram.js';
 // the History view offers (2Y chip) with a margin. Extending this only affects
 // data captured from here on — anything already pruned is gone for good.
 const RETENTION_DAYS = 800;
+
+// How far back the RE-SETTLEMENT pass looks. Deliberately NOT RETENTION_DAYS.
+//
+// Retention (800d) exists so History can show 2 years. Re-settlement only needs
+// to reach signals whose verdict can still change, and the longest hold period
+// of any strategy is 60 bars (~84 calendar days) — past that every signal has
+// closed via tp/sl/native/time-stop and will never change again.
+//
+// Using 800 here read EVERY signal in two years, per market, on every run, with
+// no limit — then discarded almost all of them in memory. That was the dominant
+// consumer of the Firestore free-tier daily quota and repeatedly exhausted it,
+// which in turn killed the auto-trade worker (RESOURCE_EXHAUSTED). 120 days
+// covers the longest hold with margin at roughly a 7x reduction in reads.
+//
+// NOTE: bumping SETTLEMENT_VERSION now only re-grades signals inside this
+// window. Re-grading older history needs a one-off backfill with a wider value.
+const RESETTLE_DAYS = Number(process.env.RESETTLE_DAYS || 120);
 const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s.trim());
 // Which watchlist to scan: 'core' (curated blue-chips, default) | 'broad' (core
 // + a wider mid/large-cap growth set, better for the breakout strategies).
@@ -321,8 +338,8 @@ async function scanMarket(db, market, ctxIn) {
 async function resettleRecentSignals(db, market, ctxIn) {
   const cfg = MARKET_CONFIGS[market];
   const ctx = ctxIn || buildCtx(market);
-  const cutoff = daysAgo(RETENTION_DAYS);
-  console.log(`[resettle] market=${market} cutoff=${cutoff} settlementVersion=${SETTLEMENT_VERSION}`);
+  const cutoff = daysAgo(RESETTLE_DAYS);
+  console.log(`[resettle] market=${market} cutoff=${cutoff} (${RESETTLE_DAYS}d window) settlementVersion=${SETTLEMENT_VERSION}`);
 
   // No status filter — we may need to re-grade closed signals too. The ideal
   // query filters market server-side, but that needs a (market, signalTs)
