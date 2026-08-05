@@ -158,11 +158,22 @@ gcloud projects get-iam-policy FIREBASE_PROJECT_ID \
   --format="value(bindings.role)"
 ```
 
-Then create the config dir — it holds the broker keys even when there's no
-Firebase key file:
+**3e. Create the env file.** Still required even with ADC — it carries the
+project id and the run flags. Creating only the directory and forgetting the file
+gives `FIREBASE_PROJECT_ID must be set.`
 
 ```bash
 mkdir -p ~/swing-config && chmod 700 ~/swing-config
+cat > ~/swing-config/swing.env <<'EOF'
+FIREBASE_PROJECT_ID=your-firebase-project-id
+# Optional: only improves market-data quality. Without them bar fetching falls
+# back to other sources. These are NOT the broker credentials — those live in
+# each user's Firestore automation config.
+# ALPACA_KEY=...
+# ALPACA_SECRET=...
+DRY_RUN=true
+EOF
+chmod 600 ~/swing-config/swing.env
 ```
 
 <details>
@@ -289,6 +300,7 @@ journalctl -u swing-sameday.service -n 100  # last run's output
 | `PERMISSION_DENIED` on Firestore | Service account lacks `roles/datastore.user` **on the Firebase project** (step 3b). |
 | `Request had insufficient authentication scopes` on a `gcloud` command | You ran it on the VM. Use Cloud Shell — see the note above step 3b. |
 | `Service account key creation is disabled` | Org policy `iam.disableServiceAccountKeyCreation`. Expected — use ADC (step 3), no key needed. |
+| `swing.env: No such file or directory` / `FIREBASE_PROJECT_ID must be set.` | Config dir created but the env file wasn't — step 3e. |
 | `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
 | `DEADLINE: past 15:58 ET` | Scan outran the window — start earlier or use the `core` watchlist. |
 | Nothing placed, no errors | Expected when no signal passes the filters. Check the `scanned N candidate(s)` line. |
