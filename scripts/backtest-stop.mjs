@@ -309,9 +309,11 @@ INTERPRETATION
   NET % is not sizing-adjusted — reference only. 'none' has no defined risk, so
   its R columns are blank.
 
-  Trust the COMMON SUBSET table for the stop comparison. In the first table each
-  row closes a different number of trades (a wider stop leaves more running), and
-  the excluded open trades skew optimistic for the wider stops.
+  Trust the MATURE SIGNALS table. The other two both condition on whether a trade
+  closed, which is itself an outcome of the stop being tested: 'all resolved'
+  lets wide stops drop still-running underwater trades, and 'common subset' drops
+  trades only the tight stop closed — precisely its losses. Mature selects on AGE,
+  which is independent of the stop.
 
   Watch where 'sl' exits go as the stop widens. Moving into 'tp'/'native' (the
   close > 5-SMA bounce) supports widening. Moving into 'time_stop' at large
