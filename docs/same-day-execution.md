@@ -94,7 +94,7 @@ Preferred, and required if your org enforces
 Default Credentials, which on GCE is the VM's attached service account read from
 the metadata server — nothing on disk to leak, rotate, or protect.
 
-Find the identity the VM runs as, and its scopes:
+**3a. Identify the VM's service account** (run ON the VM):
 
 ```bash
 curl -sH "Metadata-Flavor: Google" \
@@ -103,8 +103,15 @@ curl -sH "Metadata-Flavor: Google" \
   http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes
 ```
 
-Grant that account Firestore access **on the Firebase project** (which may differ
-from the project the VM lives in — the grant must target the Firebase one):
+> **Run 3b and 3c from Cloud Shell, NOT from the VM.** On the VM, `gcloud` is
+> authenticated *as* the VM's service account, which has neither the scopes nor
+> the IAM rights to grant itself permissions — you get
+> `Request had insufficient authentication scopes`. Cloud Shell (the `>_` icon in
+> the console) is authenticated as *you*.
+
+**3b. Grant Firestore access on the Firebase project.** This must target the
+**Firebase** project, which is often *not* the project the VM lives in — compare
+the project number in the service-account email against the Firebase project's:
 
 ```bash
 gcloud projects add-iam-policy-binding FIREBASE_PROJECT_ID \
@@ -112,9 +119,44 @@ gcloud projects add-iam-policy-binding FIREBASE_PROJECT_ID \
   --role="roles/datastore.user"
 ```
 
-The scopes call must include `cloud-platform`. If it doesn't, stop the VM, edit
-it, set **Access scopes → Allow full access to all Cloud APIs**, and start it
-again (scopes cannot be changed while running).
+**3c. Give the VM the `cloud-platform` scope.** The default compute service
+account ships with a narrow scope set that excludes Firestore, so this is
+required even after 3b. Scopes cannot change while the VM runs — it must be
+stopped, so **do this outside market hours** if the box runs other automation.
+
+```bash
+gcloud compute instances list          # find ZONE and INSTANCE_NAME
+
+gcloud compute instances stop INSTANCE_NAME --zone=ZONE
+
+gcloud compute instances set-service-account INSTANCE_NAME \
+  --zone=ZONE \
+  --service-account=VM_SERVICE_ACCOUNT_EMAIL \
+  --scopes=cloud-platform
+
+gcloud compute instances start INSTANCE_NAME --zone=ZONE
+```
+
+Use `cloud-platform`, not something narrower like `--scopes=datastore`: this
+command **replaces** the entire scope list rather than adding to it, and
+`cloud-platform` is a superset, so it cannot strip a scope other automation on
+the box depends on.
+
+**3d. Verify** — back on the VM:
+
+```bash
+# expect cloud-platform in the list
+curl -sH "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes
+```
+
+```bash
+# expect roles/datastore.user  (Cloud Shell)
+gcloud projects get-iam-policy FIREBASE_PROJECT_ID \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:VM_SERVICE_ACCOUNT_EMAIL" \
+  --format="value(bindings.role)"
+```
 
 Then create the config dir — it holds the broker keys even when there's no
 Firebase key file:
@@ -243,8 +285,10 @@ journalctl -u swing-sameday.service -n 100  # last run's output
 | Symptom | Cause |
 |---|---|
 | `service account key is not valid JSON` | Key pasted inline instead of via `FIREBASE_SERVICE_ACCOUNT_FILE`. |
-| `Could not load the default credentials` | No key set and ADC unavailable — VM missing the `cloud-platform` scope. |
-| `PERMISSION_DENIED` on Firestore | VM's service account lacks `roles/datastore.user` **on the Firebase project**. |
+| `Could not load the default credentials` | No key set and ADC unavailable — VM missing the `cloud-platform` scope (step 3c). |
+| `PERMISSION_DENIED` on Firestore | Service account lacks `roles/datastore.user` **on the Firebase project** (step 3b). |
+| `Request had insufficient authentication scopes` on a `gcloud` command | You ran it on the VM. Use Cloud Shell — see the note above step 3b. |
+| `Service account key creation is disabled` | Org policy `iam.disableServiceAccountKeyCreation`. Expected — use ADC (step 3), no key needed. |
 | `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
 | `DEADLINE: past 15:58 ET` | Scan outran the window — start earlier or use the `core` watchlist. |
 | Nothing placed, no errors | Expected when no signal passes the filters. Check the `scanned N candidate(s)` line. |
