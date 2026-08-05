@@ -185,7 +185,12 @@ async function main() {
   console.log(`[backtest] ${signals.length} ${STRATEGY} signal(s) across ${byTicker.size} ticker(s)\n`);
 
   const ctx = buildCtx(MARKET);
-  const stats = Object.fromEntries(STOPS.map(v => [v, blankStats()]));
+  // Per-signal verdicts, kept so we can aggregate twice: once over everything
+  // each variant closed, and once over the subset every variant closed. The
+  // second removes a real selection bias — a wider stop keeps trades alive
+  // longer, so it leaves more of them unresolved at the edge of the data, and
+  // excluded unresolved trades are disproportionately the underwater ones.
+  const perSignal = [];
   let evaluated = 0, skipped = 0;
 
   for (const [ticker, sigs] of byTicker) {
@@ -205,6 +210,7 @@ async function main() {
       if (!postBars.length) { skipped++; continue; }
       evaluated++;
 
+      const byVariant = {};
       for (const variant of STOPS) {
         const stopPx = stopPriceFor(variant, sig);
         // No stop → a price the series can never reach, so only TP / native /
@@ -215,14 +221,57 @@ async function main() {
           postBars,
           { bars, entryIdx },
         );
-        accumulate(stats[variant], verdict, sig, stopPx);
+        byVariant[variant] = { verdict, stopPx };
       }
+      perSignal.push({ sig, byVariant });
     }
   }
 
   console.log(`[backtest] evaluated ${evaluated} signal(s)${skipped ? `, skipped ${skipped} (no bars / no post-entry data)` : ''}\n`);
 
-  // ---- comparison table ----
+  // Aggregate over a chosen set of signals.
+  const aggregate = (rows) => {
+    const st = Object.fromEntries(STOPS.map(v => [v, blankStats()]));
+    for (const { sig, byVariant } of rows) {
+      for (const v of STOPS) accumulate(st[v], byVariant[v].verdict, sig, byVariant[v].stopPx);
+    }
+    return st;
+  };
+
+  // Signals every variant resolved — the bias-free comparison.
+  const commonRows = perSignal.filter(r => STOPS.every(v => r.byVariant[v].verdict?.status === 'closed'));
+
+  report('ALL RESOLVED PER VARIANT (each row uses its own closed set)', aggregate(perSignal));
+  console.log(`\n\nCOMMON SUBSET — ${commonRows.length} of ${perSignal.length} signal(s) closed under EVERY variant.`);
+  console.log('Same trades in every row, so differences are caused only by the stop.');
+  if (!commonRows.length) console.log('  (empty — nothing to compare)');
+  else report('COMMON SUBSET (identical trade set across rows)', aggregate(commonRows));
+
+  console.log(`
+INTERPRETATION
+  NET R is the headline: with risk-based sizing each trade risks the same dollar
+  amount, so net R is proportional to total P&L and IS comparable across rows.
+  NET % is not sizing-adjusted — reference only. 'none' has no defined risk, so
+  its R columns are blank.
+
+  Trust the COMMON SUBSET table for the stop comparison. In the first table each
+  row closes a different number of trades (a wider stop leaves more running), and
+  the excluded open trades skew optimistic for the wider stops.
+
+  Watch where 'sl' exits go as the stop widens. Moving into 'tp'/'native' (the
+  close > 5-SMA bounce) supports widening. Moving into 'time_stop' at large
+  negative returns means the stop was doing real work — check WORST before
+  changing anything live.
+
+  CAVEATS: settlement is on daily bars — it cannot see the intraday path, so a
+  stop and a target touched on the SAME day resolve pessimistically (loss). Real
+  fills also carry slippage this model does not charge, which penalises tight
+  stops more than wide ones.`);
+}
+
+// Print a comparison table + exit-reason mix for one aggregation.
+function report(title, stats) {
+  console.log(`\n${title}`);
   const head = [
     pad('STOP', 9), pad('CLOSED', 7, true), pad('OPEN', 5, true), pad('WR', 7, true),
     pad('NET R', 9, true), pad('AVG R', 8, true), pad('NET %', 9, true), pad('AVG %', 8, true),
@@ -264,23 +313,6 @@ async function main() {
       pad(r.native || 0, 8, true), pad(r.time_stop || 0, 10, true),
     ].join(' '));
   }
-
-  console.log(`
-INTERPRETATION
-  NET R is the headline: with risk-based sizing each trade risks the same dollar
-  amount, so net R is proportional to total P&L and IS comparable across rows.
-  NET % is not sizing-adjusted — reference only. 'none' has no defined risk, so
-  its R columns are blank.
-
-  Watch where 'sl' exits go as the stop widens. Moving into 'native' (the
-  close > 5-SMA bounce) supports widening. Moving into 'time_stop' at large
-  negative returns means the stop was doing real work — check WORST before
-  changing anything live.
-
-  CAVEATS: signals still OPEN are excluded from every stat, so recent entries are
-  under-represented. Settlement is on daily bars — it cannot see the intraday
-  path, so a stop and a target touched on the SAME day resolve pessimistically
-  (loss). Real fills also carry slippage this model does not charge.`);
 }
 
 main().catch(e => { console.error('[backtest] fatal', e); process.exit(1); });
