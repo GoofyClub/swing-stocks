@@ -61,7 +61,8 @@ import path from 'node:path';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
-  marketClock, inCloseWindow, placedStopPrice, stopClearanceOk, inReentryCooldown, REENTRY_COOLDOWN_DAYS,
+  marketClock, inCloseWindow, placedStopPrice, stopClearanceOk, inReentryCooldown,
+  REENTRY_COOLDOWN_DAYS, ORDER_DEADLINE_ET_MIN,
 } from '../src/auto/engine.js';
 import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -76,9 +77,6 @@ const ENV_KILL = String(process.env.KILL_SWITCH ?? 'false').toLowerCase() === 't
 const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === 'true';
 const FORCE_WINDOW = String(process.env.FORCE_WINDOW ?? 'false').toLowerCase() === 'true';
 const ONLY_STRATEGIES = (process.env.STRATEGIES || '').split(',').map(s => s.trim()).filter(Boolean);
-// Last minute (ET) at which an entry may still be submitted. Past this a market
-// order no longer approximates the close, so we stop rather than trade badly.
-const ORDER_DEADLINE_ET_MIN = 15 * 60 + 58;
 
 const RUN_LOG = [];
 {

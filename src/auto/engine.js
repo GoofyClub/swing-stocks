@@ -8,6 +8,18 @@
 // =============================================================================
 
 import { indexMemberships, indexAllowed } from '../data/indexes.js';
+// Every tunable trading knob lives in ONE file — see src/config/trading.js.
+// Re-exported here so existing importers of engine.js keep working.
+import {
+  MARKET_OPEN_ET_MIN, MARKET_CLOSE_ET_MIN, ENTRY_WINDOW_MINUTES,
+  CLOSE_WINDOW_START_ET_MIN, CLOSE_WINDOW_END_ET_MIN, ORDER_DEADLINE_ET_MIN,
+  REENTRY_COOLDOWN_DAYS, PLACED_STOP_PCT,
+} from '../config/trading.js';
+export {
+  MARKET_OPEN_ET_MIN, MARKET_CLOSE_ET_MIN, ENTRY_WINDOW_MINUTES,
+  CLOSE_WINDOW_START_ET_MIN, CLOSE_WINDOW_END_ET_MIN, ORDER_DEADLINE_ET_MIN,
+  REENTRY_COOLDOWN_DAYS, PLACED_STOP_PCT,
+};
 
 // Deterministic client order id → idempotency key. Re-running the worker for the
 // same user+signal yields the same id, so the broker (and our journal) dedupe a
@@ -16,49 +28,6 @@ export function clientOrderId(uid, signalId) {
   return `at.${uid}.${signalId}`.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 120);
 }
 
-// =============================================================================
-// PLACED stop override — the stop actually sent to the broker, per strategy.
-//
-// Three different stops were previously the same number, which conflated three
-// jobs: (1) the quality filter that decides which signals are tradeable at all
-// (applyTarget's minSlPct/maxSlPct), (2) the geometry the target is derived
-// from, and (3) the protective stop actually placed. This overrides ONLY (3).
-//
-// EMPTY BY DEFAULT — and rsi2 is deliberately NOT here.
-//
-//   A first backtest suggested widening rsi2's stop to 5%: the natural stop
-//   appeared to net -44.58R against +20.33R for 5%. That comparison was WRONG.
-//   It let each variant use its own set of closed trades, and a wider stop keeps
-//   trades alive longer, so the wide rows quietly excluded ~80 unresolved
-//   (disproportionately underwater) trades that the tight stop had already
-//   booked as losses.
-//
-//   Re-run over the SAME 320 trades closed under every variant, the ordering
-//   inverts — net R falls monotonically as the stop widens:
-//
-//     stop      WR     net R   avg R    PF    worst
-//     natural  57.2%  +52.67R  +0.16R  1.37  -2.99%
-//     3%       69.1%  +34.33R  +0.11R  1.36  -3.00%
-//     5%       77.5%  +30.27R  +0.09R  1.54  -5.00%
-//     8%       80.6%  +24.26R  +0.08R  1.76  -8.00%
-//     none     82.8%       —        —  2.08 -30.43%
-//
-//   Wider stops do buy a higher win rate, profit factor and raw % return — but
-//   under risk-based sizing every trade risks the same dollars, so net R is what
-//   tracks P&L, and by that measure the natural stop wins. It also has the
-//   smallest worst case. So there is no evidence for an override, and adding one
-//   would have made things worse.
-//
-// The MECHANISM stays because it is sound and separately useful: it decouples
-// the stop actually placed from the two other jobs the same number does (the
-// applyTarget quality filter, and the geometry the target is derived from), so a
-// future evidence-backed value can be set here without disturbing either. With
-// the map empty every strategy simply keeps its natural stop.
-//
-// Do not add an entry here without a COMMON-SUBSET backtest supporting it:
-//   node scripts/backtest-stop.mjs --strategy=<key> --stops=natural,3,5,8,none
-// =============================================================================
-export const PLACED_STOP_PCT = {};
 
 // The stop price to actually place for a signal. Falls back to the signal's own
 // stop when the strategy has no override. Long-only: a short's stop sits ABOVE
@@ -76,23 +45,6 @@ export function placedStopPrice(signal) {
   return natural == null ? wide : Math.min(wide, natural);
 }
 
-// =============================================================================
-// Re-entry cooldown — how many days after a LOSING exit a ticker is untradeable.
-//
-// A mean-reversion setup keeps firing on a name that is still falling: the stop
-// takes you out, the stock is now even more oversold, so the scan flags it again
-// tomorrow. ARWR was entered and stopped out THREE times in three sessions
-// (Jul 13/14/15), each a fresh loss, because nothing remembered the previous
-// one. That is the same trade re-taken, not three independent edges.
-//
-// Only LOSING exits start a cooldown. A winner that sets up again is a working
-// strategy and should be allowed straight back in.
-//
-// 0 disables it. Default 3 sessions ≈ half rsi2's 7-bar hold: long enough that a
-// stopped-out name must actually base before re-entry, short enough not to miss
-// the next genuine setup.
-// =============================================================================
-export const REENTRY_COOLDOWN_DAYS = 3;
 
 // Is `ticker` still cooling off? `recentLosses` is [{ ticker, exitedAt }] where
 // exitedAt is a Date/ms/ISO of the losing exit.
@@ -238,8 +190,6 @@ export function marketClock(now = new Date()) {
 // on this repo routinely fires 2-3 hours late; a 90-min window meant every
 // scheduled run landed after it closed and no entries were ever placed.
 // Reconciliation runs regardless of the window.
-export const MARKET_OPEN_ET_MIN = 9 * 60 + 30;
-export const MARKET_CLOSE_ET_MIN = 16 * 60;
 
 // Same-day "trade the close" window (default 15:35-15:50 ET).
 //
@@ -254,11 +204,11 @@ export const MARKET_CLOSE_ET_MIN = 16 * 60;
 // signal is necessarily computed on a near-final price rather than the settled
 // close, so a late-session reversal can change it; that is inherent to any
 // trade-the-close system, not a defect of this one.
-export function inCloseWindow(now = new Date(), { startMinuteET = 15 * 60 + 35, endMinuteET = 15 * 60 + 50 } = {}) {
+export function inCloseWindow(now = new Date(), { startMinuteET = CLOSE_WINDOW_START_ET_MIN, endMinuteET = CLOSE_WINDOW_END_ET_MIN } = {}) {
   const { minutes } = marketClock(now);
   return minutes >= startMinuteET && minutes <= endMinuteET;
 }
-export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = 210 } = {}) {
+export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = ENTRY_WINDOW_MINUTES } = {}) {
   const { minutes } = marketClock(now);
   return minutes >= openMinuteET && minutes <= openMinuteET + windowMinutes;
 }
