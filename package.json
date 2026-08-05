@@ -3,7 +3,7 @@
   "version": "0.41.0",
   "private": true,
   "type": "module",
-  "description": "Swing Terminal — cloud-backed multi-strategy swing-trading console. GitHub Pages SPA + Firebase Auth/Firestore.",
+  "description": "Swing Terminal \u2014 cloud-backed multi-strategy swing-trading console. GitHub Pages SPA + Firebase Auth/Firestore.",
   "homepage": "https://goofyclub.github.io/swing-stocks/",
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,9 @@
     "auto:trade": "node scripts/auto-trade.mjs",
     "backtest:stop": "node scripts/backtest-stop.mjs",
     "auto:sameday": "node scripts/same-day-trade.mjs",
-    "auto:smoketest": "node scripts/alpaca-smoketest.mjs"
+    "auto:smoketest": "node scripts/alpaca-smoketest.mjs",
+    "bot": "node scripts/telegram-bot.mjs",
+    "config:example": "node scripts/print-env-example.mjs > config/swing.env.example"
   },
   "dependencies": {
     "chart.js": "^4.4.0",
