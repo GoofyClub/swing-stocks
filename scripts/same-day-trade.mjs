@@ -65,7 +65,8 @@ import {
 } from '../src/auto/engine.js';
 import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
-import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS } from '../src/data/markets.js';
+import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS, MARKET_CONFIGS } from '../src/data/markets.js';
+import { regimeCheck } from '../src/strategy/engine.js';
 import { fetchBars } from '../src/data/fetchers.js';
 import { sendTelegram } from '../src/data/telegram.js';
 
@@ -289,6 +290,36 @@ async function scanForSignals(market, cfg, sessionDate, log) {
   return out;
 }
 
+// Live regime snapshot, computed in-process from index + VIX bars.
+//
+// The morning path reads a finalised regime doc written by refresh-signals; no
+// such doc exists intraday. Rather than skip a guard the user switched ON — the
+// same-day runner may be the ONLY entry path, so skipping it would silently
+// disable risk-off protection entirely — compute it here from the same inputs
+// refresh-signals uses. Returns null when the index bars can't be fetched, and
+// regimeAllowsEntry() treats null as "no opinion" (allow), matching the
+// morning path's behaviour when its regime doc is missing.
+async function liveRegime(market, ctx, log) {
+  const mcfg = MARKET_CONFIGS[market];
+  if (!mcfg?.indexTicker) return null;
+  try {
+    const indexBars = await fetchBars(mcfg.indexTicker, ctx);
+    let vixBars = null;
+    if (mcfg.vixTicker) {
+      try { vixBars = await fetchBars(mcfg.vixTicker, ctx); }
+      catch { /* VIX is optional — regimeCheck handles its absence */ }
+    }
+    const r = regimeCheck(indexBars, vixBars, null, {
+      vixThreshold: mcfg.vixThreshold, vixPanic: mcfg.vixPanic, indexLabel: mcfg.indexLabel,
+    });
+    log(`${market} regime: ${r.go_to_cash ? '⛔ RISK-OFF (go to cash)' : '✅ ok'}${r.details?.vix != null ? ` · VIX ${r.details.vix.toFixed(1)}` : ''}`);
+    return r;
+  } catch (e) {
+    log(`${market} regime unavailable (${e.message}) — gate not applied`);
+    return null;
+  }
+}
+
 async function processUser(db, uid, cfg, now) {
   const log = (msg) => console.log(`[sameday][${uid.slice(0, 6)}] ${msg}`);
 
@@ -340,6 +371,12 @@ async function processUser(db, uid, cfg, now) {
 
   const markets = cfg.markets || ['US'];
   const scanStarted = Date.now();
+  // Regime is evaluated per market BEFORE scanning: when it says risk-off there
+  // is no point fetching 1500 tickers we cannot act on.
+  const regimes = {};
+  if (cfg.respectRegime !== false) {
+    for (const m of markets) regimes[m] = await liveRegime(m, buildCtx(m), log);
+  }
   let signals = [];
   for (const m of markets) signals = signals.concat(await scanForSignals(m, cfg, sessionDate, log));
   const tierRank = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
@@ -383,10 +420,8 @@ async function processUser(db, uid, cfg, now) {
     if (heldSymbols.has(sig.ticker)) { log(`skip ${sig.ticker}: already holding`); skipped++; continue; }
 
     if (cfg.respectRegime !== false) {
-      // No finalised regime doc exists intraday; the morning path owns that gate.
-      // Skipping it here would silently bypass a guard the user enabled, so we
-      // note it once rather than pretend it ran.
-      if (!processUser._regimeNoted) { log('note: regime gate not evaluated on the same-day path (no intraday regime snapshot)'); processUser._regimeNoted = true; }
+      const reg = regimeAllowsEntry(regimes[sig.market || markets[0]], sig.side || 'buy');
+      if (!reg.ok) { log(`skip ${sig.ticker}: ${reg.reason}`); skipped++; continue; }
     }
 
     const placedSl = placedStopPrice(sig);
