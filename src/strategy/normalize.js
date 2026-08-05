@@ -608,6 +608,22 @@ export function entryIndexFor(bars, dateMap, sigDate) {
 //
 // The tier boundaries here are character-for-character the same conditions the
 // previous computeTier() used — only the explanatory strings are new.
+// 20-day average DOLLAR volume (close × volume), the liquidity measure the
+// automation's `minAdvUsd` floor is expressed in. Signals must carry this or the
+// floor silently does nothing: signalMatchesRules only applies it when the field
+// is present, so a missing value reads as "no opinion", not "too thin".
+// Returns null when there aren't enough bars to be meaningful.
+export function advUsdFor(bars, lookback = 20) {
+  if (!Array.isArray(bars) || bars.length < lookback) return null;
+  const recent = bars.slice(-lookback);
+  let sum = 0, n = 0;
+  for (const b of recent) {
+    const c = Number(b?.close), v = Number(b?.volume);
+    if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) { sum += c * v; n++; }
+  }
+  return n ? sum / n : null;
+}
+
 export function tierReasons(strategyKey, raw) {
   if (!raw) return { tier: 'Tier 1', reasons: [] };
   switch (strategyKey) {

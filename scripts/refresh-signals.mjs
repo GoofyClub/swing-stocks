@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { fetchBars } from '../src/data/fetchers.js';
 import { fetchFMPData, makeFmpCache } from '../src/data/fmp.js';
-import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
+import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, advUsdFor, SETTLEMENT_VERSION } from '../src/strategy/normalize.js';
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, watchlistFor, DATA_SOURCE_ORDER, companyName, LARGE_CAP_TICKERS, NIFTY50_TICKERS } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
@@ -223,6 +223,10 @@ async function scanMarket(db, market, ctxIn) {
         index:        indexTagFor(market, ticker, universeIndex),
         // Curated large-cap membership — overlaps sp500, so a separate flag.
         largeCap:     LARGE_CAP_TICKERS.has(ticker),
+        // 20-day average dollar volume. The automation's minAdvUsd liquidity
+        // floor is only applied when this is present, so without it that setting
+        // silently did nothing on every signal.
+        advUsd:       advUsdFor(bars),
         market,
         strategy:     def.short,
         strategyKey:  stratKey,

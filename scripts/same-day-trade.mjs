@@ -63,7 +63,7 @@ import {
   isTradeDayAllowed, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
   marketClock, inCloseWindow, placedStopPrice, stopClearanceOk,
 } from '../src/auto/engine.js';
-import { STRATEGIES, tierReasons } from '../src/strategy/normalize.js';
+import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS } from '../src/data/markets.js';
 import { fetchBars } from '../src/data/fetchers.js';
@@ -129,12 +129,19 @@ function initAdmin() {
 // makes the two entry paths see the same stocks. Getting this wrong silently
 // shrinks the same-day universe by ~13x.
 const __dir = path.dirname(fileURLToPath(import.meta.url));
-const UNIVERSE_LIST_US = (() => {
-  try {
-    const u = JSON.parse(readFileSync(path.join(__dir, '../src/data/universe.json'), 'utf8'));
-    return Object.entries(u).map(([t, v]) => ({ t, s: v.sector, name: v.name }));
-  } catch { return null; }
+const __universe = (() => {
+  try { return JSON.parse(readFileSync(path.join(__dir, '../src/data/universe.json'), 'utf8')); }
+  catch { return null; }
 })();
+const UNIVERSE_LIST_US = __universe
+  ? Object.entries(__universe).map(([t, v]) => ({ t, s: v.sector, name: v.name }))
+  : null;
+// ticker -> sp500 | sp400 | sp600. Without this every US signal is tagged
+// index:null, which an index allow-list then rejects wholesale — only the 51
+// curated large-caps (tagged via largeCap) would survive.
+const UNIVERSE_INDEX = new Map(
+  __universe ? Object.entries(__universe).map(([t, v]) => [t, v.index]) : [],
+);
 
 const SECTOR_BY_TICKER = (() => {
   const m = new Map();
@@ -262,8 +269,12 @@ async function scanForSignals(market, cfg, sessionDate, log) {
         currentPrice: bars[idx].close,
         index: market === 'INDIA'
           ? (NIFTY50_TICKERS.has(item.t) ? 'nifty50' : null)
-          : null,
+          : (UNIVERSE_INDEX.get(item.t) || null),
         largeCap: LARGE_CAP_TICKERS.has(item.t),
+        // 20-day average dollar volume — the liquidity floor (cfg.minAdvUsd) is
+        // only applied when this is present, so omitting it silently disabled
+        // the user's setting.
+        advUsd: advUsdFor(bars),
         status: 'open',
       });
     }
