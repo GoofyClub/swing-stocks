@@ -78,10 +78,13 @@ sudo apt-get install -y nodejs git
 
 **2. Clone and install**
 
+Your home directory is fine and needs no `sudo` — only the timer units do. The
+paths below use `$HOME`; substitute `/opt/swing-stocks` if you prefer a system
+location (then the service needs `User=` set to whoever owns the checkout).
+
 ```bash
-sudo mkdir -p /opt/swing-stocks && sudo chown "$USER" /opt/swing-stocks
-git clone https://github.com/GoofyClub/swing-stocks.git /opt/swing-stocks
-cd /opt/swing-stocks && npm ci
+cd ~ && git clone https://github.com/GoofyClub/swing-stocks.git
+cd ~/swing-stocks && npm ci
 ```
 
 **3. Credentials**
@@ -90,17 +93,16 @@ Put the Firebase service-account key on disk as a *file* (see the env note below
 for why), and lock it down:
 
 ```bash
-sudo mkdir -p /etc/swing-stocks
-sudo cp service-account.json /etc/swing-stocks/service-account.json
-sudo chmod 600 /etc/swing-stocks/service-account.json
-sudo chmod 600 /etc/swing-stocks.env
+mkdir -p ~/swing-config && chmod 700 ~/swing-config
+mv ~/service-account.json ~/swing-config/service-account.json
+chmod 600 ~/swing-config/service-account.json ~/swing-config/swing.env
 ```
 
 **4. Prove it works before scheduling anything**
 
 ```bash
-cd /opt/swing-stocks
-set -a && . /etc/swing-stocks.env && set +a
+cd ~/swing-stocks
+set -a && . ~/swing-config/swing.env && set +a
 FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
 ```
 
@@ -126,10 +128,17 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/swing-stocks
-EnvironmentFile=/etc/swing-stocks.env
+# Run as the user who owns the checkout — NOT root. Replace both paths and the
+# user if you installed somewhere else.
+User=srinathrn89
+WorkingDirectory=/home/srinathrn89/swing-stocks
+EnvironmentFile=/home/srinathrn89/swing-config/swing.env
 ExecStart=/usr/bin/node scripts/same-day-trade.mjs
 ```
+
+Confirm the Node path with `which node` — if NodeSource put it somewhere other
+than `/usr/bin/node`, use that in `ExecStart` (systemd needs an absolute path and
+does not read your shell's `PATH`).
 
 `/etc/systemd/system/swing-sameday.timer`:
 
