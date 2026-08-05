@@ -207,21 +207,28 @@ console.log('\n--- inCloseWindow + market entry (same-day close path) ---');
 
 console.log('\n--- placedStopPrice (broker stop override) ---');
 {
-  // rsi2's natural ATR stop (0.5-3%) fires on the very dip the setup is buying.
-  // The override widens ONLY the placed stop; the signal set and target upstream
-  // are untouched. Backtested at 5% (see PLACED_STOP_PCT).
-  t('rsi2 stop widens to the override', placedStopPrice({ strategyKey: 'rsi2', entryPrice: 100, slPrice: 98 }) === 95);
-  t('override is 5% for rsi2', PLACED_STOP_PCT.rsi2 === 5);
+  // No overrides are configured: the common-subset backtest showed net R FALLING
+  // as the stop widens, so widening rsi2 would have hurt. Every strategy must
+  // therefore pass through with its natural stop untouched.
+  t('override map is empty (no evidence-backed override)', Object.keys(PLACED_STOP_PCT).length === 0);
+  t('rsi2 keeps its natural stop', placedStopPrice({ strategyKey: 'rsi2', entryPrice: 100, slPrice: 98 }) === 98);
   t('strategy without an override keeps its natural stop',
     placedStopPrice({ strategyKey: 'vcp', entryPrice: 100, slPrice: 93 }) === 93);
-  // Must only ever loosen — a stop already further out than the override stays.
-  t('never tightens an already-wider stop',
-    placedStopPrice({ strategyKey: 'rsi2', entryPrice: 100, slPrice: 90 }) === 90);
-  // Shorts hold their stop ABOVE entry; widening that is a different calculation.
-  t('short signal passes through untouched',
-    placedStopPrice({ strategyKey: 'rsi2', entryPrice: 100, slPrice: 103, side: 'sell' }) === 103);
-  t('missing entry falls back to the natural stop',
-    placedStopPrice({ strategyKey: 'rsi2', entryPrice: 0, slPrice: 98 }) === 98);
+
+  // The mechanism itself must still work for a future evidence-backed value.
+  // Inject a temporary entry rather than pinning a live strategy to a number.
+  PLACED_STOP_PCT.__test = 5;
+  try {
+    t('an override widens the placed stop', placedStopPrice({ strategyKey: '__test', entryPrice: 100, slPrice: 98 }) === 95);
+    // Must only ever loosen — a stop already further out than the override stays.
+    t('never tightens an already-wider stop',
+      placedStopPrice({ strategyKey: '__test', entryPrice: 100, slPrice: 90 }) === 90);
+    // Shorts hold their stop ABOVE entry; widening that is a different calculation.
+    t('short signal passes through untouched',
+      placedStopPrice({ strategyKey: '__test', entryPrice: 100, slPrice: 103, side: 'sell' }) === 103);
+    t('missing entry falls back to the natural stop',
+      placedStopPrice({ strategyKey: '__test', entryPrice: 0, slPrice: 98 }) === 98);
+  } finally { delete PLACED_STOP_PCT.__test; }
   t('null stop with no override stays null', placedStopPrice({ strategyKey: 'vcp', entryPrice: 100 }) === null);
   // The whole point: a wider stop must shrink size so dollar risk stays constant.
   const tight = sizePosition({ equity: 5000, riskPerTradePct: 0.5, entry: 100, sl: 98 });

@@ -24,26 +24,41 @@ export function clientOrderId(uid, signalId) {
 // (applyTarget's minSlPct/maxSlPct), (2) the geometry the target is derived
 // from, and (3) the protective stop actually placed. This overrides ONLY (3).
 //
-// WHY rsi2 IS HERE
-//   RSI2's natural ATR stop lands at 0.5-3% of entry. That fires during the
-//   normal post-entry dip — which for a mean-reversion setup IS the entry
-//   condition — so winners were being converted into losses. Measured over 180d
-//   of signal history (scripts/backtest-stop.mjs), holding the signal set and
-//   target fixed and varying only this number: the natural stop nets -44.58R
-//   (43.5% WR, PF 0.80) while a 5% stop nets +20.33R (75.6% WR, PF 1.33). The
-//   stopped-out trades convert into target hits and close>5-SMA native exits.
+// EMPTY BY DEFAULT — and rsi2 is deliberately NOT here.
 //
-//   5% rather than 8%: net R is a dead heat (+20.33R vs +19.79R) but 5% gets
-//   there with half the worst case. No-stop scores best on paper (PF 2.17) and
-//   is rejected — its worst single trade is -30.43% and it has no defined risk,
-//   so risk-based sizing cannot size it.
+//   A first backtest suggested widening rsi2's stop to 5%: the natural stop
+//   appeared to net -44.58R against +20.33R for 5%. That comparison was WRONG.
+//   It let each variant use its own set of closed trades, and a wider stop keeps
+//   trades alive longer, so the wide rows quietly excluded ~80 unresolved
+//   (disproportionately underwater) trades that the tight stop had already
+//   booked as losses.
 //
-// Strategies absent from this map are untouched and keep their natural stop.
-// Tune by editing the percentage here; tests/auto.mjs pins the behaviour.
+//   Re-run over the SAME 320 trades closed under every variant, the ordering
+//   inverts — net R falls monotonically as the stop widens:
+//
+//     stop      WR     net R   avg R    PF    worst
+//     natural  57.2%  +52.67R  +0.16R  1.37  -2.99%
+//     3%       69.1%  +34.33R  +0.11R  1.36  -3.00%
+//     5%       77.5%  +30.27R  +0.09R  1.54  -5.00%
+//     8%       80.6%  +24.26R  +0.08R  1.76  -8.00%
+//     none     82.8%       —        —  2.08 -30.43%
+//
+//   Wider stops do buy a higher win rate, profit factor and raw % return — but
+//   under risk-based sizing every trade risks the same dollars, so net R is what
+//   tracks P&L, and by that measure the natural stop wins. It also has the
+//   smallest worst case. So there is no evidence for an override, and adding one
+//   would have made things worse.
+//
+// The MECHANISM stays because it is sound and separately useful: it decouples
+// the stop actually placed from the two other jobs the same number does (the
+// applyTarget quality filter, and the geometry the target is derived from), so a
+// future evidence-backed value can be set here without disturbing either. With
+// the map empty every strategy simply keeps its natural stop.
+//
+// Do not add an entry here without a COMMON-SUBSET backtest supporting it:
+//   node scripts/backtest-stop.mjs --strategy=<key> --stops=natural,3,5,8,none
 // =============================================================================
-export const PLACED_STOP_PCT = {
-  rsi2: 5,
-};
+export const PLACED_STOP_PCT = {};
 
 // The stop price to actually place for a signal. Falls back to the signal's own
 // stop when the strategy has no override. Long-only: a short's stop sits ABOVE
