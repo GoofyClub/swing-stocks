@@ -63,7 +63,7 @@ import {
   isTradeDayAllowed, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
   marketClock, inCloseWindow, placedStopPrice, stopClearanceOk,
 } from '../src/auto/engine.js';
-import { STRATEGIES } from '../src/strategy/normalize.js';
+import { STRATEGIES, tierReasons } from '../src/strategy/normalize.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS } from '../src/data/markets.js';
 import { fetchBars } from '../src/data/fetchers.js';
@@ -239,6 +239,10 @@ async function scanForSignals(market, cfg, sessionDate, log) {
       catch (e) { log(`${item.t} ${key} threw: ${e.message}`); continue; }
       const env = res?.envelope;
       if (!env) continue;
+      // Tier is DERIVED from the strategy's raw output, not returned by evaluate()
+      // — same call refresh-signals makes. Reading a non-existent res.tier left
+      // every signal at null, which the tier filter then rejected wholesale.
+      const { tier, reasons: tierWhy } = tierReasons(key, res.raw);
       out.push({
         id: `${item.t}_${key}_${sessionDate}`,
         ticker: item.t,
@@ -246,7 +250,8 @@ async function scanForSignals(market, cfg, sessionDate, log) {
         sector: item.s,
         strategy: def.short || key,
         strategyKey: key,
-        tier: res.tier || null,
+        tier,
+        tierReasons: tierWhy,
         side: env.side || 'buy',
         entryPrice: env.entry,
         tpPrice: env.tp,
