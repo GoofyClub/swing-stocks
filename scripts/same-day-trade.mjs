@@ -220,11 +220,16 @@ async function scanForSignals(market, cfg, sessionDate, log) {
   // what the morning worker covers, the two paths are not seeing the same names.
   log(`scanning ${market} watchlist=${watchlist.length} (set=${watchlistSet}) strategies=[${[...allowed].join(',')}]`);
   const out = [];
+  // Individual bar-fetch failures are expected (recent listings, thin names) and
+  // are not fatal — but a scan silently losing a third of its universe to
+  // rate-limiting looks identical to a quiet day, so count them and report.
+  let fetchFailed = 0, fetchOk = 0;
   for (const item of watchlist) {
     let bars;
     try { bars = await fetchBars(item.t, ctx); }
-    catch (e) { log(`bars unavailable for ${item.t}: ${e.message}`); continue; }
-    if (!bars?.length) continue;
+    catch (e) { fetchFailed++; if (fetchFailed <= 5) log(`bars unavailable for ${item.t}: ${e.message}`); continue; }
+    if (!bars?.length) { fetchFailed++; continue; }
+    fetchOk++;
     const idx = bars.length - 1; // today's (still-forming) bar — the close proxy
     for (const key of allowed) {
       const def = STRATEGIES[key];
@@ -257,6 +262,13 @@ async function scanForSignals(market, cfg, sessionDate, log) {
         status: 'open',
       });
     }
+  }
+  if (fetchFailed) {
+    const pct = Math.round((fetchFailed / watchlist.length) * 100);
+    const warn = pct >= 20
+      ? ' — HIGH. Likely rate-limiting on the keyless endpoints; set ALPACA_KEY + ALPACA_SECRET.'
+      : '';
+    log(`${market} bars: ${fetchOk} ok, ${fetchFailed} failed (${pct}%)${warn}${fetchFailed > 5 ? ' [first 5 logged]' : ''}`);
   }
   return out;
 }

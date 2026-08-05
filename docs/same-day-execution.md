@@ -54,6 +54,33 @@ Two timing details that matter:
   than firing entries after the bell. If you see the `DEADLINE:` log line, start
   the timer earlier or shrink the watchlist.
 
+## Market-data keys (effectively required for `broad`)
+
+Bar fetching tries `alpaca` **first**, but only when credentials are present;
+without them it falls through to keyless public endpoints. Those are fine for the
+51-name `core` list and get **rate-limited** when hammered 1,503 times for
+`broad`, which shows up as a burst of `bars unavailable … blocked or timed out`.
+
+Your existing Alpaca **paper** keys work — market data is the free IEX feed, and
+Alpaca is reliable from datacenter IPs (unlike the public endpoints):
+
+```bash
+cat >> ~/swing-config/swing.env <<'EOF'
+ALPACA_KEY=your-alpaca-key
+ALPACA_SECRET=your-alpaca-secret
+EOF
+```
+
+These are for **market data only** — the broker credentials used to place orders
+still come from each user's Firestore automation config.
+
+The run reports fetch health so a silently-shrunken universe is visible:
+
+```
+US bars: 1487 ok, 16 failed (1%)
+US bars: 1050 ok, 453 failed (30%) — HIGH. Likely rate-limiting …
+```
+
 ## Matching the morning worker's universe
 
 The two entry paths must scan the same names or they cannot be compared. The
@@ -326,6 +353,8 @@ journalctl -u swing-sameday.service -n 100  # last run's output
 | `PERMISSION_DENIED` on Firestore | Service account lacks `roles/datastore.user` **on the Firebase project** (step 3b). |
 | `Request had insufficient authentication scopes` on a `gcloud` command | You ran it on the VM. Use Cloud Shell — see the note above step 3b. |
 | `Service account key creation is disabled` | Org policy `iam.disableServiceAccountKeyCreation`. Expected — use ADC (step 3), no key needed. |
+| Many `bars unavailable … blocked or timed out`, esp. on `broad` | Rate-limiting by the keyless public endpoints. Set `ALPACA_KEY` + `ALPACA_SECRET` — see below. |
+| `only N historical bars available` for a few names | Benign. Recently-listed tickers without 220 bars of history; the scan skips them and continues. |
 | `swing.env: No such file or directory` / `FIREBASE_PROJECT_ID must be set.` | Config dir created but the env file wasn't — step 3e. |
 | `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
 | `DEADLINE: past 15:58 ET` | Scan outran the window — start earlier or use the `core` watchlist. |

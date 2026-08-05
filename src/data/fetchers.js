@@ -342,11 +342,21 @@ export async function fetchBars(ticker, ctx, opts = {}) {
 
   const networkOnly = attempts.filter(a => a.error && (a.error.startsWith('network/CORS') || a.error.includes('timed out')));
   const skipped = attempts.filter(a => a.error && a.error.startsWith('skipped'));
+  // Server runs (cron workers, the VM close-runner) hit none of the browser
+  // failure modes — there is no CORS, no ad-blocker and no Settings page — so
+  // advising those there sends you chasing the wrong thing. On a server a whole
+  // -universe scan failing usually means the keyless public endpoints are rate
+  // -limiting, which an API key fixes.
+  const onServer = typeof window === 'undefined';
   let cause;
   if (skipped.length === attempts.length) {
-    cause = 'No data sources are configured. Open Settings → Data sources and paste a free Alpha Vantage or Finnhub API key, or upload a CSV.';
+    cause = onServer
+      ? 'No data sources are configured. Set ALPACA_KEY + ALPACA_SECRET (or ALPHAVANTAGE_KEY / FINNHUB_KEY) in the environment.'
+      : 'No data sources are configured. Open Settings → Data sources and paste a free Alpha Vantage or Finnhub API key, or upload a CSV.';
   } else if (networkOnly.length + skipped.length === attempts.length) {
-    cause = 'Every reachable source was blocked by network/CORS or timed out. Likely cause: corporate firewall, ad-blocker/privacy extension, or all public proxies are down. Try: (1) disable any ad-blocker, (2) set a free Alpha Vantage or Finnhub API key in Settings — those endpoints support CORS natively.';
+    cause = onServer
+      ? 'Every reachable source was blocked or timed out. On a server this is normally rate-limiting by the keyless public endpoints (common when scanning a large universe). Set ALPACA_KEY + ALPACA_SECRET — Alpaca is first in the source order and is reliable from datacenter IPs.'
+      : 'Every reachable source was blocked by network/CORS or timed out. Likely cause: corporate firewall, ad-blocker/privacy extension, or all public proxies are down. Try: (1) disable any ad-blocker, (2) set a free Alpha Vantage or Finnhub API key in Settings — those endpoints support CORS natively.';
   } else if (bestPartial) {
     cause = `Sources reachable but only ${bestPartial.bars.length} historical bars available for ${ticker} (need 220 for full setup detection). Likely a recently-listed name. ${bestPartial.bars.length >= 30 ? 'Consider uploading a longer CSV manually.' : ''}`;
   } else {
