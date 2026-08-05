@@ -18,6 +18,7 @@
     "refresh:universe": "node scripts/refresh-universe.mjs",
     "auto:trade": "node scripts/auto-trade.mjs",
     "backtest:stop": "node scripts/backtest-stop.mjs",
+    "auto:sameday": "node scripts/same-day-trade.mjs",
     "auto:smoketest": "node scripts/alpaca-smoketest.mjs"
   },
   "dependencies": {

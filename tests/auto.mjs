@@ -9,7 +9,7 @@
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
-  marketClock, inEntryWindow, entryLimitPrice, placedStopPrice, PLACED_STOP_PCT,
+  marketClock, inEntryWindow, entryLimitPrice, placedStopPrice, PLACED_STOP_PCT, inCloseWindow,
 } from '../src/auto/engine.js';
 import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets, indexAllowed } from '../src/data/indexes.js';
@@ -176,6 +176,33 @@ console.log('\n--- slippageOk ---');
   t('sell gapped up past budget skipped', !slippageOk(baseCfg, 100, 100.5, 'sell'));
   t('sell-stop above trigger still ok (pendingEntry)', slippageOk(baseCfg, 100, 103, 'sell', { pendingEntry: true }));
   t('no budget = always ok', slippageOk({ ...baseCfg, slippageBudgetPct: null }, 100, 90, 'buy'));
+}
+
+console.log('\n--- inCloseWindow + market entry (same-day close path) ---');
+{
+  // 19:40 UTC = 15:40 EDT — inside the close window.
+  t('15:40 ET is inside the close window', inCloseWindow(new Date('2026-07-03T19:40:00Z')) === true);
+  t('15:36 ET is inside', inCloseWindow(new Date('2026-07-03T19:36:00Z')) === true);
+  t('15:30 ET is too early', inCloseWindow(new Date('2026-07-03T19:30:00Z')) === false);
+  // Past 15:50 the market-on-close cutoff has gone; don't fire late.
+  t('15:52 ET is too late', inCloseWindow(new Date('2026-07-03T19:52:00Z')) === false);
+  t('morning is outside the close window', inCloseWindow(new Date('2026-07-03T13:40:00Z')) === false);
+  // Winter: 20:40 UTC = 15:40 EST.
+  t('EST 15:40 ET is inside', inCloseWindow(new Date('2026-01-05T20:40:00Z')) === true);
+  // The close path uses a MARKET entry so it cannot miss the fill; the bracket
+  // must still ride along, which a market-on-close order could not do.
+  const mkt = buildBracketOrder({
+    signal: { ticker: 'AAA', side: 'buy', entryPrice: 100, tpPrice: 102, slPrice: 95 },
+    shares: 3, clientOrderId: 'x', entryType: 'market',
+  });
+  t('market entry has no limit price', mkt.type === 'market' && mkt.limitPrice === null);
+  t('market entry still carries TP + SL', mkt.takeProfit?.limitPrice === 102 && mkt.stopLoss?.stopPrice === 95);
+  // Default path must be untouched by the new option.
+  const lim = buildBracketOrder({
+    signal: { ticker: 'AAA', side: 'buy', entryPrice: 100, tpPrice: 102, slPrice: 95 },
+    shares: 3, clientOrderId: 'x',
+  });
+  t('default entry is still a limit order', lim.type === 'limit' && lim.limitPrice === 100);
 }
 
 console.log('\n--- placedStopPrice (broker stop override) ---');

@@ -184,6 +184,25 @@ export function marketClock(now = new Date()) {
 // scheduled run landed after it closed and no entries were ever placed.
 // Reconciliation runs regardless of the window.
 export const MARKET_OPEN_ET_MIN = 9 * 60 + 30;
+export const MARKET_CLOSE_ET_MIN = 16 * 60;
+
+// Same-day "trade the close" window (default 15:35-15:50 ET).
+//
+// The morning path enters from the PREVIOUS session's signals, so a signal fired
+// on Monday's close is bought Tuesday morning — by which time a mean-reversion
+// bounce has often already happened. Strategies modelled on the closing price
+// (Connors RSI2 buys the oversold close) lose part of their edge to that gap.
+// This window is for a runner that scans and enters the SAME afternoon.
+//
+// It ends before 15:50 ET because that is Alpaca's market-on-close cutoff — the
+// latest point an order can still be guaranteed the official close. Note the
+// signal is necessarily computed on a near-final price rather than the settled
+// close, so a late-session reversal can change it; that is inherent to any
+// trade-the-close system, not a defect of this one.
+export function inCloseWindow(now = new Date(), { startMinuteET = 15 * 60 + 35, endMinuteET = 15 * 60 + 50 } = {}) {
+  const { minutes } = marketClock(now);
+  return minutes >= startMinuteET && minutes <= endMinuteET;
+}
 export function inEntryWindow(now = new Date(), { openMinuteET = MARKET_OPEN_ET_MIN, windowMinutes = 210 } = {}) {
   const { minutes } = marketClock(now);
   return minutes >= openMinuteET && minutes <= openMinuteET + windowMinutes;
@@ -265,17 +284,24 @@ export function brokerPrice(x) {
 // either fills near the signal price or doesn't fill. Buy-stop strategies keep
 // their stop-entry trigger. Every price is passed through brokerPrice so no
 // raw float ever reaches the API.
-export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudgetPct = null }) {
+// `entryType: 'market'` skips the limit and takes whatever the book gives. Only
+// the same-day close runner uses it: fired minutes before the bell it fills at
+// ~the closing price, which is the price the strategy is actually modelled on,
+// and unlike a market-on-close order it can still carry its bracket. A limit
+// there would risk not filling at all, which for a trade-the-close entry means
+// missing the trade rather than getting a better price.
+export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudgetPct = null, entryType = null }) {
   const isBuy = (signal.side || 'buy') === 'buy';
   const pending = !!signal.pendingEntry;
-  const limitPrice = pending ? null : entryLimitPrice(signal.entryPrice, signal.side, slippageBudgetPct);
+  const market = entryType === 'market';
+  const limitPrice = (pending || market) ? null : entryLimitPrice(signal.entryPrice, signal.side, slippageBudgetPct);
   return {
     clientOrderId,
     symbol: signal.ticker,
     side: isBuy ? 'buy' : 'sell',
     qty: shares,
-    type: pending ? 'stop' : 'limit',
-    stopPrice: pending ? brokerPrice(signal.entryPrice) : null,
+    type: market ? 'market' : pending ? 'stop' : 'limit',
+    stopPrice: (!market && pending) ? brokerPrice(signal.entryPrice) : null,
     limitPrice: brokerPrice(limitPrice),
     timeInForce: 'gtc',
     takeProfit: signal.tpPrice != null ? { limitPrice: brokerPrice(signal.tpPrice) } : null,
