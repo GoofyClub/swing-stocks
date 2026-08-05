@@ -87,16 +87,52 @@ cd ~ && git clone https://github.com/GoofyClub/swing-stocks.git
 cd ~/swing-stocks && npm ci
 ```
 
-**3. Credentials**
+**3. Credentials — use the VM's own service account (no key file)**
 
-Put the Firebase service-account key on disk as a *file* (see the env note below
-for why), and lock it down:
+Preferred, and required if your org enforces
+`iam.disableServiceAccountKeyCreation`. The runner falls back to Application
+Default Credentials, which on GCE is the VM's attached service account read from
+the metadata server — nothing on disk to leak, rotate, or protect.
+
+Find the identity the VM runs as, and its scopes:
+
+```bash
+curl -sH "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
+curl -sH "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes
+```
+
+Grant that account Firestore access **on the Firebase project** (which may differ
+from the project the VM lives in — the grant must target the Firebase one):
+
+```bash
+gcloud projects add-iam-policy-binding FIREBASE_PROJECT_ID \
+  --member="serviceAccount:VM_SERVICE_ACCOUNT_EMAIL" \
+  --role="roles/datastore.user"
+```
+
+The scopes call must include `cloud-platform`. If it doesn't, stop the VM, edit
+it, set **Access scopes → Allow full access to all Cloud APIs**, and start it
+again (scopes cannot be changed while running).
+
+Then create the config dir — it holds the broker keys even when there's no
+Firebase key file:
 
 ```bash
 mkdir -p ~/swing-config && chmod 700 ~/swing-config
-mv ~/service-account.json ~/swing-config/service-account.json
-chmod 600 ~/swing-config/service-account.json ~/swing-config/swing.env
 ```
+
+<details>
+<summary>Alternative: an explicit key file (only if ADC isn't possible)</summary>
+
+```bash
+mv ~/service-account.json ~/swing-config/service-account.json
+chmod 600 ~/swing-config/service-account.json
+# and add to swing.env:
+# FIREBASE_SERVICE_ACCOUNT_FILE=/home/srinathrn89/swing-config/service-account.json
+```
+</details>
 
 **4. Prove it works before scheduling anything**
 
@@ -165,10 +201,10 @@ systemctl list-timers swing-sameday.timer   # confirm the next fire time
 
 ```bash
 FIREBASE_PROJECT_ID=your-project-id
-# Point at the key FILE. Do NOT paste the JSON inline: systemd's EnvironmentFile
-# is not a shell and mishandles the quotes in the blob, which fails at parse time
-# on a trading afternoon rather than when you set it up.
-FIREBASE_SERVICE_ACCOUNT_FILE=/etc/swing-stocks/service-account.json
+# No Firebase credential line: with none set the runner uses Application Default
+# Credentials (the VM's attached service account). Only if you must use an
+# explicit key, add FIREBASE_SERVICE_ACCOUNT_FILE=<path> — never paste the JSON
+# inline, since systemd's EnvironmentFile mishandles the quotes in the blob.
 ALPACA_KEY=...
 ALPACA_SECRET=...
 # Start in dry-run. Flip to false only after reviewing a dry-run's log.
@@ -207,6 +243,8 @@ journalctl -u swing-sameday.service -n 100  # last run's output
 | Symptom | Cause |
 |---|---|
 | `service account key is not valid JSON` | Key pasted inline instead of via `FIREBASE_SERVICE_ACCOUNT_FILE`. |
+| `Could not load the default credentials` | No key set and ADC unavailable — VM missing the `cloud-platform` scope. |
+| `PERMISSION_DENIED` on Firestore | VM's service account lacks `roles/datastore.user` **on the Firebase project**. |
 | `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
 | `DEADLINE: past 15:58 ET` | Scan outran the window — start earlier or use the `core` watchlist. |
 | Nothing placed, no errors | Expected when no signal passes the filters. Check the `scanned N candidate(s)` line. |

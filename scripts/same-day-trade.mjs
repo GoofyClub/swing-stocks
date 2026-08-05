@@ -43,9 +43,12 @@
 // Actions cron is routinely 2-3 h late and cannot hit a 15-minute window)
 //   DRY_RUN=false node scripts/same-day-trade.mjs
 //
-// Required env: FIREBASE_PROJECT_ID, plus the service-account key as either
-//               FIREBASE_SERVICE_ACCOUNT_FILE (path — preferred on a VM) or
-//               FIREBASE_SERVICE_ACCOUNT_JSON (raw JSON — used by CI)
+// Required env: FIREBASE_PROJECT_ID. Credentials are optional — with none set it
+//               falls back to Application Default Credentials, which on a GCE VM
+//               is the attached service account (no key file needed, and the only
+//               option when the org blocks service-account key creation). To use
+//               an explicit key instead, set FIREBASE_SERVICE_ACCOUNT_FILE (path)
+//               or FIREBASE_SERVICE_ACCOUNT_JSON (raw JSON — what CI uses).
 // Bar data env: ALPACA_KEY/ALPACA_SECRET (preferred), ALPHAVANTAGE_KEY, ...
 // Optional env: DRY_RUN, ONLY_UID, KILL_SWITCH, ALLOW_LIVE, FORCE_WINDOW,
 //               STRATEGIES (comma list; default: every strategy the user allows)
@@ -86,20 +89,36 @@ const RUN_LOG = [];
 function initAdmin() {
   if (admin.apps.length) return admin.firestore();
   const projectId = process.env.FIREBASE_PROJECT_ID;
-  // The service-account key can come from a FILE or the raw env var. The file is
-  // the sane option on a VM: systemd's EnvironmentFile does not parse quoted or
-  // multi-line values the way a shell does, and the key JSON is a big quoted blob
-  // — pasting it inline is the classic way to get an unhelpful JSON.parse error
-  // at 15:42 on a trading day. CI keeps using the env var (GitHub Secrets).
+  if (!projectId) throw new Error('FIREBASE_PROJECT_ID must be set.');
+
+  // Credentials, in order of preference:
+  //
+  //   1. FIREBASE_SERVICE_ACCOUNT_FILE — a path to the key JSON. Preferred over
+  //      pasting the key inline: systemd's EnvironmentFile is not a shell and
+  //      mishandles the quotes in the blob, which fails at parse time on a
+  //      trading afternoon rather than at setup.
+  //   2. FIREBASE_SERVICE_ACCOUNT_JSON — raw JSON. What CI uses (GitHub Secrets).
+  //   3. Application Default Credentials — nothing configured. On a GCE VM this
+  //      is the attached service account, fetched from the metadata server. It
+  //      needs no key on disk at all, which is why many orgs now BLOCK key
+  //      creation outright (iam.disableServiceAccountKeyCreation). It is also
+  //      simply better: nothing to leak, rotate, or protect.
+  //
+  // For (3) the VM's service account needs Firestore access (roles/datastore.user)
+  // ON THE FIREBASE PROJECT — which may not be the project the VM lives in — and
+  // the VM needs the cloud-platform scope.
   const saFile = process.env.FIREBASE_SERVICE_ACCOUNT_FILE;
   const saJson = saFile ? readFileSync(saFile, 'utf8') : process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!projectId || !saJson) {
-    throw new Error('FIREBASE_PROJECT_ID plus FIREBASE_SERVICE_ACCOUNT_FILE (path, preferred on a VM) or FIREBASE_SERVICE_ACCOUNT_JSON must be set.');
+
+  if (saJson) {
+    let creds;
+    try { creds = JSON.parse(saJson); }
+    catch (e) { throw new Error(`service account key is not valid JSON (${saFile ? `file ${saFile}` : 'FIREBASE_SERVICE_ACCOUNT_JSON'}): ${e.message}`); }
+    admin.initializeApp({ credential: admin.credential.cert(creds), projectId });
+  } else {
+    console.log('[sameday] no service-account key configured — using Application Default Credentials (GCE attached service account)');
+    admin.initializeApp({ credential: admin.credential.applicationDefault(), projectId });
   }
-  let creds;
-  try { creds = JSON.parse(saJson); }
-  catch (e) { throw new Error(`service account key is not valid JSON (${saFile ? `file ${saFile}` : 'FIREBASE_SERVICE_ACCOUNT_JSON'}): ${e.message}`); }
-  admin.initializeApp({ credential: admin.credential.cert(creds), projectId });
   return admin.firestore();
 }
 
