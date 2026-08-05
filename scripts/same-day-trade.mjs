@@ -191,13 +191,17 @@ async function notify(db, uid, text) {
 // `sessionDate` is today (ET) — this IS the session being traded.
 async function scanForSignals(market, cfg, sessionDate, log) {
   const ctx = buildCtx(market);
-  const watchlist = watchlistFor(market, process.env.WATCHLIST_SET || 'core');
+  const watchlistSet = process.env.WATCHLIST_SET || 'core';
+  const watchlist = watchlistFor(market, watchlistSet);
   // Only scan strategies this user could actually trade — a strategy they've
   // filtered out can never produce an order, so fetching bars for it is waste.
   const allowed = new Set(
     ONLY_STRATEGIES.length ? ONLY_STRATEGIES
       : (cfg.strategies?.length ? cfg.strategies : Object.keys(STRATEGIES)),
   );
+  // Surface the universe actually being scanned: if this is much smaller than
+  // what the morning worker covers, the two paths are not seeing the same names.
+  log(`scanning ${market} watchlist=${watchlist.length} (set=${watchlistSet}) strategies=[${[...allowed].join(',')}]`);
   const out = [];
   for (const item of watchlist) {
     let bars;
@@ -310,17 +314,23 @@ async function processUser(db, uid, cfg, now) {
       log(`DEADLINE: past ${Math.floor(ORDER_DEADLINE_ET_MIN / 60)}:${String(ORDER_DEADLINE_ET_MIN % 60).padStart(2, '0')} ET — stopping, ${signals.length - placed - skipped} candidate(s) not placed. Start the timer earlier or use a smaller watchlist.`);
       break;
     }
+    // Every skip below is LOGGED with its reason. A silent `skipped++` makes a
+    // run that places nothing indistinguishable from a run that was misconfigured
+    // — the whole point of the dry-run rehearsal is seeing which rule bit.
+    //
     // A buy-stop setup needs price to trade UP through entry — that cannot be
     // resolved in the final minutes, so those strategies stay on the morning path.
-    if (sig.pendingEntry) { skipped++; continue; }
+    if (sig.pendingEntry) { log(`skip ${sig.ticker} (${sig.strategyKey}): buy-stop entry — morning path only`); skipped++; continue; }
 
     const coid = clientOrderId(uid, sig.id);
     const journalRef = db.collection('users').doc(uid).collection('autoOrders').doc(coid);
     const existing = await journalRef.get();
-    if (existing.exists && !['dryrun', 'error'].includes(existing.data().status)) { skipped++; continue; }
+    if (existing.exists && !['dryrun', 'error'].includes(existing.data().status)) {
+      log(`skip ${sig.ticker} (${sig.strategyKey}): already acted on this session (status ${existing.data().status})`); skipped++; continue;
+    }
 
     const match = signalMatchesRules(sig, cfg);
-    if (!match.ok) { skipped++; continue; }
+    if (!match.ok) { log(`skip ${sig.ticker} (${sig.strategyKey}): ${match.reasons[0] || 'rule filter'}`); skipped++; continue; }
 
     // Never stack a second position on a symbol already held — the morning path
     // may already own it, and Alpaca positions are per-symbol so the exit model
@@ -354,8 +364,12 @@ async function processUser(db, uid, cfg, now) {
       fixedNotional: cfg.fixedNotional, maxPositionNotional: cfg.maxPositionNotional,
       entry: livePrice, sl: placedSl,
     });
-    if (size.shares < 1) { skipped++; continue; }
-    if (size.notional > availableBp + 1e-6) { log(`skip ${sig.ticker}: notional > buying power`); skipped++; continue; }
+    if (size.shares < 1) {
+      log(`skip ${sig.ticker}: size < 1 share (risk budget too small for price ${livePrice}, stop ${placedSl})`); skipped++; continue;
+    }
+    if (size.notional > availableBp + 1e-6) {
+      log(`skip ${sig.ticker}: notional $${size.notional.toFixed(0)} > buying power $${availableBp.toFixed(0)}`); skipped++; continue;
+    }
 
     const intent = buildBracketOrder({
       signal: { ...sig, slPrice: placedSl }, shares: size.shares,
