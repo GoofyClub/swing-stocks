@@ -88,6 +88,13 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
       }
 
+      // Extra broker accounts for the Performance dashboard. These hold API
+      // keys, so they are owner-only for BOTH read and write — same protection
+      // as the automation config above. Never broaden this.
+      match /brokerAccounts/{accountId} {
+        allow read, write: if isOwner(uid);
+      }
+
       // Auto-trade order journal (/users/{uid}/autoOrders/{clientOrderId}).
       // Written by the execution worker via the Admin SDK (bypasses rules); the
       // owner may READ their own order history. Clients must not write here.

@@ -20,6 +20,7 @@ import { renderStocksInPlay } from './views/stocksInPlay.js';
 import { renderAutomation } from './views/automation.js';
 import { renderAutomationGuide } from './views/automationGuide.js';
 import { renderAutoOrders } from './views/autoOrders.js';
+import { renderPerformance } from './views/performance.js';
 import { renderCronStatus } from './views/cronStatus.js';
 import { renderOptionsPlaybook } from './views/optionsPlaybook.js';
 import { renderCondorDesk } from './views/condorDesk.js';
@@ -78,6 +79,7 @@ function mountAppShell() {
   route('automation',       renderAutomation);
   route('automation-guide', renderAutomationGuide);
   route('auto-orders',      renderAutoOrders);
+  route('performance',      renderPerformance);
   route('cron-status',      renderCronStatus);
   route('options-playbook', renderOptionsPlaybook);
   route('condor-desk',      renderCondorDesk);

@@ -113,6 +113,51 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
       return req('DELETE', `/v2/orders/${encodeURIComponent(orderId)}`);
     },
 
+    // Every FILL on the account — the ground truth for realized performance.
+    //
+    // Alpaca has no closed-trade endpoint, so per-trade P&L is reconstructed
+    // from these by matching closes against opens (see src/perf/roundTrips.js).
+    //
+    // The endpoint pages with `page_token`, and a busy account easily exceeds one
+    // page — silently taking only the first would understate every total, so we
+    // follow the cursor to exhaustion. `maxPages` is a runaway guard, not a
+    // preference: hitting it means the caller asked for too wide a window.
+    async getActivities({ after = null, until = null, pageSize = 100, maxPages = 50 } = {}) {
+      const out = [];
+      let pageToken = null;
+      for (let page = 0; page < maxPages; page++) {
+        const qs = new URLSearchParams({ activity_types: 'FILL', page_size: String(pageSize), direction: 'asc' });
+        if (after) qs.set('after', after);
+        if (until) qs.set('until', until);
+        if (pageToken) qs.set('page_token', pageToken);
+        const batch = await req('GET', `/v2/account/activities?${qs}`);
+        if (!Array.isArray(batch) || !batch.length) break;
+        out.push(...batch);
+        if (batch.length < pageSize) break;      // last page
+        pageToken = batch[batch.length - 1]?.id;
+        if (!pageToken) break;
+      }
+      return out;
+    },
+
+    // Account equity / P&L time series — Alpaca's own numbers, so the dashboard
+    // headline agrees with the broker rather than re-deriving it from fills.
+    // period: 1D|1W|1M|3M|1A|all   timeframe: 1Min|5Min|15Min|1H|1D
+    async getPortfolioHistory({ period = '1M', timeframe = '1D', extendedHours = false } = {}) {
+      const qs = new URLSearchParams({ period, timeframe, extended_hours: String(extendedHours) });
+      const h = await req('GET', `/v2/account/portfolio/history?${qs}`);
+      const ts = h?.timestamp || [];
+      return {
+        baseValue: Number(h?.base_value ?? 0),
+        points: ts.map((t, i) => ({
+          date: new Date(t * 1000),
+          equity: Number(h.equity?.[i] ?? 0),
+          profitLoss: Number(h.profit_loss?.[i] ?? 0),
+          profitLossPct: Number(h.profit_loss_pct?.[i] ?? 0) * 100,
+        })).filter(p => Number.isFinite(p.equity) && p.equity > 0),
+      };
+    },
+
     // Trading calendar between two ET dates (inclusive). Each row is
     // { date:'YYYY-MM-DD', open:'HH:MM', close:'HH:MM' } and only real sessions
     // appear — so the previous-session lookup skips weekends AND holidays.
