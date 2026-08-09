@@ -305,6 +305,22 @@ if [[ "$MODE" == "check" ]]; then
   check_unit_env swing-bot.service "$ENV_FILE"
   check_unit_env swing-sameday.service "$ENV_FILE"
   check_unit_env swing-maintenance.service "$ENV_FILE"
+
+  # What the kernel actually has bound, not what the config asks for. Config is
+  # an intention; a restart that silently failed leaves the OLD process running
+  # with the OLD address, and every outside symptom is the same timeout.
+  if command -v ss >/dev/null; then
+    DASH_LISTEN="$(ss -ltn 2>/dev/null | awk -v p=":${DASHBOARD_PORT:-8444}" '$4 ~ p"$" {print $4}' | head -1)"
+    if [[ -z "$DASH_LISTEN" ]]; then
+      bad "nothing is listening on port ${DASHBOARD_PORT:-8444} — the dashboard is not running (journalctl -u swing-dashboard -n 30)"
+      FAILED=1
+    elif [[ "$DASH_LISTEN" == 127.0.0.1:* ]]; then
+      warn "bound to $DASH_LISTEN — LOOPBACK ONLY. https://<vm-ip>:${DASHBOARD_PORT:-8444} times out regardless of firewall rules."
+      warn "  Direct access: npm run dashboard:cert, set DASHBOARD_BIND=0.0.0.0, then restart swing-dashboard."
+    else
+      ok "bound to $DASH_LISTEN ($([[ -n "${DASHBOARD_CERT_FILE:-}" ]] && echo HTTPS || echo 'PLAIN HTTP'))"
+    fi
+  fi
 else
   if command -v sudo >/dev/null; then
     install_units
