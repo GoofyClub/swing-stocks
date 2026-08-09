@@ -16,17 +16,23 @@
 // manual close outside the journal, say) is left alone and retried next run
 // rather than being written with a guessed price.
 //
+// The one exception is a 404 from the broker, which is permanent rather than
+// transient — see the handler below. Those docs are marked `realizeUnavailable`
+// and skipped forever after, so a journal that outlived its account doesn't
+// re-issue the same doomed request on every single run.
+//
 // Long-only, matching the exit model.
 // =============================================================================
 
 export async function realizeOutcomes({ db, admin, uid, client, log }) {
-  let realized = 0;
+  let realized = 0, unavailable = 0;
   const snap = await db.collection('users').doc(uid).collection('autoOrders')
     .where('status', 'in', ['position_closed', 'exit_submitted']).get();
 
   for (const d of snap.docs) {
     const o = d.data();
     if (o.realizedWinLoss) continue;                     // already realized
+    if (o.realizeUnavailable) continue;                  // permanently unrecoverable
     if ((o.side || 'buy') !== 'buy') continue;           // long-only
     const entry = o.filledAvgPrice ?? o.entry;
     const qty = o.filledQty || o.qty;
@@ -44,7 +50,30 @@ export async function realizeOutcomes({ db, admin, uid, client, log }) {
           exit = Number(leg.filled_avg_price);
           reason = /stop/i.test(leg.type || '') ? 'stop' : 'target';
         }
-      } catch (e) { log(`realize ${o.ticker}: fetch failed ${e.message}`); continue; }
+      } catch (e) {
+        // A 404 is PERMANENT, not transient. The usual cause is that the
+        // journal outlived the account: switch the automation config to a
+        // different Alpaca account (a second paper account, or paper→live) and
+        // every order id written under the old one becomes unresolvable — the
+        // ids are per-account. Retrying re-issues the same doomed request on
+        // every run, forever, so mark it and stop asking.
+        //
+        // Nothing is lost that was ever available: without the order there is
+        // no exit fill to read. The Performance tab can still reconstruct these
+        // from /v2/account/activities if you add the OLD account there, because
+        // that endpoint reports fills rather than orders.
+        if (e.status === 404) {
+          await d.ref.update({
+            realizeUnavailable: true,
+            realizeUnavailableReason: 'order not found at broker (usually: journal predates an account switch)',
+            realizeUnavailableAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          unavailable++;
+          continue;
+        }
+        log(`realize ${o.ticker}: fetch failed ${e.message}`);   // transient — retry next run
+        continue;
+      }
     }
     // Not recoverable yet — leave it for the next run rather than inventing one.
     if (exit == null || !Number.isFinite(exit)) continue;
@@ -63,5 +92,9 @@ export async function realizeOutcomes({ db, admin, uid, client, log }) {
     realized++;
     log(`REALIZED ${o.ticker}: ${pct >= 0 ? 'win' : 'loss'} ${pct.toFixed(2)}%${slPct ? ` ${(pct / slPct).toFixed(2)}R` : ''} exit ${exit} (${reason || 'exit'})`);
   }
-  return { realized };
+  if (unavailable) {
+    log(`${unavailable} order(s) no longer exist at this broker account — marked unrecoverable, will not be retried. `
+      + 'Order ids are per-account, so this is expected after switching Alpaca accounts.');
+  }
+  return { realized, unavailable };
 }

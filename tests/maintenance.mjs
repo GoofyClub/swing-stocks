@@ -204,6 +204,43 @@ console.log('\n--- realizeOutcomes ---');
   t('trailing exit reason is preserved', p.realizedExitReason === 'trail');
 }
 
+console.log('\n--- realizeOutcomes: a vanished order is permanent, not transient ---');
+{
+  // Order ids are PER-ACCOUNT. Point the automation config at a different
+  // Alpaca account (second paper account, or paper -> live) and every id in the
+  // journal becomes unresolvable. Retrying re-issues the same doomed request on
+  // every run forever, which is what showed up as four "order not found" lines
+  // on each maintenance pass.
+  const rows = [{ ticker: 'GONE', side: 'buy', status: 'position_closed', qty: 2, filledAvgPrice: 10, sl: 9, brokerOrderId: 'dead' }];
+  const db = fakeDb({ 'users/u1/autoOrders': rows });
+  let calls = 0;
+  const client = {
+    getOrder: async () => { calls++; const e = new Error('order not found'); e.status = 404; throw e; },
+  };
+  const r = await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  const p = patchFor(db, /autoOrders/)[0];
+  t('a 404 marks the doc unrecoverable', p.realizeUnavailable === true);
+  t('the reason is recorded', /account/i.test(p.realizeUnavailableReason || ''));
+  t('it is counted separately from realized', r.unavailable === 1 && r.realized === 0);
+  t('no realized outcome is invented', p.realizedWinLoss === undefined);
+
+  // The whole point: a second pass must not call the broker again.
+  await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  t('a marked doc is never re-fetched', calls === 1);
+}
+{
+  // A TRANSIENT failure must still be retried — marking a 500 as permanent
+  // would discard a recoverable outcome on one bad afternoon.
+  const rows = [{ ticker: 'FLAKY', side: 'buy', status: 'position_closed', qty: 2, filledAvgPrice: 10, sl: 9, brokerOrderId: 'x' }];
+  const db = fakeDb({ 'users/u1/autoOrders': rows });
+  let calls = 0;
+  const client = { getOrder: async () => { calls++; const e = new Error('server error'); e.status = 500; throw e; } };
+  const r = await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  t('a 500 is NOT marked unrecoverable', r.unavailable === 0 && db.writes.length === 0);
+  await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  t('a transient failure is retried next run', calls === 2);
+}
+
 console.log('\n--- snapshotEquity: the drawdown ratchet ---');
 {
   const db = fakeDb({ 'users/u1/automation/state': { peakEquity: 10000 } });

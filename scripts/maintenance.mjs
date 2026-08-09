@@ -155,8 +155,8 @@ async function processUser(db, uid, cfg) {
   //    booked a single realized outcome, which silently blanks the Auto Orders
   //    page AND blinds the re-entry cooldown, since that reads realizedWinLoss.
   //    Dry-run should mean "place and cancel nothing", not "record nothing".
-  let realized = 0;
-  try { ({ realized } = await realizeOutcomes({ db, admin, uid, client, log })); }
+  let realized = 0, unavailable = 0;
+  try { ({ realized, unavailable } = await realizeOutcomes({ db, admin, uid, client, log })); }
   catch (e) { log(`realize outcomes failed: ${e.message}`); }
 
   // 4. Equity + drawdown ratchet. Always — the peak must not go stale, and a
@@ -170,7 +170,7 @@ async function processUser(db, uid, cfg) {
     }
   } catch (e) { log(`equity snapshot failed: ${e.message}`); }
 
-  return { refreshed: rec.refreshed, expired: rec.expired, closed: ex.closed, realized, halted: !!dd?.halted };
+  return { refreshed: rec.refreshed, expired: rec.expired, closed: ex.closed, realized, unavailable, halted: !!dd?.halted };
 }
 
 async function recordRun(db, { startedAt, users, totals, errors, error }) {
@@ -205,7 +205,7 @@ async function main() {
   const configs = await loadEnabledConfigs(db);
   console.log(`[maint] ${configs.length} account(s) with automation enabled`);
 
-  const totals = { refreshed: 0, expired: 0, closed: 0, realized: 0 };
+  const totals = { refreshed: 0, expired: 0, closed: 0, realized: 0, unavailable: 0 };
   let errors = 0;
   for (const { uid, cfg } of configs) {
     try {
@@ -216,7 +216,8 @@ async function main() {
       console.error(`[maint][${uid.slice(0, 6)}] fatal: ${e.message}`);
     }
   }
-  console.log(`[maint] complete — ${totals.refreshed} reconciled, ${totals.expired} expired, ${totals.closed} exits, ${totals.realized} realized, ${errors} error(s)`);
+  console.log(`[maint] complete — ${totals.refreshed} reconciled, ${totals.expired} expired, ${totals.closed} exits, `
+    + `${totals.realized} realized${totals.unavailable ? `, ${totals.unavailable} unrecoverable` : ''}, ${errors} error(s)`);
   await recordRun(db, { startedAt, users: configs.length, totals, errors });
 }
 
