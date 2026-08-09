@@ -147,13 +147,17 @@ async function processUser(db, uid, cfg) {
   const ex = await manageExits({ db, admin, uid, client, log, dryRun: DRY_RUN, notify: (t) => notify(db, uid, t) });
   if (ex.checked) log(`exits: ${ex.checked} checked, ${ex.closed} closed`);
 
-  // 3. Realize outcomes for anything now closed. Needs real fills, so dry-run
-  //    skips it rather than writing made-up numbers into the journal.
+  // 3. Realize outcomes for anything now closed. Runs in dry-run TOO, on
+  //    purpose: it is read-only at the broker (it fetches the retained order to
+  //    read its filled leg) and it only ever books trades that a real run
+  //    already marked closed. Skipping it under dry-run meant a box left at
+  //    DRY_RUN=true — the safe, recommended default while validating — never
+  //    booked a single realized outcome, which silently blanks the Auto Orders
+  //    page AND blinds the re-entry cooldown, since that reads realizedWinLoss.
+  //    Dry-run should mean "place and cancel nothing", not "record nothing".
   let realized = 0;
-  if (!DRY_RUN) {
-    try { ({ realized } = await realizeOutcomes({ db, admin, uid, client, log })); }
-    catch (e) { log(`realize outcomes failed: ${e.message}`); }
-  }
+  try { ({ realized } = await realizeOutcomes({ db, admin, uid, client, log })); }
+  catch (e) { log(`realize outcomes failed: ${e.message}`); }
 
   // 4. Equity + drawdown ratchet. Always — the peak must not go stale, and a
   //    snapshot writes nothing to the broker so dry-run can do it safely.

@@ -125,16 +125,26 @@ async function sh(cmd, args) {
 }
 
 async function systemStatus() {
-  const [timer, sameday, bot, head] = await Promise.all([
-    sh('systemctl', ['list-timers', '--no-pager', '--all', 'swing-sameday.timer']),
+  const [timers, sameday, bot, head] = await Promise.all([
+    sh('systemctl', ['list-timers', '--no-pager', '--all', 'swing-*.timer']),
     sh('systemctl', ['is-active', 'swing-sameday.service']),
     sh('systemctl', ['is-active', 'swing-bot.service']),
     sh('git', ['-C', process.cwd(), 'log', '-1', '--pretty=%h %s (%cr)']),
   ]);
-  // "NEXT LEFT LAST PASSED UNIT ACTIVATES" — take the data row.
-  const row = timer.split('\n').find(l => l.includes('swing-sameday.timer')) || '';
-  const next = row.trim().split(/\s{2,}/)[0] || 'not scheduled';
-  return { next, sameday: sameday || 'unknown', bot: bot || 'unknown', head };
+  // "NEXT LEFT LAST PASSED UNIT ACTIVATES" — take each timer's data row. BOTH
+  // timers are reported: a disarmed maintenance timer looks like nothing is
+  // wrong right up until a position is riding unmanaged.
+  const nextFor = (unit) => {
+    const row = timers.split('\n').find(l => l.includes(unit)) || '';
+    return row.trim().split(/\s{2,}/)[0] || 'NOT SCHEDULED';
+  };
+  return {
+    next: nextFor('swing-sameday.timer'),
+    nextMaint: nextFor('swing-maintenance.timer'),
+    sameday: sameday || 'unknown',
+    bot: bot || 'unknown',
+    head,
+  };
 }
 
 function logStats() {
@@ -256,7 +266,8 @@ function renderPage({ sys, stats, counts }) {
 </header>
 <div class="wrap">
   <div class="cards">
-    <div class="card"><div class="k">Next same-day run</div><div class="v">${esc(sys.next)}</div></div>
+    <div class="card"><div class="k">Next entry run</div><div class="v">${esc(sys.next)}</div></div>
+    <div class="card"><div class="k">Next maintenance</div><div class="v ${sys.nextMaint === 'NOT SCHEDULED' ? 'bad' : ''}">${esc(sys.nextMaint)}</div></div>
     <div class="card"><div class="k">Runner</div><div class="v">${svc(sys.sameday)}</div></div>
     <div class="card"><div class="k">Telegram bot</div><div class="v">${svc(sys.bot)}</div></div>
     <div class="card"><div class="k">Placed today</div><div class="v ${counts.placed ? 'ok' : ''}">${counts.placed}</div></div>
