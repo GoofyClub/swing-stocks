@@ -1,13 +1,32 @@
-name: Auto-trade (paper)
+name: Auto-trade (manual only)
 
-# Phase 2 execution worker. Now runs AUTOMATICALLY on a daily schedule, but stays
-# safe by default: scheduled runs are DRY-RUN (log intended orders, submit
-# nothing) until you set the repo variable AUTO_DRY_RUN to 'false'.
-#   - Repo → Settings → Secrets and variables → Actions → Variables →
-#       AUTO_DRY_RUN = false   (when you're ready for real paper orders)
-# Per-user `enabled` + `mode` in each user's config still gate everything, and
-# the Alpaca PAPER endpoint is forced unless a user explicitly set mode='live'.
-# A manual run can always override dry_run via the input below.
+# ── DEMOTED: this workflow no longer runs on a schedule. ────────────────────
+#
+# Execution is now VM-authoritative. The Google VM owns the trading loop:
+#
+#   swing-sameday.timer      15:38 ET  entries (trade-the-close) + exits
+#   swing-maintenance.timer  09:45 ET  reconcile, exits, realize, equity
+#                            16:15 ET  same, after the close settles
+#
+# GitHub Actions keeps ONLY signal refresh (refresh-signals, refresh-broad,
+# refresh-universe) and the Pages deploy. Nothing that touches an order runs
+# here on a timer any more.
+#
+# Why: GitHub cron is fixed-UTC (no DST) and best-effort. On this repo scheduled
+# runs have started 2-3 HOURS late, been cancelled outright, and failed to
+# allocate a runner at all (runner_id: 0 after 15 minutes). That is survivable
+# for a signal refresh, which the next run fixes. It is not survivable for
+# reconciliation and exit management, where a missed run means an order stuck at
+# 'submitted', a position with no managed exit, and a drawdown peak that freezes
+# — quietly disabling the halt that is supposed to stop the bleeding.
+#
+# Running this manually is still useful and still safe: every step is
+# idempotent (deterministic client order ids; the exit pass short-circuits on
+# exit_submitted), so it will not double-place or double-book against the VM.
+# It is the escape hatch for when the VM is down.
+#
+# Per-user `enabled` + `mode` gate everything, and a live broker URL still
+# requires ALLOW_LIVE.
 on:
   workflow_dispatch:
     inputs:
@@ -23,22 +42,6 @@ on:
         description: 'Global kill switch — abort without placing any orders'
         required: false
         default: 'false'
-  # GitHub cron is fixed UTC (no DST) AND best-effort — on this repo scheduled
-  # runs have been observed starting 2-3 HOURS late (e.g. the old 13:35 UTC slot
-  # ran at ~16:00 UTC / 12:00 ET). So the slots below start well BEFORE the
-  # market open and repeat every 30 min: whatever the delay, several runs land
-  # inside the entry window. The worker gates new entries to the 09:30-13:00 ET
-  # window (src/auto/engine.js inEntryWindow) and is idempotent (deterministic
-  # client order id), so early/late/duplicate runs are harmless — runs before
-  # the open or after the window just reconcile; the first one inside the
-  # window places the (limit) orders. Covers both EDT (summer) and EST (winter).
-  schedule:
-    - cron: "20,50 11 * * 1-5"   # land ~09:30-10:50 ET (EDT) with the typical 2-3h delay
-    - cron: "20,50 12 * * 1-5"
-    - cron: "20,50 13 * * 1-5"   # 09:20/09:50 EDT if GitHub ever runs on time
-    - cron: "20,50 14 * * 1-5"   # 10:20/10:50 EDT · 09:20/09:50 EST on time
-    - cron: "20 15 * * 1-5"      # 11:20 EDT · 10:20 EST on time
-    - cron: "45 18 * * 1-5"      # reconcile fills/exits — lands ~15:45-16:15 ET with the usual ~1h delay
 
 jobs:
   auto-trade:

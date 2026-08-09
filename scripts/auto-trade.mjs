@@ -29,10 +29,13 @@
 import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
-  isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
+  isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, regimeAllowsEntry,
   marketClock, inEntryWindow, placedStopPrice, inReentryCooldown, REENTRY_COOLDOWN_DAYS,
 } from '../src/auto/engine.js';
 import { manageExits } from './lib/exit-pass.mjs';
+import { reconcileOrders } from './lib/reconcile.mjs';
+import { realizeOutcomes } from './lib/realize.mjs';
+import { snapshotEquity } from './lib/equity.mjs';
 import { attachFileLog } from './lib/logfile.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
@@ -59,8 +62,6 @@ const RUN_LOG = [];
   console.warn = (...a) => { push('WARN ' + a.map(String).join(' ')); _warn(...a); };
   console.error = (...a) => { push('ERROR ' + a.map(String).join(' ')); _err(...a); };
 }
-
-function todayKey(now = new Date()) { return now.toISOString().slice(0, 10); }
 
 // How the position's upside is managed, for logs and alerts. A trend entry has
 // no take_profit leg on purpose — say so, rather than printing "TP null" and
@@ -215,12 +216,7 @@ async function processUser(db, uid, cfg) {
   // Account-level drawdown halt + equity snapshot for the curve. The peak (high-
   // water mark) persists in /users/{uid}/automation/state; a daily snapshot lands
   // in /users/{uid}/autoEquity/{date} so the app can plot the equity curve.
-  const stateRef = db.collection('users').doc(uid).collection('automation').doc('state');
-  const prevPeak = (await stateRef.get().then(s => s.exists ? s.data().peakEquity : 0).catch(() => 0)) || 0;
-  const dd = drawdownHalted({ equity, peakEquity: prevPeak, maxDrawdownHaltPct: cfg.maxDrawdownHaltPct });
-  await stateRef.set({ peakEquity: dd.peak, lastEquity: equity, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-  await db.collection('users').doc(uid).collection('autoEquity').doc(todayKey())
-    .set({ date: todayKey(), equity, peak: dd.peak, drawdownPct: dd.drawdownPct, ts: admin.firestore.FieldValue.serverTimestamp() });
+  const dd = await snapshotEquity({ db, admin, uid, equity, cfg });
   if (dd.halted) log(`DRAWDOWN HALT: -${dd.drawdownPct.toFixed(1)}% from peak $${dd.peak.toFixed(0)} (>= ${cfg.maxDrawdownHaltPct}%) — no new entries`);
   let openCount = positions.length;
   const sectorCount = new Map();
@@ -391,36 +387,12 @@ async function processUser(db, uid, cfg) {
     sectorCount.set(sec, (sectorCount.get(sec) || 0) + 1);
   }
 
-  // --- Reconciliation: refresh status of previously-submitted (non-terminal) orders.
+  // --- Reconciliation + stale-entry sweep (shared: scripts/lib/reconcile.mjs).
   if (!DRY_RUN) {
-    const open = await db.collection('users').doc(uid).collection('autoOrders').where('status', '==', 'submitted').get();
-    for (const d of open.docs) {
-      const data = d.data();
-      if (!data.brokerOrderId) continue;
-      try {
-        const o = await client.getOrder(data.brokerOrderId);
-        if (!o?.status) continue;
-        const filledQty = Number(o.filled_qty || 0);
-        const terminal = ['filled', 'canceled', 'expired', 'rejected', 'done_for_day'].includes(o.status);
-        // Strict one-session freshness: a GTC entry limit still unfilled after its
-        // session has passed must not fill late — cancel it. (Only fully-unfilled
-        // entries from an earlier session; a partial fill means we're in a position.)
-        if (!terminal && filledQty === 0 && data.sessionDate && bucket && data.sessionDate !== bucket) {
-          try {
-            await client.cancelOrder(data.brokerOrderId);
-            await d.ref.update({ status: 'expired', expiredAt: admin.firestore.FieldValue.serverTimestamp() });
-            log(`EXPIRED stale unfilled entry ${data.ticker} (session ${data.sessionDate})`);
-          } catch (e) { log(`cancel stale ${data.ticker} failed: ${e.message}`); }
-          continue;
-        }
-        if (o.status !== 'new') {
-          await d.ref.update({ status: o.status, filledQty, filledAvgPrice: o.filled_avg_price ? Number(o.filled_avg_price) : null, reconciledAt: admin.firestore.FieldValue.serverTimestamp() });
-          if (o.status === 'filled') {
-            await notify(db, uid, `🔵 <b>FILLED</b> ${data.ticker} ${data.qty} @ ${o.filled_avg_price || data.entry}`);
-          }
-        }
-      } catch (e) { log(`reconcile ${data.ticker} failed: ${e.message}`); }
-    }
+    await reconcileOrders({
+      db, admin, uid, client, log, currentSession: bucket,
+      notify: (text) => notify(db, uid, text),
+    });
   }
 
   // --- Exit management: apply the tracked exit model to REAL filled positions.
@@ -438,58 +410,12 @@ async function processUser(db, uid, cfg) {
   // Alpaca retains the bracket order (with its filled leg) after the position
   // is gone. Skipped in dry-run (no real fills to read).
   if (!DRY_RUN) {
-    try { await realizeOutcomes(db, uid, client, log); }
+    try { await realizeOutcomes({ db, admin, uid, client, log }); }
     catch (e) { log(`realize outcomes failed: ${e.message}`); }
   }
 
   log(`done: placed=${placed} skipped=${skipped} of ${signals.length} signals`);
   return { placed, skipped };
-}
-
-// For every closed order lacking a realized outcome, recover the exit price and
-// compute realized %, R, $ P&L, and win/loss. Exit source: the model-exit price
-// when the exit model fired (already journaled), else the filled bracket leg
-// (TP=win / SL=loss) fetched from the retained parent order. Long-only.
-async function realizeOutcomes(db, uid, client, log) {
-  const snap = await db.collection('users').doc(uid).collection('autoOrders')
-    .where('status', 'in', ['position_closed', 'exit_submitted']).get();
-  for (const d of snap.docs) {
-    const o = d.data();
-    if (o.realizedWinLoss) continue;                     // already realized
-    if ((o.side || 'buy') !== 'buy') continue;           // long-only
-    const entry = o.filledAvgPrice ?? o.entry;
-    const qty = o.filledQty || o.qty;
-    if (entry == null || !qty) continue;
-
-    let exit = null, reason = o.exitReason || null;
-    if (o.exitModelPrice != null) {
-      exit = Number(o.exitModelPrice);                    // model/native/time/trail exit
-    } else if (o.brokerOrderId) {
-      try {
-        const parent = await client.getOrder(o.brokerOrderId, { nested: true });
-        const leg = (parent?.legs || []).find(l =>
-          (l.side === 'sell') && l.status === 'filled' && l.filled_avg_price != null);
-        if (leg) {
-          exit = Number(leg.filled_avg_price);
-          reason = /stop/i.test(leg.type || '') ? 'stop' : 'target';
-        }
-      } catch (e) { log(`realize ${o.ticker}: fetch failed ${e.message}`); continue; }
-    }
-    if (exit == null || !Number.isFinite(exit)) continue; // exit not recoverable (e.g. manual close) — retry next run
-
-    const pct = ((exit - entry) / entry) * 100;
-    const slPct = (o.sl != null && entry > o.sl) ? ((entry - o.sl) / entry) * 100 : null;
-    await d.ref.update({
-      realizedExit: exit,
-      realizedPct: pct,
-      realizedR: slPct ? pct / slPct : null,
-      realizedPnl: qty * (exit - entry),
-      realizedWinLoss: pct >= 0 ? 'win' : 'loss',
-      realizedExitReason: reason,
-      realizedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    log(`REALIZED ${o.ticker}: ${pct >= 0 ? 'win' : 'loss'} ${pct.toFixed(2)}%${slPct ? ` ${(pct / slPct).toFixed(2)}R` : ''} exit ${exit} (${reason || 'exit'})`);
-  }
 }
 
 // Record this run to /cronRuns (job='auto-trade') so the app's Execution Status

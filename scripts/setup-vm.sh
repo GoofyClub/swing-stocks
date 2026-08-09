@@ -204,6 +204,43 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
+  # Maintenance: reconcile → exits → realize → equity. This is what GitHub
+  # Actions used to do on a schedule; it is now VM-owned, because a missed run
+  # leaves orders stuck at 'submitted', positions with no managed exit, and a
+  # frozen drawdown peak that silently disables the halt.
+  sudo tee /etc/systemd/system/swing-maintenance.service >/dev/null <<EOF
+[Unit]
+Description=Swing maintenance (reconcile, exits, realize, equity)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=$RUN_USER
+WorkingDirectory=$REPO_DIR
+EnvironmentFile=$ENV_FILE
+ExecStart=$NODE_BIN scripts/maintenance.mjs
+EOF
+
+  sudo tee /etc/systemd/system/swing-maintenance.timer >/dev/null <<EOF
+[Unit]
+Description=Fire swing maintenance morning and after the close
+
+[Timer]
+# 09:45 ET — catch overnight fills and gap stop-outs before the day starts.
+# 16:15 ET — after the close, once the day's protective legs have settled.
+# Timezone is part of OnCalendar so DST is handled; a fixed UTC cron would
+# drift an hour twice a year.
+OnCalendar=Mon-Fri 09:45 America/New_York
+OnCalendar=Mon-Fri 16:15 America/New_York
+# Unlike the entry timer, a MISSED maintenance run should still happen — a
+# reboot at 16:10 must not skip the day's reconciliation. Every step is
+# idempotent, so a late catch-up run is safe.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
   sudo tee /etc/systemd/system/swing-dashboard.service >/dev/null <<EOF
 [Unit]
 Description=Swing automation log dashboard
@@ -245,14 +282,19 @@ check_unit_env() {
 if [[ "$MODE" == "check" ]]; then
   systemctl list-unit-files swing-sameday.timer >/dev/null 2>&1 \
     && ok "swing-sameday.timer installed" || warn "swing-sameday.timer not installed"
+  systemctl list-unit-files swing-maintenance.timer >/dev/null 2>&1 \
+    && ok "swing-maintenance.timer installed" \
+    || { bad "swing-maintenance.timer NOT installed — reconciliation, exits and the drawdown ratchet are not running anywhere"; FAILED=1; }
   systemctl list-unit-files swing-bot.service >/dev/null 2>&1 \
     && ok "swing-bot.service installed" || warn "swing-bot.service not installed"
   check_unit_env swing-bot.service "$ENV_FILE"
   check_unit_env swing-sameday.service "$ENV_FILE"
+  check_unit_env swing-maintenance.service "$ENV_FILE"
 else
   if command -v sudo >/dev/null; then
     install_units
-    sudo systemctl enable --now swing-sameday.timer >/dev/null 2>&1 && ok "same-day timer enabled" || warn "could not enable timer"
+    sudo systemctl enable --now swing-sameday.timer >/dev/null 2>&1 && ok "same-day timer enabled (entries 15:38 ET)" || warn "could not enable same-day timer"
+    sudo systemctl enable --now swing-maintenance.timer >/dev/null 2>&1 && ok "maintenance timer enabled (09:45 + 16:15 ET)" || warn "could not enable maintenance timer"
     if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]]; then
       sudo systemctl enable --now swing-bot >/dev/null 2>&1 && ok "telegram bot enabled" || warn "could not enable bot"
     else
@@ -283,8 +325,10 @@ Next:
   1. Dry run now (bypasses the time window, submits nothing):
        cd $REPO_DIR && set -a && . $ENV_FILE && set +a
        FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
-  2. Confirm the schedule:      systemctl list-timers swing-sameday.timer
-  3. Inspect a run afterwards:  journalctl -u swing-sameday.service -n 100
+  2. Confirm the schedule:      systemctl list-timers 'swing-*'
+       swing-sameday      15:38 ET  entries + exits
+       swing-maintenance  09:45 + 16:15 ET  reconcile, exits, realize, equity
+  3. Inspect a run afterwards:  tail -100 $REPO_DIR/logs/swing.log
   4. Trading limits are in Firestore, not this box:
        npm run config                            # show
        npm run config maxConcurrentPositions 8   # change

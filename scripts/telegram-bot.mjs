@@ -147,6 +147,21 @@ const COMMANDS = {
       lines.push(`market: ${clock.isOpen ? 'open' : `closed (next ${esc(clock.nextOpen)})`}`);
     } catch (e) { lines.push(`broker: ❌ ${esc(e.message)}`); }
 
+    // Both timers, because the system is only whole with both. A disarmed
+    // maintenance timer looks like nothing is wrong until a position is sitting
+    // unmanaged and the drawdown peak has quietly frozen.
+    for (const [unit, what] of [['swing-sameday.timer', 'entries 15:38'], ['swing-maintenance.timer', 'maintenance 09:45+16:15']]) {
+      try {
+        const { stdout } = await execFileAsync('systemctl', ['is-active', unit], { timeout: 4000 });
+        const state = stdout.trim();
+        lines.push(`${state === 'active' ? '✅' : '❌'} ${unit.replace('.timer', '')}: ${esc(state)} (${what})`);
+      } catch (e) {
+        // is-active exits non-zero when inactive; that IS the answer.
+        const state = String(e.stdout || '').trim() || 'unknown';
+        lines.push(`❌ ${unit.replace('.timer', '')}: ${esc(state)} (${what}) — not armed`);
+      }
+    }
+
     try {
       const runs = await recentRuns(3);
       if (!runs.length) lines.push('runs: none recorded');

@@ -13,7 +13,7 @@
     "test:settle": "node tests/settle.mjs",
     "test:auto": "node tests/auto.mjs",
     "test:condor": "node tests/condor.mjs",
-    "test": "node tests/engine-parity.mjs && node tests/settle.mjs && node tests/auto.mjs && node tests/condor.mjs && node tests/perf.mjs",
+    "test": "node tests/engine-parity.mjs && node tests/settle.mjs && node tests/auto.mjs && node tests/condor.mjs && node tests/perf.mjs && node tests/maintenance.mjs",
     "refresh:signals": "node scripts/refresh-signals.mjs",
     "refresh:universe": "node scripts/refresh-universe.mjs",
     "auto:trade": "node scripts/auto-trade.mjs",
@@ -26,7 +26,9 @@
     "config:example": "node scripts/print-env-example.mjs > config/swing.env.example",
     "config": "node scripts/config-set.mjs",
     "setup": "bash scripts/setup-vm.sh",
-    "test:perf": "node tests/perf.mjs"
+    "test:perf": "node tests/perf.mjs",
+    "test:maintenance": "node tests/maintenance.mjs",
+    "auto:maintenance": "node scripts/maintenance.mjs"
   },
   "dependencies": {
     "chart.js": "^4.4.0",

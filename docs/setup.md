@@ -14,11 +14,15 @@ for weeks.
 | Web app | GitHub Pages | on push to `main` | signals, history, config UI |
 | `refresh-signals` | GitHub Actions | cron, several/day | scans the universe, writes signals, settles outcomes |
 | `same-day-trade` | **your VM** | systemd timer, 15:38 ET | scans and enters at the close ← the trading path |
-| `auto-trade` | GitHub Actions | cron, mornings | previous-session entries, reconcile, exits |
+| `maintenance` | **your VM** | systemd timer, 09:45 + 16:15 ET | reconcile, exits, realized P&L, equity/drawdown |
 | `telegram-bot` | **your VM** | always on | monitor and control from a phone |
+| `dashboard` | **your VM** | always on | the log, over HTTP |
 
-The VM pieces are on a VM because GitHub Actions cron runs **2–3 hours late** on
-this repo — unusable for a 15-minute close window.
+**The VM owns trading; Actions owns signals.** Nothing that touches an order runs
+on a timer in Actions — its cron runs 2–3 hours late on this repo, gets
+cancelled, and sometimes fails to allocate a runner at all. Survivable for a
+signal refresh, not for reconciliation or exit management. See
+[architecture.md](architecture.md) for what breaks when each piece is missed.
 
 ## Prerequisites
 
@@ -198,8 +202,24 @@ defaulting to open, because it can `/flatten` your account.
 ## 7. Confirm the schedule
 
 ```bash
-systemctl list-timers swing-sameday.timer     # NEXT should be a weekday 15:38 ET
-tail -f ~/swing-stocks/logs/swing.log         # after it fires
+systemctl list-timers 'swing-*'
+```
+
+Two timers should be armed:
+
+| Timer | ET | Does |
+|---|---|---|
+| `swing-sameday` | Mon–Fri 15:38 | entries at the close + exits |
+| `swing-maintenance` | Mon–Fri 09:45, 16:15 | reconcile, exits, realize P&L, equity/drawdown |
+
+Both must be running. The maintenance timer is not optional — without it orders
+stay stuck at `submitted`, realized P&L never lands (which also blinds the
+re-entry cooldown), and the drawdown peak freezes, silently disabling the halt.
+See [architecture.md](architecture.md).
+
+```bash
+tail -f ~/swing-stocks/logs/swing.log         # after they fire
+DRY_RUN=true npm run auto:maintenance         # force a pass now
 ```
 
 Leave `DRY_RUN=true` for several sessions. Intended orders appear on the Auto
@@ -288,6 +308,8 @@ From Telegram: `/health`, `/status`, `/positions`, `/pnl`, `/log`, `/errors`,
 
 ## Related
 
+- [architecture.md](architecture.md) — what runs on the VM vs GitHub Actions, and why
+- [logging.md](logging.md) — the single log file, the dashboard, `deploy.sh`
 - [going-live.md](going-live.md) — `DRY_RUN`/`ALLOW_LIVE`, promotion checklist, security
 - [same-day-execution.md](same-day-execution.md) — how the close runner works
 - [telegram-bot.md](telegram-bot.md) — commands and security

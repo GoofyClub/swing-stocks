@@ -157,11 +157,15 @@ fi
 
 # The same-day runner is a oneshot fired by a timer: there is no daemon to
 # restart. The next firing picks the new code up on its own.
-if systemctl is-active --quiet swing-sameday.service 2>/dev/null; then
-  warn "swing-sameday.service is RUNNING right now — leaving it alone; the new code applies from the next firing"
-else
-  ok "swing-sameday: oneshot, next firing uses the new code ($(systemctl list-timers --no-pager swing-sameday.timer 2>/dev/null | awk 'NR==2 {print $1, $2, $3}'))"
-fi
+for unit in swing-sameday swing-maintenance; do
+  if systemctl is-active --quiet "$unit.service" 2>/dev/null; then
+    warn "$unit.service is RUNNING right now — leaving it alone; the new code applies from the next firing"
+  elif systemctl list-unit-files "$unit.timer" >/dev/null 2>&1; then
+    ok "$unit: oneshot, next firing uses the new code ($(systemctl list-timers --no-pager "$unit.timer" 2>/dev/null | awk 'NR==2 {print $1, $2, $3}'))"
+  else
+    bad "$unit.timer is NOT installed — run ./scripts/setup-vm.sh --units"
+  fi
+done
 
 if (( BOT_CHANGED )); then
   if ! systemctl list-unit-files swing-bot.service >/dev/null 2>&1; then
