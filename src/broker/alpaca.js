@@ -74,12 +74,20 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
       }
     },
 
-    // Submit a bracket order from the engine's broker-agnostic intent. The entry
-    // leg is a limit (bounded by the slippage budget) unless it's a buy-stop
-    // strategy; the bracket stays GTC so the TP/SL protect the position across
+    // Submit a protected entry from the engine's broker-agnostic intent. The
+    // entry leg is a limit (bounded by the slippage budget) unless it's a buy-stop
+    // strategy; the protective legs stay GTC so they cover the position across
     // days. An unfilled entry limit is cancelled later by the stale-entry sweep.
+    //
+    // order_class is derived from which legs the intent actually carries, because
+    // Alpaca validates them: `bracket` REQUIRES both take_profit and stop_loss
+    // and rejects the order if either is missing, while `oto` takes exactly one.
+    // Trend strategies exit on a trailing stop and so ship without a target (see
+    // buildBracketOrder) — those must go out as OTO or the broker refuses them.
     async submitBracketOrder(intent) {
       const type = intent.type === 'stop' ? 'stop' : intent.type === 'limit' ? 'limit' : 'market';
+      const tp = intent.takeProfit?.limitPrice != null ? { limit_price: String(intent.takeProfit.limitPrice) } : null;
+      const sl = intent.stopLoss?.stopPrice   != null ? { stop_price:  String(intent.stopLoss.stopPrice)   } : null;
       const body = {
         symbol: intent.symbol,
         qty: String(intent.qty),
@@ -87,12 +95,16 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
         type,
         time_in_force: intent.timeInForce || 'gtc',
         client_order_id: intent.clientOrderId,
-        order_class: 'bracket',
       };
+      if (tp && sl) body.order_class = 'bracket';
+      else if (tp || sl) body.order_class = 'oto';
+      // else: a naked entry — no order_class, no protective leg. Should not
+      // happen (every signal carries a stop), but sending order_class with no
+      // legs is a guaranteed rejection, so degrade to a plain order instead.
       if (type === 'stop'  && intent.stopPrice  != null) body.stop_price  = String(intent.stopPrice);
       if (type === 'limit' && intent.limitPrice != null) body.limit_price = String(intent.limitPrice);
-      if (intent.takeProfit?.limitPrice != null) body.take_profit = { limit_price: String(intent.takeProfit.limitPrice) };
-      if (intent.stopLoss?.stopPrice != null) body.stop_loss = { stop_price: String(intent.stopLoss.stopPrice) };
+      if (tp) body.take_profit = tp;
+      if (sl) body.stop_loss = sl;
       return req('POST', '/v2/orders', body);
     },
 

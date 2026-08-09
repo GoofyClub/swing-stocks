@@ -470,7 +470,14 @@ function buildNativeExit(strategyKey, bars) {
 // close" systematically gives back open profit and books winners as losses — so
 // these use settleTrailing() instead. Mean-reversion / level strategies (rsi2,
 // quality_dip, fvg, the FMP drifts) keep the fixed-target model.
-const TRAILING_STRATEGIES = new Set(['pullback', 'vcp', 'peg', 'pocket_pivot', 'htf', 'nr7', 'fifty_two_wh']);
+export const TRAILING_STRATEGIES = new Set(['pullback', 'vcp', 'peg', 'pocket_pivot', 'htf', 'nr7', 'fifty_two_wh']);
+
+// Single predicate shared by the settlement model AND the order builder, so a
+// strategy can never be modelled one way and traded another. Adding a key to the
+// set above changes both at once.
+export function usesTrailingExit(strategyKey) {
+  return TRAILING_STRATEGIES.has(strategyKey);
+}
 // Trail the stop this many R below the highest high reached; breakeven at +1R.
 const TRAIL_GIVEBACK_R = 2;
 

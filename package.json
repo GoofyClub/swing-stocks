@@ -21,6 +21,8 @@
     "auto:sameday": "node scripts/same-day-trade.mjs",
     "auto:smoketest": "node scripts/alpaca-smoketest.mjs",
     "bot": "node scripts/telegram-bot.mjs",
+    "dashboard": "node scripts/dashboard.mjs",
+    "deploy": "bash scripts/deploy.sh",
     "config:example": "node scripts/print-env-example.mjs > config/swing.env.example",
     "config": "node scripts/config-set.mjs",
     "setup": "bash scripts/setup-vm.sh",

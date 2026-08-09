@@ -65,6 +65,8 @@ import {
   REENTRY_COOLDOWN_DAYS, ORDER_DEADLINE_ET_MIN,
 } from '../src/auto/engine.js';
 import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js';
+import { manageExits } from './lib/exit-pass.mjs';
+import { attachFileLog } from './lib/logfile.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS, MARKET_CONFIGS } from '../src/data/markets.js';
 import { regimeCheck } from '../src/strategy/engine.js';
@@ -78,6 +80,10 @@ const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === '
 const FORCE_WINDOW = String(process.env.FORCE_WINDOW ?? 'false').toLowerCase() === 'true';
 const ONLY_STRATEGIES = (process.env.STRATEGIES || '').split(',').map(s => s.trim()).filter(Boolean);
 
+// Everything this run prints also lands in the shared log file. Attach FIRST so
+// the in-memory capture below wraps it and both get every line.
+attachFileLog('sameday');
+
 const RUN_LOG = [];
 {
   const _log = console.log.bind(console), _warn = console.warn.bind(console), _err = console.error.bind(console);
@@ -85,6 +91,14 @@ const RUN_LOG = [];
   console.log = (...a) => { push(a.map(String).join(' ')); _log(...a); };
   console.warn = (...a) => { push('WARN ' + a.map(String).join(' ')); _warn(...a); };
   console.error = (...a) => { push('ERROR ' + a.map(String).join(' ')); _err(...a); };
+}
+
+// How the position's upside is managed, for logs and alerts. A trend entry has
+// no take_profit leg on purpose — say so, rather than printing "TP null".
+function exitLabel(intent) {
+  return intent.takeProfit?.limitPrice != null
+    ? `TP ${intent.takeProfit.limitPrice}`
+    : 'TP none (trailing exit)';
 }
 
 function initAdmin() {
@@ -481,7 +495,12 @@ async function processUser(db, uid, cfg, now) {
       clientOrderId: coid, signalId: sig.id, ticker: sig.ticker, sector: sec,
       strategy: sig.strategy || null, strategyKey: sig.strategyKey || null, tier: sig.tier || null,
       side: intent.side, qty: size.shares, entry: livePrice, limitPrice: null,
-      tp: sig.tpPrice, sl: placedSl, naturalSl: sig.slPrice ?? null,
+      // `tp` is what the broker actually holds — null for trailing strategies,
+      // which ship stop-only; `modelTp` keeps the nominal target for diagnostics.
+      tp: intent.takeProfit?.limitPrice ?? null,
+      modelTp: sig.tpPrice ?? null,
+      exitModel: intent.exitModel,
+      sl: placedSl, naturalSl: sig.slPrice ?? null,
       sessionDate, entryPath: 'same_day_close',
       dollarRisk: size.dollarRisk, mode: modeLabel, live, dryRun: DRY_RUN,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -490,7 +509,7 @@ async function processUser(db, uid, cfg, now) {
     if (DRY_RUN) {
       journal.status = 'dryrun';
       await journalRef.set(journal);
-      log(`DRYRUN would ${intent.side} ${size.shares} ${sig.ticker} @ market ~${livePrice} (TP ${sig.tpPrice} / SL ${placedSl}, risk $${size.dollarRisk.toFixed(0)})`);
+      log(`DRYRUN would ${intent.side} ${size.shares} ${sig.ticker} @ market ~${livePrice} (${exitLabel(intent)} / SL ${placedSl}, risk $${size.dollarRisk.toFixed(0)})`);
     } else {
       try {
         const order = await client.submitBracketOrder(intent);
@@ -498,7 +517,7 @@ async function processUser(db, uid, cfg, now) {
         journal.brokerOrderId = order?.id || null;
         await journalRef.set(journal);
         log(`PLACED ${intent.side} ${size.shares} ${sig.ticker} @ market (order ${order?.id})`);
-        await notify(db, uid, `🟢 <b>SAME-DAY ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ~${livePrice} · TP ${sig.tpPrice} / SL ${placedSl} · ${modeLabel.toUpperCase()}`);
+        await notify(db, uid, `🟢 <b>SAME-DAY ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ~${livePrice} · ${exitLabel(intent)} / SL ${placedSl} · ${modeLabel.toUpperCase()}`);
       } catch (e) {
         journal.status = 'error';
         journal.error = e.message;
@@ -513,6 +532,17 @@ async function processUser(db, uid, cfg, now) {
     heldSymbols.add(sig.ticker);
     sectorCount.set(sec, (sectorCount.get(sec) || 0) + 1);
   }
+
+  // --- Exit management. Runs AFTER entries so a name exited today is not
+  // immediately re-bought by this same pass. Firing at ~15:40 ET gives the
+  // EOD-based rules (close > 5-SMA, time stop, trailing stop) near-final daily
+  // bars, which is exactly what they are modelled on. This is the only managed
+  // exit for trend positions — they carry no take-profit leg by design.
+  const exits = await manageExits({
+    db, admin, uid, client, log, dryRun: DRY_RUN,
+    notify: (text) => notify(db, uid, text),
+  });
+  if (exits.checked) log(`exit pass: ${exits.checked} position(s) checked, ${exits.closed} closed`);
 
   log(`done: placed=${placed} skipped=${skipped} of ${signals.length} candidates`);
   return { placed, skipped };

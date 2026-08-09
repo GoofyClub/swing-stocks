@@ -2,7 +2,7 @@
 
 ## The two switches
 
-Both live in the env file (`~/swing-config/swing.env`), **not** in the app UI:
+Both live in the env file (`~/swing-stocks/swing-config/swing.env`), **not** in the app UI:
 
 | Setting | Default | Effect |
 |---|---|---|
@@ -24,10 +24,10 @@ page → REST API base), not the env file. Paper is
 
 ```bash
 # check what is currently set
-grep -E 'DRY_RUN|ALLOW_LIVE' ~/swing-config/swing.env
+grep -E 'DRY_RUN|ALLOW_LIVE' ~/swing-stocks/swing-config/swing.env
 
 # move from simulation to real PAPER orders
-sed -i 's/^DRY_RUN=.*/DRY_RUN=false/' ~/swing-config/swing.env
+sed -i 's/^DRY_RUN=.*/DRY_RUN=false/' ~/swing-stocks/swing-config/swing.env
 
 # systemd re-reads EnvironmentFile on each start, and the runner is a oneshot
 # timer job, so there is nothing to restart — the next fire picks it up.
@@ -66,7 +66,7 @@ addressed. Start with an account you can afford to lose entirely, and with
 `maxConcurrentPositions` and `riskPerTradePct` set low.
 
 ```bash
-sed -i 's/^ALLOW_LIVE=.*/ALLOW_LIVE=true/' ~/swing-config/swing.env
+sed -i 's/^ALLOW_LIVE=.*/ALLOW_LIVE=true/' ~/swing-stocks/swing-config/swing.env
 ```
 
 Then change the REST API base to `https://api.alpaca.markets` on the Automation

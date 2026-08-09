@@ -63,6 +63,20 @@ export const CONFIG_SPEC = [
     desc: 'Telegram long-poll timeout. 25s keeps the connection cheap and responsive.' },
   { key: 'REPO_DIR', type: S, default: '', scope: 'bot',
     desc: 'Absolute path to the checkout, used by /deploy. Empty disables /deploy.' },
+
+  // ---- Log dashboard (scripts/dashboard.mjs) ------------------------------
+  { key: 'DASHBOARD_USER', type: S, default: '', scope: 'dashboard',
+    desc: 'Basic-auth username. Required to run the dashboard — it serves the trading log, so it refuses to start unauthenticated.' },
+  { key: 'DASHBOARD_PASSWORD_HASH', type: S, default: '', secret: true, scope: 'dashboard',
+    desc: "sha256 hex digest of the password. Generate with: read -rs PW && printf '%s' \"$PW\" | sha256sum && unset PW" },
+  { key: 'DASHBOARD_PORT', type: N, default: 8444, scope: 'dashboard',
+    desc: 'Listen port. Cannot be shared with another dashboard — one port, one process. ORB uses 8443.' },
+  { key: 'DASHBOARD_BIND', type: S, default: '0.0.0.0', scope: 'dashboard',
+    desc: 'Bind address. Set 127.0.0.1 to force access through an SSH tunnel (recommended — this is plain HTTP).' },
+  { key: 'DASHBOARD_REFRESH_SEC', type: N, default: 20, scope: 'dashboard',
+    desc: 'Auto-refresh interval for the log pane.' },
+  { key: 'SWING_LOG_FILE', type: S, default: '', scope: 'dashboard',
+    desc: 'Override the shared log path. Default: <repo>/logs/swing.log — every runner, the bot and deploys append to it.' },
 ];
 
 const BY_KEY = new Map(CONFIG_SPEC.map(s => [s.key, s]));
@@ -117,6 +131,7 @@ export function renderEnvExample() {
     data: 'Market data — ALPACA_* strongly recommended',
     exec: 'Execution behaviour',
     bot:  'Telegram control bot',
+    dashboard: 'Log dashboard (scripts/dashboard.mjs)',
   };
   const out = ['# swing-stocks runtime configuration',
     '# Generated from src/config/env.js — the single source of truth.',

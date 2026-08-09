@@ -30,9 +30,10 @@ import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
-  marketClock, inEntryWindow, modelExitAction, placedStopPrice,
+  marketClock, inEntryWindow, placedStopPrice, inReentryCooldown, REENTRY_COOLDOWN_DAYS,
 } from '../src/auto/engine.js';
-import { settleSignal, entryIndexFor } from '../src/strategy/normalize.js';
+import { manageExits } from './lib/exit-pass.mjs';
+import { attachFileLog } from './lib/logfile.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
@@ -45,6 +46,10 @@ const ENV_KILL = String(process.env.KILL_SWITCH ?? 'false').toLowerCase() === 't
 // Hard live gate: real-money orders are blocked unless this repo variable is set.
 const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === 'true';
 
+// Everything this run prints also lands in the shared log file (see
+// scripts/lib/logfile.mjs). Attach FIRST so the in-memory capture wraps it.
+attachFileLog('auto');
+
 // Capture console output so the Execution Status page can show the last run's log.
 const RUN_LOG = [];
 {
@@ -56,6 +61,15 @@ const RUN_LOG = [];
 }
 
 function todayKey(now = new Date()) { return now.toISOString().slice(0, 10); }
+
+// How the position's upside is managed, for logs and alerts. A trend entry has
+// no take_profit leg on purpose — say so, rather than printing "TP null" and
+// making a deliberate choice look like a missing value.
+function exitLabel(intent) {
+  return intent.takeProfit?.limitPrice != null
+    ? `TP ${intent.takeProfit.limitPrice}`
+    : 'TP none (trailing exit)';
+}
 
 function initAdmin() {
   if (admin.apps.length) return admin.firestore();
@@ -214,6 +228,7 @@ async function processUser(db, uid, cfg) {
     const sec = SECTOR_BY_TICKER.get(p.symbol) || '?';
     sectorCount.set(sec, (sectorCount.get(sec) || 0) + 1);
   }
+  const heldSymbols = new Set(positions.map(p => p.symbol));
   // Heat proxy: each open position carries ~riskPerTradePct of risk.
   let openHeatPct = openCount * (cfg.riskPerTradePct || 0);
   // Track remaining buying power so we never queue more than the account can fund.
@@ -224,6 +239,27 @@ async function processUser(db, uid, cfg) {
 
   const markets = cfg.markets || ['US'];
   const now = new Date();
+
+  // Recent LOSING exits, for the re-entry cooldown — the same guard the same-day
+  // runner applies. Both paths write to the same journal and trade the same
+  // account, so a cooldown enforced on only one of them is no cooldown at all:
+  // the morning run would simply re-buy the name the afternoon run refused.
+  // A failed read yields an empty list, disabling the cooldown rather than
+  // blocking every entry.
+  let recentLosses = [];
+  if (REENTRY_COOLDOWN_DAYS > 0) {
+    try {
+      const since = new Date(now.getTime() - (REENTRY_COOLDOWN_DAYS + 1) * 86400_000);
+      const snap = await db.collection('users').doc(uid).collection('autoOrders')
+        .where('realizedWinLoss', '==', 'loss').get();
+      recentLosses = snap.docs.map(d => {
+        const o = d.data();
+        const at = o.realizedAt?.toDate ? o.realizedAt.toDate() : (o.realizedAt ? new Date(o.realizedAt) : null);
+        return at && at >= since ? { ticker: o.ticker, exitedAt: at } : null;
+      }).filter(Boolean);
+      if (recentLosses.length) log(`re-entry cooldown active for: ${recentLosses.map(l => l.ticker).join(', ')}`);
+    } catch (e) { log(`cooldown lookup failed (${e.message}) — not applied`); }
+  }
   // Enter only from the previous trading session's finalised bucket, and only
   // inside the morning window. Outside the window (e.g. the afternoon reconcile
   // run) we place nothing new but still reconcile below. Dry-run always evaluates
@@ -255,6 +291,15 @@ async function processUser(db, uid, cfg) {
     // broker if the order actually went through. Only submitted/filled block.
     const existing = await journalRef.get();
     if (existing.exists && !['dryrun', 'error'].includes(existing.data().status)) { skipped++; continue; }
+
+    // Never stack a second position on a symbol already held. The idempotency
+    // check above is per-SIGNAL, so a fresh signal id on a name we already own
+    // (a re-trigger, or the same ticker from another strategy) would otherwise
+    // double the position — and double the risk the sizing math assumed.
+    if (heldSymbols.has(sig.ticker)) { log(`skip ${sig.ticker}: already holding`); skipped++; continue; }
+
+    const cool = inReentryCooldown(sig.ticker, recentLosses, now);
+    if (cool.blocked) { log(`skip ${sig.ticker}: ${cool.reason}`); skipped++; continue; }
 
     const match = signalMatchesRules(sig, cfg);
     if (!match.ok) { log(`skip ${sig.ticker}: ${match.reasons[0] || 'rule filter'}`); skipped++; continue; }
@@ -304,7 +349,13 @@ async function processUser(db, uid, cfg) {
       side: intent.side, qty: size.shares, entry: sig.entryPrice, limitPrice: intent.limitPrice ?? null,
       // `sl` is the stop actually placed (the exit model replays against it too);
       // `naturalSl` keeps the signal's original stop for diagnostics.
-      tp: sig.tpPrice, sl: placedSl, naturalSl: sig.slPrice ?? null,
+      // `tp` is the target actually SENT to the broker — null for the trailing
+      // strategies, which ship stop-only. `modelTp` keeps the signal's nominal
+      // target for diagnostics so the two never get confused.
+      tp: intent.takeProfit?.limitPrice ?? null,
+      modelTp: sig.tpPrice ?? null,
+      exitModel: intent.exitModel,
+      sl: placedSl, naturalSl: sig.slPrice ?? null,
       // Session bucket this entry came from — the stale-entry sweep cancels an
       // unfilled entry once its session is no longer the current one.
       sessionDate: bucket,
@@ -315,7 +366,7 @@ async function processUser(db, uid, cfg) {
     if (DRY_RUN) {
       journal.status = 'dryrun';
       await journalRef.set(journal);
-      log(`DRYRUN would ${intent.side} ${size.shares} ${sig.ticker} limit ${intent.limitPrice} (entry ${sig.entryPrice}, TP ${sig.tpPrice}/SL ${sig.slPrice}, risk $${size.dollarRisk.toFixed(0)})`);
+      log(`DRYRUN would ${intent.side} ${size.shares} ${sig.ticker} limit ${intent.limitPrice} (entry ${sig.entryPrice}, ${exitLabel(intent)}/SL ${placedSl}, risk $${size.dollarRisk.toFixed(0)})`);
     } else {
       try {
         const order = await client.submitBracketOrder(intent);
@@ -323,7 +374,7 @@ async function processUser(db, uid, cfg) {
         journal.brokerOrderId = order?.id || null;
         await journalRef.set(journal);
         log(`PLACED ${intent.side} ${size.shares} ${sig.ticker} (order ${order?.id})`);
-        await notify(db, uid, `🟢 <b>ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ${sig.entryPrice} · TP ${sig.tpPrice} / SL ${sig.slPrice} · ${modeLabel.toUpperCase()}`);
+        await notify(db, uid, `🟢 <b>ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ${sig.entryPrice} · ${exitLabel(intent)} / SL ${placedSl} · ${modeLabel.toUpperCase()}`);
       } catch (e) {
         journal.status = 'error';
         journal.error = e.message;
@@ -336,6 +387,7 @@ async function processUser(db, uid, cfg) {
     // Reserve the slot + capital for subsequent signals this run.
     placed++; openCount++; openHeatPct += cfg.riskPerTradePct || 0;
     availableBp -= size.notional;
+    heldSymbols.add(sig.ticker);
     sectorCount.set(sec, (sectorCount.get(sec) || 0) + 1);
   }
 
@@ -372,63 +424,12 @@ async function processUser(db, uid, cfg) {
   }
 
   // --- Exit management: apply the tracked exit model to REAL filled positions.
-  // The GTC bracket already owns TP/SL; this pass adds the exits a bracket can't
-  // express — RSI2's close>5-SMA native exit, per-strategy time stops, and the
-  // trailing-stop model for trend strategies — by replaying the SAME settlement
-  // logic the app uses for W/L verdicts (settleSignal) over daily bars since the
-  // signal's session, then liquidating when it says native/time_stop/trail.
-  // Runs every pass; the ~15:45 ET reconcile slot gives it near-the-close daily
-  // granularity, matching the EOD-based rules.
-  try {
-    const filled = await db.collection('users').doc(uid).collection('autoOrders').where('status', 'in', ['filled', 'exit_submitted']).get();
-    if (!filled.empty) {
-      const livePositions = await client.getPositions();
-      for (const d of filled.docs) {
-        const data = d.data();
-        if ((data.side || 'buy') !== 'buy') continue; // exit model is long-only
-        const pos = livePositions.find(p => p.symbol === data.ticker && p.qty > 0);
-        if (!pos) {
-          // Bracket TP/SL, the exit liquidation, or a manual action flattened it —
-          // record terminal state and stop re-checking.
-          if (!DRY_RUN) await d.ref.update({ status: 'position_closed', positionClosedAt: admin.firestore.FieldValue.serverTimestamp() });
-          continue;
-        }
-        if (data.status === 'exit_submitted') continue; // liquidation order is working — wait
-        if (!data.sessionDate || !data.sl) continue;    // pre-v0.25 docs lack the session bucket
-        try {
-          // Bars from well before the session so indicator exits (5-SMA) have history.
-          const startDate = new Date(new Date(data.sessionDate + 'T00:00:00Z').getTime() - 45 * 86400_000).toISOString().slice(0, 10);
-          const bars = await client.getDailyBars(data.ticker, { start: startDate });
-          const entryIdx = entryIndexFor(bars, null, data.sessionDate);
-          const postBars = entryIdx >= 0 ? bars.slice(entryIdx + 1) : [];
-          if (!postBars.length) continue;
-          // tp:Infinity when the doc has none — disables the TP rule (bracket-less
-          // target) without disturbing the native/time-stop checks.
-          const verdict = settleSignal(
-            { entry: data.filledAvgPrice || data.entry, tp: data.tp ?? Infinity, sl: data.sl, pendingEntry: false, strategyKey: data.strategyKey },
-            postBars, { bars, entryIdx },
-          );
-          if (!modelExitAction(verdict)) continue; // still open, or tp/sl (bracket's job)
-          if (DRY_RUN) {
-            log(`DRYRUN would EXIT ${data.ticker} (${verdict.exitReason}, model ${verdict.winLoss} @ ${verdict.hitPrice})`);
-            continue;
-          }
-          // NOTE: Alpaca positions are per-symbol — if two strategies hold the same
-          // ticker this liquidates both; acceptable given the per-sector/position caps.
-          await client.closePosition(data.ticker, { cancelOrders: true });
-          await d.ref.update({
-            status: 'exit_submitted', exitReason: verdict.exitReason,
-            exitModelWinLoss: verdict.winLoss, exitModelPrice: verdict.hitPrice ?? null,
-            exitRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-          log(`EXIT ${data.ticker}: ${verdict.exitReason} (model ${verdict.winLoss} @ ${verdict.hitPrice}) — position closed, bracket cancelled`);
-          await notify(db, uid, `🔴 <b>EXIT</b> ${data.ticker} × ${pos.qty} — ${verdict.exitReason === 'native' ? 'indicator exit (close > 5-SMA)' : verdict.exitReason === 'trail' ? 'trailing stop' : 'time stop'} · model ${verdict.winLoss?.toUpperCase()} @ ~${verdict.hitPrice}`);
-        } catch (e) {
-          log(`exit-check ${data.ticker} failed: ${e.message}`); // doc stays 'filled' → retried next run
-        }
-      }
-    }
-  } catch (e) { log(`exit management failed: ${e.message}`); }
+  // Shared with the same-day runner (scripts/lib/exit-pass.mjs) so both paths
+  // apply exactly the same native / time-stop / trailing exits.
+  await manageExits({
+    db, admin, uid, client, log, dryRun: DRY_RUN,
+    notify: (text) => notify(db, uid, text),
+  });
 
   // --- Realized-outcome journaling: record each CLOSED trade's actual exit,
   // realized %, R, $ P&L, and win/loss onto its order doc — so the Auto Orders

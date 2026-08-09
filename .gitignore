@@ -3,6 +3,11 @@ dist/
 .env
 .env.local
 .env.*.local
+# Live VM configuration — holds broker API keys and the Telegram bot token.
+# It is kept next to the code on the VM so a redeploy can't orphan it, which
+# means git MUST never see it.
+swing-config/
+logs/
 .firebase/
 *.log
 .DS_Store

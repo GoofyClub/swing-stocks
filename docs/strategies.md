@@ -65,13 +65,37 @@ conventions live in `src/strategy/normalize.js`.
    target.
 4. **Time stop** — exit at the close of the hold-period bar.
 
-Trend strategies (`vcp`, `htf`, `pocket_pivot`, `fifty_two_wh`) use a **trailing
-stop** instead of a fixed target: breakeven at +1R, then trailing 2R below the
-running high.
+Trend strategies (`pullback`, `vcp`, `peg`, `pocket_pivot`, `htf`, `nr7`,
+`fifty_two_wh` — the `TRAILING_STRATEGIES` set) use a **trailing stop** instead
+of a fixed target: breakeven at +1R, then trailing 2R below the running high.
 
-The broker bracket can only express TP and SL. Native and time-stop exits are
-applied by the worker's exit-management pass, which replays the same settlement
-logic against real fills.
+### What the broker holds vs what the model does
+
+The broker's resting legs can only express a fixed target and a fixed stop, so
+the two are deliberately not the same thing:
+
+| Strategy family | Order sent | Managed by the exit pass |
+|---|---|---|
+| Target-managed (`rsi2`, `quality_dip`, `fvg`, the FMP drifts) | bracket: TP **and** SL | native exit, time stop |
+| Trailing (`TRAILING_STRATEGIES`) | OTO: **SL only** | trailing stop, time stop |
+
+Trend entries carry **no take-profit leg**. They used to, and that was a defect:
+`settleTrailing()` has no fixed target — it rides the position until the trailing
+or time stop — so a take-profit at `signal.tpPrice` capped exactly the outsized
+winners the model depends on to pay for its losers. Live results could only
+underperform the backtest, in the one direction that matters. The order builder
+now reads the same `usesTrailingExit()` predicate the settlement model does, so a
+strategy cannot be modelled one way and traded another.
+
+Because Alpaca rejects `order_class: bracket` unless *both* legs are present,
+stop-only entries go out as `oto`. The adapter picks the class from the legs
+actually attached.
+
+Native, time-stop and trailing exits are applied by the exit-management pass
+(`scripts/lib/exit-pass.mjs`), which replays the same settlement logic against
+real fills. **Both** runners call it — the morning worker and the same-day
+runner — because for a trend position it is the only managed exit that exists
+besides the hard stop.
 
 ## Tiers
 

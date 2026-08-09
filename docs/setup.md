@@ -35,7 +35,7 @@ this repo — unusable for a 15-minute close window.
    sign-in).
 2. Deploy the security rules and indexes — the app will not work without them:
    ```bash
-   npx firebase deploy --only firestore:rules,firestore:indexes
+   npx firebase-tools deploy --only firestore:rules,firestore:indexes
    ```
 3. **Strongly consider the Blaze plan.** The free tier's 50k daily reads has
    repeatedly been exhausted here and takes the trading worker down with it
@@ -106,7 +106,7 @@ cd ~/swing-stocks && npm ci
 ./scripts/setup-vm.sh
 ```
 
-The script checks prerequisites, creates `~/swing-config/swing.env` from the
+The script checks prerequisites, creates `~/swing-stocks/swing-config/swing.env` from the
 generated template, verifies Firestore connectivity, and installs the systemd
 units. It **cannot** grant Google Cloud permissions — the VM has no authority to
 grant itself any — so it prints the exact Cloud Shell commands with your values
@@ -136,7 +136,7 @@ scope list, and a narrow scope would strip whatever else the box runs on.
 ### 5b. Fill in the config
 
 ```bash
-nano ~/swing-config/swing.env
+nano ~/swing-stocks/swing-config/swing.env
 ```
 
 Minimum:
@@ -158,7 +158,7 @@ Every setting is documented in `config/swing.env.example`, generated from
 ```bash
 ./scripts/setup-vm.sh --check
 
-cd ~/swing-stocks && set -a && . ~/swing-config/swing.env && set +a
+cd ~/swing-stocks && set -a && . ~/swing-stocks/swing-config/swing.env && set +a
 FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
 ```
 
@@ -182,7 +182,7 @@ skip should name a rule you recognise. `tier null` or `index none` mean a bug.
 # token from @BotFather; message the bot once, then:
 curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id":[0-9-]*'
 
-cat >> ~/swing-config/swing.env <<'EOF'
+cat >> ~/swing-stocks/swing-config/swing.env <<'EOF'
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_ALLOWED_CHAT_IDS=your-chat-id
 EOF
@@ -199,7 +199,7 @@ defaulting to open, because it can `/flatten` your account.
 
 ```bash
 systemctl list-timers swing-sameday.timer     # NEXT should be a weekday 15:38 ET
-journalctl -u swing-sameday.service -n 100    # after it fires
+tail -f ~/swing-stocks/logs/swing.log         # after it fires
 ```
 
 Leave `DRY_RUN=true` for several sessions. Intended orders appear on the Auto
@@ -211,7 +211,7 @@ Orders page marked `DRY-RUN`, so you can review exactly what it would have done.
 
 | Layer | File / place | Examples | To change |
 |---|---|---|---|
-| Deployment | `~/swing-config/swing.env` | credentials, `DRY_RUN`, `ALLOW_LIVE`, `WATCHLIST_SET` | edit + next run |
+| Deployment | `~/swing-stocks/swing-config/swing.env` | credentials, `DRY_RUN`, `ALLOW_LIVE`, `WATCHLIST_SET`, dashboard auth | edit + `sudo systemctl restart swing-bot swing-dashboard` |
 | Trading knobs | `src/config/trading.js` | close window, re-entry cooldown, order deadline | edit, commit, `git pull` on VM |
 | Per-user risk | Firestore automation config | risk %, max positions, tiers, indices | UI / `npm run config` / `/set` |
 | Strategy definitions | `src/strategy/normalize.js` | targets, stop bounds, hold periods | code change — see [strategies.md](strategies.md) |
@@ -219,16 +219,53 @@ Orders page marked `DRY-RUN`, so you can review exactly what it would have done.
 ## Routine operations
 
 ```bash
-# update the VM copy (it does not follow main on its own)
-cd ~/swing-stocks && git pull && npm ci && ./scripts/setup-vm.sh --units
+# update the VM copy (it does not follow main on its own).
+# deploy.sh pulls fast-forward-only, runs the tests BEFORE restarting anything,
+# and refuses to run inside the 15:38 ET execution window.
+cd ~/swing-stocks && ./scripts/deploy.sh
+./scripts/deploy.sh --check                 # see what it would do, change nothing
 
 npm run config                              # show trading limits
 npm run config maxConcurrentPositions 8     # change one
 
-journalctl -u swing-sameday.service -n 100  # last run
-journalctl -u swing-bot -f                  # bot, live
+tail -f logs/swing.log                      # everything, live, one file
+grep PLACED logs/swing.log | tail -20       # just the entries
+./scripts/setup-vm.sh --check               # verify units + config paths agree
 systemctl list-timers                       # schedules
 ```
+
+Also from Telegram: `/deploy check`, then `/deploy CONFIRM`.
+
+## 8. The log dashboard (optional)
+
+One page showing the shared log live, plus timer/service state and today's
+counts. It serves your trading activity, so it will not start without
+credentials:
+
+```bash
+read -rs PW && printf '%s' "$PW" | sha256sum && unset PW   # copy the 64-char digest
+
+cat >> ~/swing-stocks/swing-config/swing.env <<'EOF'
+DASHBOARD_USER=admin
+DASHBOARD_PASSWORD_HASH=<the digest>
+DASHBOARD_PORT=8444
+DASHBOARD_BIND=127.0.0.1
+EOF
+
+./scripts/setup-vm.sh --units
+sudo systemctl enable --now swing-dashboard
+```
+
+It speaks plain HTTP, so basic-auth credentials cross the network in base64.
+With `DASHBOARD_BIND=127.0.0.1` it is unreachable except through a tunnel:
+
+```bash
+ssh -L 8444:localhost:8444 YOUR_VM      # then open http://localhost:8444
+```
+
+Set `DASHBOARD_BIND=0.0.0.0` only behind a firewall rule that restricts the
+source IP. It **cannot** share the ORB dashboard's port 8443 — one listening
+socket belongs to one process; a second bind gets `EADDRINUSE`.
 
 From Telegram: `/health`, `/status`, `/positions`, `/pnl`, `/log`, `/errors`,
 `/pause`, `/resume`, `/flatten CONFIRM`.
@@ -242,6 +279,7 @@ From Telegram: `/health`, `/status`, `/positions`, `/pnl`, `/log`, `/errors`,
 | `PERMISSION_DENIED` on Firestore | Missing `roles/datastore.user` **on the Firebase project** (5a). |
 | `Request had insufficient authentication scopes` from `gcloud` | You ran it on the VM. Use Cloud Shell. |
 | `FIREBASE_PROJECT_ID must be set` | Config dir exists but `swing.env` doesn't (5b). |
+| `TELEGRAM_BOT_TOKEN is required` in a restart loop, with the token clearly set | The unit's `EnvironmentFile` points at a path the config has since **moved away from** — systemd starts it with an empty environment, so *every* variable is missing and the error names only the first one checked. Run `./scripts/setup-vm.sh --check`: it compares each unit's `EnvironmentFile` against where the config actually is. Fix with `./scripts/setup-vm.sh --units && sudo systemctl restart swing-bot`. |
 | Many `bars unavailable … blocked or timed out` | Keyless endpoints rate-limiting. Set `ALPACA_KEY`/`SECRET`. |
 | `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
 | `DEADLINE: past 15:58 ET` | Scan outran the window. Fire earlier or use `core`. |

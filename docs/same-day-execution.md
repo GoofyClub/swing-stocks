@@ -65,7 +65,7 @@ Your existing Alpaca **paper** keys work — market data is the free IEX feed, a
 Alpaca is reliable from datacenter IPs (unlike the public endpoints):
 
 ```bash
-cat >> ~/swing-config/swing.env <<'EOF'
+cat >> ~/swing-stocks/swing-config/swing.env <<'EOF'
 ALPACA_KEY=your-alpaca-key
 ALPACA_SECRET=your-alpaca-secret
 EOF
@@ -86,7 +86,7 @@ US bars: 1050 ok, 453 failed (30%) — HIGH. Likely rate-limiting …
 The two entry paths must scan the same names or they cannot be compared. The
 runner defaults to `core` (51 names); `refresh-signals` is usually run with
 `broad`, which for US means the **full S&P universe file (1,503 names)** — *not*
-the 113-name broad watchlist. To match, add to `~/swing-config/swing.env`:
+the 113-name broad watchlist. To match, add to `~/swing-stocks/swing-config/swing.env`:
 
 ```bash
 WATCHLIST_SET=broad
@@ -214,8 +214,8 @@ project id and the run flags. Creating only the directory and forgetting the fil
 gives `FIREBASE_PROJECT_ID must be set.`
 
 ```bash
-mkdir -p ~/swing-config && chmod 700 ~/swing-config
-cat > ~/swing-config/swing.env <<'EOF'
+mkdir -p ~/swing-stocks/swing-config && chmod 700 ~/swing-stocks/swing-config
+cat > ~/swing-stocks/swing-config/swing.env <<'EOF'
 FIREBASE_PROJECT_ID=your-firebase-project-id
 # Universe to scan. 'core' = 51 names (~15 s). 'broad' = the full S&P universe,
 # 1503 names (~6-7 min) — use this to match what refresh-signals scans.
@@ -227,17 +227,17 @@ WATCHLIST_SET=core
 # ALPACA_SECRET=...
 DRY_RUN=true
 EOF
-chmod 600 ~/swing-config/swing.env
+chmod 600 ~/swing-stocks/swing-config/swing.env
 ```
 
 <details>
 <summary>Alternative: an explicit key file (only if ADC isn't possible)</summary>
 
 ```bash
-mv ~/service-account.json ~/swing-config/service-account.json
-chmod 600 ~/swing-config/service-account.json
+mv ~/service-account.json ~/swing-stocks/swing-config/service-account.json
+chmod 600 ~/swing-stocks/swing-config/service-account.json
 # and add to swing.env:
-# FIREBASE_SERVICE_ACCOUNT_FILE=/home/srinathrn89/swing-config/service-account.json
+# FIREBASE_SERVICE_ACCOUNT_FILE=/home/srinathrn89/swing-stocks/swing-config/service-account.json
 ```
 </details>
 
@@ -245,7 +245,7 @@ chmod 600 ~/swing-config/service-account.json
 
 ```bash
 cd ~/swing-stocks
-set -a && . ~/swing-config/swing.env && set +a
+set -a && . ~/swing-stocks/swing-config/swing.env && set +a
 FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
 ```
 
@@ -271,7 +271,7 @@ After=network-online.target
 Type=oneshot
 User=srinathrn89
 WorkingDirectory=/home/srinathrn89/swing-stocks
-EnvironmentFile=/home/srinathrn89/swing-config/swing.env
+EnvironmentFile=/home/srinathrn89/swing-stocks/swing-config/swing.env
 ExecStart=/usr/bin/node scripts/same-day-trade.mjs
 EOF
 
@@ -314,7 +314,7 @@ systemctl status swing-sameday.service
 Run it by hand at any time (bypasses the window check, submits nothing):
 
 ```bash
-cd ~/swing-stocks && set -a && . ~/swing-config/swing.env && set +a
+cd ~/swing-stocks && set -a && . ~/swing-stocks/swing-config/swing.env && set +a
 FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
 ```
 
@@ -337,7 +337,7 @@ Type=oneshot
 # user if you installed somewhere else.
 User=srinathrn89
 WorkingDirectory=/home/srinathrn89/swing-stocks
-EnvironmentFile=/home/srinathrn89/swing-config/swing.env
+EnvironmentFile=/home/srinathrn89/swing-stocks/swing-config/swing.env
 ExecStart=/usr/bin/node scripts/same-day-trade.mjs
 ```
 

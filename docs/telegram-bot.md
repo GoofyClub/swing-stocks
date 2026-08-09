@@ -38,7 +38,7 @@ as safe as its allow-list.
 curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id":[0-9-]*'
 ```
 
-**3. Add to `~/swing-config/swing.env`:**
+**3. Add to `~/swing-stocks/swing-config/swing.env`:**
 
 ```bash
 TELEGRAM_BOT_TOKEN=123456:ABC-your-token
@@ -50,7 +50,7 @@ REPO_DIR=/home/srinathrn89/swing-stocks  # enables /deploy; omit to disable it
 
 ```bash
 cd ~/swing-stocks
-set -a && . ~/swing-config/swing.env && set +a
+set -a && . ~/swing-stocks/swing-config/swing.env && set +a
 npm run bot
 ```
 
@@ -72,7 +72,7 @@ After=network-online.target
 Type=simple
 User=srinathrn89
 WorkingDirectory=/home/srinathrn89/swing-stocks
-EnvironmentFile=/home/srinathrn89/swing-config/swing.env
+EnvironmentFile=/home/srinathrn89/swing-stocks/swing-config/swing.env
 ExecStart=/usr/bin/node scripts/telegram-bot.mjs
 Restart=always
 RestartSec=10

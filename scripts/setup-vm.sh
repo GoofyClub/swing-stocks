@@ -18,7 +18,23 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_DIR="${SWING_CONFIG_DIR:-$HOME/swing-config}"
+
+# Where swing.env lives. Resolved, not assumed — an existing config is FOUND
+# rather than shadowed by a fresh empty one, because a stale EnvironmentFile
+# path is a silent killer: systemd starts the unit with no variables at all and
+# the bot dies on "TELEGRAM_BOT_TOKEN is required" in a restart loop.
+# Order: explicit override → inside the repo → beside the repo → legacy $HOME.
+if [[ -n "${SWING_CONFIG_DIR:-}" ]]; then
+  CONFIG_DIR="$SWING_CONFIG_DIR"
+elif [[ -f "$REPO_DIR/swing-config/swing.env" ]]; then
+  CONFIG_DIR="$REPO_DIR/swing-config"
+elif [[ -f "$(dirname "$REPO_DIR")/swing-config/swing.env" ]]; then
+  CONFIG_DIR="$(dirname "$REPO_DIR")/swing-config"
+elif [[ -f "$HOME/swing-config/swing.env" ]]; then
+  CONFIG_DIR="$HOME/swing-config"
+else
+  CONFIG_DIR="$REPO_DIR/swing-config"   # new installs: keep it with the code
+fi
 ENV_FILE="$CONFIG_DIR/swing.env"
 RUN_USER="$(id -un)"
 NODE_BIN="$(command -v node || true)"
@@ -63,7 +79,7 @@ fi
 hdr "3. Configuration"
 mkdir -p "$CONFIG_DIR" && chmod 700 "$CONFIG_DIR"
 if [[ -f "$ENV_FILE" ]]; then
-  ok "$ENV_FILE exists (left untouched)"
+  ok "using $ENV_FILE (left untouched)"
 elif [[ "$MODE" == "check" ]]; then
   bad "$ENV_FILE missing"; FAILED=1
 else
@@ -188,8 +204,42 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
+  sudo tee /etc/systemd/system/swing-dashboard.service >/dev/null <<EOF
+[Unit]
+Description=Swing automation log dashboard
+After=network-online.target
+
+[Service]
+Type=simple
+User=$RUN_USER
+WorkingDirectory=$REPO_DIR
+EnvironmentFile=$ENV_FILE
+ExecStart=$NODE_BIN scripts/dashboard.mjs
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
   sudo systemctl daemon-reload
   ok "units written (fires $FIRE_AT ET, watchlist=${WATCHLIST_SET:-core})"
+}
+
+# A unit pointing at a config file that has MOVED starts with an empty
+# environment and the service dies on "X is required" — with a message that
+# blames the missing variable, never the path. Compare explicitly.
+check_unit_env() {
+  local unit="$1" want="$2" have
+  have="$(systemctl show -p EnvironmentFiles --value "$unit" 2>/dev/null | sed 's/ (ignore_errors=.*//')"
+  [[ -z "$have" ]] && return 0
+  if [[ "$have" != "$want" ]]; then
+    bad "$unit reads $have but the config is at $want"
+    warn "fix with:  ./scripts/setup-vm.sh --units && sudo systemctl restart ${unit%.service}"
+    FAILED=1
+  else
+    ok "$unit → $want"
+  fi
 }
 
 if [[ "$MODE" == "check" ]]; then
@@ -197,6 +247,8 @@ if [[ "$MODE" == "check" ]]; then
     && ok "swing-sameday.timer installed" || warn "swing-sameday.timer not installed"
   systemctl list-unit-files swing-bot.service >/dev/null 2>&1 \
     && ok "swing-bot.service installed" || warn "swing-bot.service not installed"
+  check_unit_env swing-bot.service "$ENV_FILE"
+  check_unit_env swing-sameday.service "$ENV_FILE"
 else
   if command -v sudo >/dev/null; then
     install_units
@@ -205,6 +257,13 @@ else
       sudo systemctl enable --now swing-bot >/dev/null 2>&1 && ok "telegram bot enabled" || warn "could not enable bot"
     else
       warn "telegram bot NOT enabled — set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_IDS, then: sudo systemctl enable --now swing-bot"
+    fi
+    if [[ -n "${DASHBOARD_USER:-}" && -n "${DASHBOARD_PASSWORD_HASH:-}" ]]; then
+      sudo systemctl enable --now swing-dashboard >/dev/null 2>&1 \
+        && ok "dashboard enabled on port ${DASHBOARD_PORT:-8444}" || warn "could not enable dashboard"
+    else
+      warn "dashboard NOT enabled — set DASHBOARD_USER and DASHBOARD_PASSWORD_HASH, then: sudo systemctl enable --now swing-dashboard"
+      warn "  hash a password:  read -rs PW && printf '%s' \"\$PW\" | sha256sum && unset PW"
     fi
   else
     warn "sudo unavailable — install units manually (see docs/setup.md)"

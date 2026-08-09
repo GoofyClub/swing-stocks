@@ -12,8 +12,9 @@ import {
   marketClock, inEntryWindow, entryLimitPrice, placedStopPrice, PLACED_STOP_PCT, inCloseWindow,
   inReentryCooldown, REENTRY_COOLDOWN_DAYS,
 } from '../src/auto/engine.js';
-import { resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
+import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets, indexAllowed } from '../src/data/indexes.js';
+import { TRAILING_STRATEGIES, settleSignal } from '../src/strategy/normalize.js';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -325,6 +326,99 @@ console.log('\n--- buildBracketOrder ---');
   t('pending stop entry rounds to penny', subPenny.stopPrice === 45.06);
   t('sub-dollar prices keep 4 decimals', brokerPrice(0.12345) === 0.1235 && brokerPrice(0.1234) === 0.1234);
   t('at/above $1 rounds to pennies', brokerPrice(1.005) === 1.01 || brokerPrice(1.005) === 1.0); // fp-safe: must be a penny increment
+}
+
+console.log('\n--- take-profit leg matches the settlement model ---');
+{
+  // The defect this guards against: trend strategies are settled by
+  // settleTrailing(), which has NO fixed target — it rides the position until
+  // the trailing or time stop. Sending a take_profit for those made the broker
+  // cap exactly the outsized winners the model depends on, so live results
+  // could only ever underperform the backtest. Every TRAILING_STRATEGIES key
+  // must ship stop-only; everything else keeps its target.
+  const build = (strategyKey, extra = {}) => buildBracketOrder({
+    signal: sig({ strategyKey, ...extra }), shares: 10, clientOrderId: 'x',
+  });
+
+  for (const key of TRAILING_STRATEGIES) {
+    const o = build(key);
+    t(`${key}: no take-profit leg`, o.takeProfit === null);
+    t(`${key}: still protected by a stop`, o.stopLoss?.stopPrice === 95);
+    t(`${key}: labelled as trailing`, o.exitModel === 'trail');
+  }
+
+  for (const key of ['rsi2', 'quality_dip', 'fvg']) {
+    const o = build(key);
+    t(`${key}: keeps its take-profit`, o.takeProfit?.limitPrice === 110);
+    t(`${key}: labelled as target`, o.exitModel === 'target');
+  }
+
+  // The rule must hold on EVERY entry path, or the same-day runner would
+  // silently re-introduce the cap the morning runner avoids.
+  const sameDayTrend = buildBracketOrder({
+    signal: sig({ strategyKey: 'vcp' }), shares: 10, clientOrderId: 'x', entryType: 'market',
+  });
+  t('market entry on a trend strategy also omits the TP', sameDayTrend.takeProfit === null);
+  const sameDayMeanRev = buildBracketOrder({
+    signal: sig({ strategyKey: 'rsi2' }), shares: 10, clientOrderId: 'x', entryType: 'market',
+  });
+  t('market entry on rsi2 keeps the TP', sameDayMeanRev.takeProfit?.limitPrice === 110);
+  // Buy-stop entries too.
+  const pendingTrend = buildBracketOrder({
+    signal: sig({ strategyKey: 'pullback', pendingEntry: true }), shares: 10, clientOrderId: 'x',
+  });
+  t('pending stop-entry on a trend strategy omits the TP', pendingTrend.takeProfit === null);
+
+  // An unknown/missing strategyKey must NOT silently drop the stop-protection
+  // decision — it falls back to the target model, which is the safer default
+  // (a capped winner beats an unmanaged position).
+  t('unknown strategyKey keeps the TP', build('not_a_strategy').takeProfit?.limitPrice === 110);
+  t('missing strategyKey keeps the TP',
+    buildBracketOrder({ signal: { ticker: 'A', side: 'buy', entryPrice: 100, tpPrice: 110, slPrice: 95 }, shares: 10, clientOrderId: 'x' }).takeProfit?.limitPrice === 110);
+
+  // The settlement model and the order builder must never drift apart: whatever
+  // settleSignal routes to settleTrailing is exactly what ships without a TP.
+  // settleTrailing exits only on 'trail' / 'sl' / 'time_stop' — never 'tp'.
+  const bars = [
+    { date: '2026-01-02', open: 100, high: 130, low: 99, close: 128, volume: 1e6 },
+    { date: '2026-01-05', open: 128, high: 132, low: 100, close: 101, volume: 1e6 },
+  ];
+  const trendVerdict = settleSignal({ entry: 100, tp: 110, sl: 95, strategyKey: 'vcp', pendingEntry: false }, bars, {});
+  t('settleTrailing ignores the fixed target entirely', trendVerdict.exitReason !== 'tp');
+  const targetVerdict = settleSignal({ entry: 100, tp: 110, sl: 95, strategyKey: 'rsi2', pendingEntry: false }, bars, {});
+  t('target strategies still settle on tp', targetVerdict.exitReason === 'tp');
+}
+
+console.log('\n--- order_class is derived from the legs actually present ---');
+{
+  // Alpaca REJECTS order_class:'bracket' unless BOTH legs are supplied, so a
+  // stop-only trend entry must go out as 'oto'. Without this the TP fix above
+  // would turn every trend signal into a broker rejection.
+  const sent = [];
+  const fakeFetch = async (url, opts) => {
+    sent.push(JSON.parse(opts.body));
+    return { ok: true, status: 200, statusText: 'OK', text: async () => '{"id":"o1"}' };
+  };
+  const client = createAlpacaClient({
+    baseUrl: 'https://paper-api.alpaca.markets', apiKey: 'k', apiSecret: 's', fetchImpl: fakeFetch,
+  });
+
+  await client.submitBracketOrder(buildBracketOrder({ signal: sig({ strategyKey: 'rsi2' }), shares: 10, clientOrderId: 'a' }));
+  t('both legs → order_class bracket', sent[0].order_class === 'bracket');
+  t('bracket carries take_profit', sent[0].take_profit?.limit_price === '110');
+  t('bracket carries stop_loss', sent[0].stop_loss?.stop_price === '95');
+
+  await client.submitBracketOrder(buildBracketOrder({ signal: sig({ strategyKey: 'vcp' }), shares: 10, clientOrderId: 'b' }));
+  t('stop-only → order_class oto', sent[1].order_class === 'oto');
+  t('oto sends no take_profit', sent[1].take_profit === undefined);
+  t('oto still sends stop_loss', sent[1].stop_loss?.stop_price === '95');
+
+  // Degenerate case: no protective legs at all must not send a legs-less
+  // order_class (a guaranteed rejection) — degrade to a plain order.
+  await client.submitBracketOrder({
+    symbol: 'A', qty: 1, side: 'buy', type: 'market', clientOrderId: 'c', takeProfit: null, stopLoss: null,
+  });
+  t('no legs → no order_class at all', sent[2].order_class === undefined);
 }
 
 console.log('\n--- modelExitAction (broker exit management) ---');

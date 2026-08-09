@@ -7,7 +7,7 @@
 // the parts that don't apply here (rvol/gap are ORB entry params; this system's
 // tuning lives in the per-user automation config).
 //
-//   MONITOR   /health  /status  /positions  /pnl  /log [n]  /errors
+//   MONITOR   /health  /status  /positions  /pnl  /log [n] [filter]  /errors
 //   CONTROL   /pause  /resume  /flatten  /exclude [add|remove|list]  /config
 //             /set <field> <value>   /deploy
 //
@@ -34,8 +34,13 @@ import { loadConfig, describeConfig } from '../src/config/env.js';
 import { initFirestore, admin } from '../src/config/firebaseAdmin.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { sendTelegram } from '../src/data/telegram.js';
+import { attachFileLog, tailLog, resolveLogFile } from './lib/logfile.mjs';
 
 const execFileAsync = promisify(execFile);
+// Attach before loadConfig() so a startup failure (a missing token, a bad
+// EnvironmentFile path) is recorded in the shared log rather than only in this
+// unit's journal — that failure is exactly the one you go looking for later.
+attachFileLog('bot');
 const cfg = loadConfig();
 const TOKEN = cfg.TELEGRAM_BOT_TOKEN;
 const ALLOWED = new Set(cfg.TELEGRAM_ALLOWED_CHAT_IDS.map(String));
@@ -112,7 +117,7 @@ const COMMANDS = {
       '/status — automation state, equity, open count',
       '/positions — open positions',
       '/pnl — realized + unrealized P&amp;L',
-      '/log [n] — last worker run log (default 20 lines)',
+      '/log [n] [filter] — shared log tail, e.g. <code>/log 40 PLACED</code>',
       '/errors — recent failed runs', '',
       '<b>CONTROL</b>',
       '/pause — stop all new entries (persists)',
@@ -121,7 +126,7 @@ const COMMANDS = {
       '/exclude [add|remove|list] TICKER — never-trade list',
       '/set &lt;field&gt; &lt;value&gt; — change an automation setting',
       '/config — effective runtime config (secrets masked)',
-      '/deploy CONFIRM — git pull + npm ci',
+      '/deploy CONFIRM — pull, test, restart (<code>/deploy check</code> to preview)',
     ].join('\n');
   },
 
@@ -212,14 +217,29 @@ const COMMANDS = {
     ].filter(Boolean).join('\n');
   },
 
+  // Reads the SHARED log file, so it shows every process on this box in one
+  // interleaved sequence — the runner, this bot, and deploys. Firestore's
+  // cronRuns holds only what the GitHub workers recorded, and each doc covers
+  // one job; that is the fallback when the file isn't there (e.g. a fresh box).
+  // An optional second argument filters: /log 40 PLACED
   async log(args) {
-    const n = Math.min(Math.max(parseInt(args[0], 10) || 20, 1), 60);
+    const n = Math.min(Math.max(parseInt(args[0], 10) || 20, 1), 80);
+    const filter = args.slice(1).join(' ').trim() || null;
+    let text = '';
+    try { text = tailLog(n, filter ? { grep: filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') } : {}); }
+    catch { /* fall through to Firestore */ }
+    if (text.trim()) {
+      const head = `<b>${esc(resolveLogFile().split('/').pop())}</b> · last ${text.split('\n').length} line(s)`
+        + (filter ? ` matching <code>${esc(filter)}</code>` : '');
+      // Telegram rejects messages over ~4096 chars; keep the NEWEST lines.
+      return `${head}\n<pre>${esc(text.slice(-3400))}</pre>`;
+    }
     const runs = await recentRuns(1);
-    if (!runs.length) return 'No runs recorded.';
+    if (!runs.length) return 'No log file on this box and no runs recorded.';
     const r = runs[0];
     const logs = (r.logs || []).slice(-n);
     if (!logs.length) return `Last run (${esc(r.job)}) recorded no log lines.`;
-    return `<b>${esc(r.job)}</b> · last ${logs.length} line(s)\n<pre>${esc(logs.join('\n'))}</pre>`;
+    return `<b>${esc(r.job)}</b> (from Firestore — no local log file) · last ${logs.length} line(s)\n<pre>${esc(logs.join('\n'))}</pre>`;
   },
 
   async errors() {
@@ -319,18 +339,30 @@ const COMMANDS = {
     return `<b>Runtime config</b> (secrets masked)\n<pre>${esc(describeConfig(cfg))}</pre>`;
   },
 
+  // Delegates to scripts/deploy.sh — one deploy procedure, whether it is
+  // triggered from Telegram or from a shell. The script owns the ordering that
+  // matters (verify before restart, refuse mid-session, restart the bot
+  // detached because this process is its own parent here).
   async deploy(args) {
     if (!cfg.REPO_DIR) return '❌ /deploy is disabled — set REPO_DIR to the checkout path to enable it.';
-    if ((args[0] || '').toUpperCase() !== 'CONFIRM') {
-      return `⚠️ This runs <code>git pull &amp;&amp; npm ci</code> in ${esc(cfg.REPO_DIR)}.\nScheduled runs use the code on disk, so this changes what trades next.\nSend <code>/deploy CONFIRM</code> to proceed.`;
+    const dry = (args[0] || '').toLowerCase() === 'check';
+    if (!dry && (args[0] || '').toUpperCase() !== 'CONFIRM') {
+      return '⚠️ <code>/deploy CONFIRM</code> pulls, runs the tests, and restarts the services in '
+        + `${esc(cfg.REPO_DIR)}.\nScheduled runs use the code on disk, so this changes what trades next.\n`
+        + 'It refuses to run inside the 15:38 ET window.\nUse <code>/deploy check</code> to see what would happen first.';
     }
-    const run = async (cmd, cmdArgs) => (await execFileAsync(cmd, cmdArgs, { cwd: cfg.REPO_DIR, timeout: 300_000 })).stdout.trim();
     try {
-      const pull = await run('git', ['pull', '--ff-only']);
-      const head = await run('git', ['log', '-1', '--pretty=%h %s']);
-      await run('npm', ['ci']);
-      return `✅ Deployed.\n<pre>${esc(pull)}\n\nHEAD: ${esc(head)}</pre>\nRestart the bot to pick up its own changes: <code>sudo systemctl restart swing-bot</code>`;
-    } catch (e) { return `❌ Deploy failed:\n<pre>${esc(String(e.stderr || e.message).slice(0, 600))}</pre>`; }
+      // Generous timeout: npm ci plus the full suite is slower than a git pull.
+      const { stdout, stderr } = await execFileAsync(
+        'bash', ['scripts/deploy.sh', dry ? '--check' : ''].filter(Boolean),
+        { cwd: cfg.REPO_DIR, timeout: 600_000, maxBuffer: 4 * 1024 * 1024 },
+      );
+      const out = `${stdout}${stderr}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
+      return `${dry ? '🔎 Deploy check' : '✅ Deploy'}\n<pre>${esc(out.slice(-3000))}</pre>`;
+    } catch (e) {
+      const out = `${e.stdout || ''}${e.stderr || e.message}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
+      return `❌ Deploy failed — the previous code is still running.\n<pre>${esc(out.slice(-3000))}</pre>`;
+    }
   },
 };
 

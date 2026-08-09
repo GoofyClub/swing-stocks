@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { indexMemberships, indexAllowed } from '../data/indexes.js';
+import { usesTrailingExit } from '../strategy/normalize.js';
 // Every tunable trading knob lives in ONE file — see src/config/trading.js.
 // Re-exported here so existing importers of engine.js keep working.
 import {
@@ -281,8 +282,18 @@ export function brokerPrice(x) {
   return x >= 1 ? Math.round(x * 100) / 100 : Math.round(x * 10000) / 10000;
 }
 
-// Broker-agnostic bracket-order intent. The adapter translates this to its own
-// API shape. We always attach the stop + target so a fill is protected.
+// Broker-agnostic protective-order intent. The adapter translates this to its
+// own API shape. The stop is ALWAYS attached so a fill is protected.
+//
+// The take-profit leg is attached only for strategies the settlement model
+// actually settles against a fixed target. The trend/breakout strategies
+// (TRAILING_STRATEGIES) are modelled with a trailing stop and NO fixed target —
+// settleTrailing() never exits on `tp`. Sending a take_profit for those would
+// make the broker cap exactly the winners the model relies on to pay for the
+// losers: the position gets closed at signal.tpPrice while the model is still
+// riding it, so live results diverge from the backtest in the one direction that
+// matters. Those orders go out with a stop only; the trailing exit is applied by
+// the exit-management pass, which acts on the `trail` verdict (modelExitAction).
 //
 // Entries are LIMIT orders bounded by the slippage budget (not market) so a run
 // that fires late — after GitHub Actions lag — can't chase a moved price: it
@@ -300,6 +311,7 @@ export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudge
   const pending = !!signal.pendingEntry;
   const market = entryType === 'market';
   const limitPrice = (pending || market) ? null : entryLimitPrice(signal.entryPrice, signal.side, slippageBudgetPct);
+  const trailing = usesTrailingExit(signal.strategyKey);
   return {
     clientOrderId,
     symbol: signal.ticker,
@@ -309,7 +321,10 @@ export function buildBracketOrder({ signal, shares, clientOrderId, slippageBudge
     stopPrice: (!market && pending) ? brokerPrice(signal.entryPrice) : null,
     limitPrice: brokerPrice(limitPrice),
     timeInForce: 'gtc',
-    takeProfit: signal.tpPrice != null ? { limitPrice: brokerPrice(signal.tpPrice) } : null,
+    takeProfit: (!trailing && signal.tpPrice != null) ? { limitPrice: brokerPrice(signal.tpPrice) } : null,
     stopLoss: signal.slPrice != null ? { stopPrice: brokerPrice(signal.slPrice) } : null,
+    // Why the TP is absent, for the journal and the logs. Without this a missing
+    // take_profit reads as a bug rather than the modelled behaviour.
+    exitModel: trailing ? 'trail' : 'target',
   };
 }
