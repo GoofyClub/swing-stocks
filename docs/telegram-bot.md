@@ -115,3 +115,18 @@ journalctl -u swing-bot -f
   `sudo systemctl restart swing-bot`.
 - With more than one automation-enabled user, set `TELEGRAM_ADMIN_UID`. The bot
   refuses to guess rather than risk acting on the wrong account.
+
+
+## Running alongside another control bot
+
+Several bots can share one Telegram app, and their commands overlap while taking
+**different arguments** — ORB's `/deploy` takes a git ref; this one takes
+`CONFIRM`. Sending the wrong form to the wrong bot produces a confusing failure
+(`fatal: couldn't find remote ref CONFIRM` is ORB reading `CONFIRM` as a branch).
+
+Replies from this bot are labelled so it is clear which system answered. Set
+`BOT_LABEL` in `swing-config/swing.env` to name it — `Swing` by default:
+
+```bash
+BOT_LABEL=RSI2
+```

@@ -59,6 +59,8 @@ export const CONFIG_SPEC = [
     desc: 'SECURITY-CRITICAL allow-list of chat ids permitted to issue commands. The bot refuses to start when empty — an open control bot lets anyone who finds it flatten your positions.' },
   { key: 'TELEGRAM_ADMIN_UID', type: S, default: '', scope: 'bot',
     desc: 'Firestore user id the bot reports on and controls. Defaults to the single automation-enabled user when exactly one exists.' },
+  { key: 'BOT_LABEL', type: S, default: 'Swing', scope: 'bot',
+    desc: 'Name this bot puts on its replies. Matters when several control bots share a Telegram app: the commands overlap (/deploy, /health) but take DIFFERENT arguments, so an unlabelled reply leaves you unsure which system just acted.' },
   { key: 'BOT_POLL_SECONDS', type: N, default: 25, scope: 'bot',
     desc: 'Telegram long-poll timeout. 25s keeps the connection cheap and responsive.' },
   { key: 'REPO_DIR', type: S, default: '', scope: 'bot',

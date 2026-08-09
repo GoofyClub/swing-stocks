@@ -67,6 +67,12 @@ if (!ALLOWED.size) {
   process.exit(1);
 }
 
+// Which system this bot controls. Several control bots can share one Telegram
+// app with the same command names but different arguments — ORB's /deploy takes
+// a git ref, this one takes CONFIRM — so a reply that does not say who it came
+// from leaves you guessing which system just acted on your message.
+const LABEL = cfg.BOT_LABEL || 'Swing';
+
 const db = initFirestore({ log: (m) => console.log(`[bot] ${m}`) });
 const send = (chatId, text) => sendTelegram(TOKEN, chatId, text).catch(e => console.error('[bot] send failed', e.message));
 const fmtUsd = (n) => (n == null || !Number.isFinite(n)) ? '—' : (n >= 0 ? '$' : '-$') + Math.abs(n).toFixed(2);
@@ -134,7 +140,7 @@ const uptime = () => {
 const COMMANDS = {
   async help() {
     return [
-      '<b>Swing Control Panel</b>', '',
+      `<b>${esc(LABEL)} Control Panel</b>`, '',
       '<b>MONITOR</b>',
       '/health — bot, broker and last-run status',
       '/status — automation state, equity, open count',
@@ -155,7 +161,7 @@ const COMMANDS = {
   },
 
   async health() {
-    const lines = [`<b>Health</b>`, `bot uptime: ${uptime()}`];
+    const lines = [`<b>${esc(LABEL)} — Health</b>`, `bot uptime: ${uptime()}`];
     try {
       const paused = await isPaused();
       lines.push(`automation: ${paused ? '⛔ PAUSED' : '✅ active'}`);
@@ -397,7 +403,7 @@ const COMMANDS = {
     try { ({ stdout } = await run()); }
     catch (e) { stdout = e.stdout; if (!stdout) return `❌ validation could not run: ${esc(e.message)}`; }
     try {
-      return formatValidationMessage(JSON.parse(stdout)) + await dashboardLine();
+      return `<b>${esc(LABEL)}</b>\n` + formatValidationMessage(JSON.parse(stdout)) + await dashboardLine();
     } catch (e) {
       return `❌ could not parse the validation result: ${esc(e.message)}`;
     }
@@ -412,7 +418,7 @@ const COMMANDS = {
     const repoDir = cfg.REPO_DIR || SELF_REPO_DIR;
     const dry = (args[0] || '').toLowerCase() === 'check';
     if (!dry && (args[0] || '').toUpperCase() !== 'CONFIRM') {
-      return '⚠️ <code>/deploy CONFIRM</code> pulls, runs the tests, and restarts the services in '
+      return `⚠️ <b>${esc(LABEL)}</b> — <code>/deploy CONFIRM</code> pulls, runs the tests, and restarts the services in `
         + `${esc(repoDir)}.\nScheduled runs use the code on disk, so this changes what trades next.\n`
         + 'It refuses to run inside the 15:38 ET window.\nUse <code>/deploy check</code> to see what would happen first.';
     }
@@ -423,11 +429,11 @@ const COMMANDS = {
         { cwd: repoDir, timeout: 600_000, maxBuffer: 4 * 1024 * 1024 },
       );
       const out = `${stdout}${stderr}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
-      return `${dry ? '🔎 Deploy check' : '✅ Deploy'}\n<pre>${esc(out.slice(-3000))}</pre>`
+      return `${dry ? '🔎' : '✅'} <b>${esc(LABEL)}</b> ${dry ? 'deploy check' : 'deployed'}\n<pre>${esc(out.slice(-3000))}</pre>`
         + await dashboardLine();
     } catch (e) {
       const out = `${e.stdout || ''}${e.stderr || e.message}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
-      return `❌ Deploy failed — the previous code is still running.\n<pre>${esc(out.slice(-3000))}</pre>`;
+      return `❌ <b>${esc(LABEL)}</b> deploy failed — the previous code is still running.\n<pre>${esc(out.slice(-3000))}</pre>`;
     }
   },
 };
