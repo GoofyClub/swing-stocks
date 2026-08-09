@@ -28,6 +28,9 @@
 // See src/config/env.js — every setting is declared there.
 // =============================================================================
 
+// Load swing-config/swing.env before anything reads process.env. systemd
+// supplies these via EnvironmentFile; a manual `npm run` does not.
+import './lib/load-env.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { loadConfig, describeConfig } from '../src/config/env.js';

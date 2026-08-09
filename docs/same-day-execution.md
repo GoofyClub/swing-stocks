@@ -245,7 +245,6 @@ chmod 600 ~/swing-stocks/swing-config/service-account.json
 
 ```bash
 cd ~/swing-stocks
-set -a && . ~/swing-stocks/swing-config/swing.env && set +a
 FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
 ```
 
@@ -314,7 +313,7 @@ systemctl status swing-sameday.service
 Run it by hand at any time (bypasses the window check, submits nothing):
 
 ```bash
-cd ~/swing-stocks && set -a && . ~/swing-stocks/swing-config/swing.env && set +a
+cd ~/swing-stocks
 FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
 ```
 

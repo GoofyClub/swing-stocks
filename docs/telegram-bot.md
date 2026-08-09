@@ -50,7 +50,6 @@ REPO_DIR=/home/srinathrn89/swing-stocks  # enables /deploy; omit to disable it
 
 ```bash
 cd ~/swing-stocks
-set -a && . ~/swing-stocks/swing-config/swing.env && set +a
 npm run bot
 ```
 

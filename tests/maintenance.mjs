@@ -14,6 +14,10 @@
 import { reconcileOrders } from '../scripts/lib/reconcile.mjs';
 import { realizeOutcomes } from '../scripts/lib/realize.mjs';
 import { snapshotEquity } from '../scripts/lib/equity.mjs';
+import { loadEnvFile } from '../scripts/lib/load-env.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -232,6 +236,69 @@ console.log('\n--- snapshotEquity: the drawdown ratchet ---');
   t('a fresh account seeds the peak from today', dd.peak === 5000);
   t('a fresh account is not halted', dd.halted === false);
   t('drawdown is a finite number', Number.isFinite(dd.drawdownPct));
+}
+
+console.log('\n--- loadEnvFile: manual runs must see the same config as systemd ---');
+{
+  // The bug this prevents: systemd applies EnvironmentFile=, an interactive
+  // shell does not, so `npm run auto:maintenance` died on "FIREBASE_PROJECT_ID
+  // must be set" while the identical systemd unit worked. Same file, same code,
+  // opposite result — which reads as a broken config rather than a missing
+  // `set -a && . swing.env`.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swing-env-'));
+  const file = path.join(dir, 'swing.env');
+  fs.writeFileSync(file, [
+    '# a comment',
+    '',
+    'FIREBASE_PROJECT_ID=proj-123',
+    'export ALPACA_KEY="quoted-value"',
+    "ALPACA_SECRET='single-quoted'",
+    'DRY_RUN=false',
+    'ALREADY_SET=from-file',
+    'not a valid line',
+    '=novalue',
+    'EMPTY_VALUE=',
+    'WITH_EQUALS=a=b=c',
+  ].join('\n'));
+
+  const env = { ALREADY_SET: 'from-shell' };
+  const r = loadEnvFile({ file, env });
+
+  t('reads the file it was given', r.file === file);
+  t('plain KEY=VALUE loads', env.FIREBASE_PROJECT_ID === 'proj-123');
+  t('strips the "export " prefix bash allows', env.ALPACA_KEY === 'quoted-value');
+  t('strips double quotes', !/"/.test(env.ALPACA_KEY || ''));
+  t('strips single quotes', env.ALPACA_SECRET === 'single-quoted');
+  t('keeps "=" inside a value', env.WITH_EQUALS === 'a=b=c');
+  t('comments and junk lines are ignored', env['not a valid line'] === undefined);
+  t('a nameless key is ignored', env[''] === undefined);
+  t('an empty value still loads as empty', env.EMPTY_VALUE === '');
+
+  // PRECEDENCE is the whole contract: an existing value always wins, so
+  // `DRY_RUN=true npm run ...` overrides the file and systemd (which has already
+  // exported everything) is never fought with.
+  t('an existing environment value is NOT overwritten', env.ALREADY_SET === 'from-shell');
+  t('counts the skip', r.skipped === 1);
+  t('counts what it loaded', r.loaded > 0);
+
+  // Re-running re-applies only the keys whose value is empty. An empty variable
+  // is deliberately treated as UNSET so a stray `export ALPACA_KEY=` in a shell
+  // profile cannot shadow the real value in the config file — a blank key would
+  // otherwise fail authentication with a message about credentials rather than
+  // about the shell. Everything with a real value is left alone.
+  const before = { ...env };
+  const again = loadEnvFile({ file, env });
+  t('a second load re-applies only empty-valued keys', again.loaded === 1);
+  t('no real value is disturbed by re-loading',
+    Object.entries(before).every(([k, v]) => v === '' || env[k] === v));
+  t('an empty env value does not shadow the file', env.EMPTY_VALUE === '');
+
+  // A missing file must be silent, not fatal: a box configured purely through
+  // systemd or CI secrets has no swing.env at all and is perfectly valid.
+  const none = loadEnvFile({ file: path.join(dir, 'nope.env'), env: {} });
+  t('a missing file is not an error', none.loaded === 0 && none.file === null);
+
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 console.log(`\n=============================================`);

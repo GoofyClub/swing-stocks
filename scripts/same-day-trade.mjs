@@ -54,6 +54,9 @@
 //               STRATEGIES (comma list; default: every strategy the user allows)
 // =============================================================================
 
+// Load swing-config/swing.env before anything reads process.env. systemd
+// supplies these via EnvironmentFile; a manual `npm run` does not.
+import './lib/load-env.mjs';
 import admin from 'firebase-admin';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +68,7 @@ import {
   REENTRY_COOLDOWN_DAYS, ORDER_DEADLINE_ET_MIN,
 } from '../src/auto/engine.js';
 import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js';
+import { configErrorHint } from '../src/config/configHint.js';
 import { manageExits } from './lib/exit-pass.mjs';
 import { attachFileLog } from './lib/logfile.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
@@ -104,7 +108,7 @@ function exitLabel(intent) {
 function initAdmin() {
   if (admin.apps.length) return admin.firestore();
   const projectId = process.env.FIREBASE_PROJECT_ID;
-  if (!projectId) throw new Error('FIREBASE_PROJECT_ID must be set.');
+  if (!projectId) throw new Error(configErrorHint('FIREBASE_PROJECT_ID'));
 
   // Credentials, in order of preference:
   //

@@ -18,12 +18,13 @@
 
 import admin from 'firebase-admin';
 import { readFileSync } from 'node:fs';
+import { configErrorHint } from './configHint.js';
 
 export function initFirestore({ log = () => {} } = {}) {
   if (admin.apps.length) return admin.firestore();
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
-  if (!projectId) throw new Error('FIREBASE_PROJECT_ID must be set.');
+  if (!projectId) throw new Error(configErrorHint('FIREBASE_PROJECT_ID'));
 
   const saFile = process.env.FIREBASE_SERVICE_ACCOUNT_FILE;
   const saJson = saFile ? readFileSync(saFile, 'utf8') : process.env.FIREBASE_SERVICE_ACCOUNT_JSON;

@@ -26,6 +26,9 @@
 //   ONLY_UID=<uid>  — restrict the run to a single user (testing)
 // =============================================================================
 
+// Load swing-config/swing.env before anything reads process.env. systemd
+// supplies these via EnvironmentFile; a manual `npm run` does not.
+import './lib/load-env.mjs';
 import admin from 'firebase-admin';
 import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,

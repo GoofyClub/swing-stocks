@@ -32,6 +32,9 @@
 // Generate the hash:   read -rs PW && printf '%s' "$PW" | sha256sum && unset PW
 // =============================================================================
 
+// Load swing-config/swing.env before anything reads process.env. systemd
+// supplies these via EnvironmentFile; a manual `npm run` does not.
+import './lib/load-env.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

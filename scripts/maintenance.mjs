@@ -34,6 +34,9 @@
 //   16:15 ET — after the close, once the day's protective legs have settled
 // =============================================================================
 
+// Load swing-config/swing.env before anything reads process.env. systemd
+// supplies these via EnvironmentFile; a manual `npm run` does not.
+import './lib/load-env.mjs';
 import admin from 'firebase-admin';
 import { initFirestore } from '../src/config/firebaseAdmin.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';

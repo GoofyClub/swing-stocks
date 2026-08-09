@@ -157,12 +157,17 @@ No Firebase credential line — with none set it uses the VM's own service accou
 Every setting is documented in `config/swing.env.example`, generated from
 `src/config/env.js`.
 
+The scripts read this file themselves, so a manual `npm run …` sees exactly the
+same configuration systemd does — no `set -a && . swing.env` step. Anything
+already in your shell still wins, so one-off overrides like
+`DRY_RUN=true npm run auto:maintenance` work as written.
+
 ### 5c. Verify
 
 ```bash
 ./scripts/setup-vm.sh --check
 
-cd ~/swing-stocks && set -a && . ~/swing-stocks/swing-config/swing.env && set +a
+cd ~/swing-stocks
 FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
 ```
 

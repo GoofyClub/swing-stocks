@@ -96,6 +96,21 @@ if [[ -n "${FIREBASE_PROJECT_ID:-}" ]]; then ok "FIREBASE_PROJECT_ID=$FIREBASE_P
 else bad "FIREBASE_PROJECT_ID not set in $ENV_FILE"; FAILED=1; fi
 [[ -n "${ALPACA_KEY:-}" ]] && ok "ALPACA_KEY set (market data)" \
   || warn "ALPACA_KEY unset — keyless endpoints rate-limit on the 1503-name broad universe"
+# Which keys the file actually defines. When a service dies on "X is required"
+# the question is always the same — is X missing from the file, or is the file
+# not being read? Printing the key NAMES (never values) answers it in one line.
+if [[ -f "$ENV_FILE" ]]; then
+  KEYS="$(grep -oE '^[[:space:]]*(export[[:space:]]+)?[A-Z_][A-Z0-9_]*=' "$ENV_FILE" 2>/dev/null \
+          | sed -E 's/^[[:space:]]*(export[[:space:]]+)?//; s/=$//' | sort -u | tr '\n' ' ')"
+  ok "keys defined: ${KEYS:-(none)}"
+fi
+if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+  [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]] \
+    && ok "telegram configured (token + allow-list)" \
+    || { bad "TELEGRAM_BOT_TOKEN set but TELEGRAM_ALLOWED_CHAT_IDS is not — the bot REFUSES to start without the allow-list"; FAILED=1; }
+else
+  warn "TELEGRAM_BOT_TOKEN not in $ENV_FILE — swing-bot will exit on start. Add it there, or disable the service."
+fi
 ok "WATCHLIST_SET=${WATCHLIST_SET:-core}$([[ "${WATCHLIST_SET:-core}" == core ]] && echo '  (51 names; set broad to match refresh-signals)')"
 ok "DRY_RUN=${DRY_RUN:-true}$([[ "${DRY_RUN:-true}" == true ]] && echo '  (simulating — nothing submitted)')"
 
@@ -323,8 +338,8 @@ cat <<EOF
 
 Next:
   1. Dry run now (bypasses the time window, submits nothing):
-       cd $REPO_DIR && set -a && . $ENV_FILE && set +a
-       FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
+       cd $REPO_DIR && FORCE_WINDOW=true DRY_RUN=true npm run auto:sameday
+     (the scripts read $ENV_FILE themselves — no 'set -a && . swing.env' needed)
   2. Confirm the schedule:      systemctl list-timers 'swing-*'
        swing-sameday      15:38 ET  entries + exits
        swing-maintenance  09:45 + 16:15 ET  reconcile, exits, realize, equity
