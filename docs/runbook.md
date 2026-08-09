@@ -122,22 +122,20 @@ IP you typed in yourself, clicking through is reasonable.
 
 ```bash
 cd ~/swing-stocks
-npm run dashboard:cert            # detects this VM's external IP automatically
-# or: ./scripts/make-dashboard-cert.sh 34.23.154.110
-```
-
-It prints the three lines to add to `swing-config/swing.env`:
-
-```bash
-DASHBOARD_BIND=0.0.0.0
-DASHBOARD_CERT_FILE=/home/YOU/swing-stocks/swing-config/dashboard-cert.pem
-DASHBOARD_KEY_FILE=/home/YOU/swing-stocks/swing-config/dashboard-key.pem
-```
-
-```bash
+npm run dashboard:cert -- --apply       # cert + writes the settings into swing.env
 sudo systemctl restart swing-dashboard
-journalctl -u swing-dashboard -n 5     # expect "listening on https://0.0.0.0:8444"
+ss -ltn | grep 8444                     # want 0.0.0.0:8444, NOT 127.0.0.1:8444
 ```
+
+`--apply` backs up `swing.env` first, then sets `DASHBOARD_BIND=0.0.0.0` and the
+two cert paths. Without it the script only prints them for you to paste — and
+generating a cert while leaving `DASHBOARD_BIND=127.0.0.1` is the trap: the
+service stays on loopback and the browser times out exactly as if the firewall
+were wrong.
+
+`ss` is the check that matters. Config says what you asked for; `ss` says what
+the kernel actually bound, and a restart that silently failed leaves the old
+address in place.
 
 Then the firewall. **Scope it to your own IP** — an open 8444 gets found by
 scanners within hours, and while they can't get past the password, they can
