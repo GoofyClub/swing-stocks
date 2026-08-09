@@ -81,6 +81,8 @@ export const CONFIG_SPEC = [
     desc: 'TLS certificate path. Set this AND the key to serve HTTPS — required if you open the port to the internet, or your password and every log line cross it in the clear. Generate: npm run dashboard:cert' },
   { key: 'DASHBOARD_KEY_FILE', type: S, default: '', scope: 'dashboard',
     desc: 'TLS private key path. Must accompany DASHBOARD_CERT_FILE.' },
+  { key: 'DASHBOARD_URL', type: S, default: '', scope: 'dashboard',
+    desc: 'Override the dashboard link the bot shares. Normally unset — it is derived from the bind address, port and whether a cert is configured, so it cannot drift out of sync. Set this only behind a reverse proxy or a custom domain.' },
   { key: 'SWING_LOG_FILE', type: S, default: '', scope: 'dashboard',
     desc: 'Override the shared log path. Default: <repo>/logs/swing.log — every runner, the bot and deploys append to it.' },
 ];

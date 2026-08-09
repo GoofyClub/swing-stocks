@@ -11,6 +11,7 @@
 // =============================================================================
 
 import { formatValidationMessage } from '../scripts/lib/format-validation.mjs';
+import { dashboardUrl, resetDashboardHostCache } from '../scripts/lib/dashboard-url.mjs';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -62,9 +63,12 @@ console.log('\n--- problems come first, with their explanation ---');
   t('problems are placed above warnings',
     out.indexOf('not in the journal') < out.indexOf('DRY_RUN=true'));
   t('the section is named', /Accounts/.test(out));
-  t('a healthy section is compressed to the OK line', /✅ <b>OK:<\/b>.*Config/.test(out));
-  t('a section WITH a problem is not listed as OK',
-    !/✅ <b>OK:<\/b>[^\n]*Accounts/.test(out));
+  // Every check is listed, not just the failures — an all-green report that
+  // shows nothing is indistinguishable from a check that never ran.
+  t('passing checks are shown too', out.includes('node fine'));
+  t('healthy sections still appear', out.includes('Environment'));
+  t('the problem is restated at the top, above the sections',
+    out.indexOf('not in the journal') < out.indexOf('<b>Environment</b>'));
 }
 
 console.log('\n--- key facts surface even when green ---');
@@ -101,6 +105,17 @@ console.log('\n--- Telegram safety ---');
   t('says it was truncated', /truncated/.test(out));
   const tags = (out.match(/<b>/g) || []).length - (out.match(/<\/b>/g) || []).length;
   t('bold tags stay balanced after truncation', tags === 0);
+
+  // Degradation order matters: passing lines are compressed BEFORE anything is
+  // cut, so a long report loses "12 checks passed" rather than a failure.
+  const manyOk = Array.from({ length: 300 }, (_, i) => ({ level: 'ok', message: `check ${i} passed with a fairly wordy description of what it verified` }));
+  const mixed = formatValidationMessage(res([
+    { title: 'Bulk', items: manyOk },
+    { title: 'Accounts', items: [{ level: 'bad', message: 'THE CRITICAL FAILURE' }] },
+  ], { fails: 1 }));
+  t('a long report compresses passing lines', /checks passed/.test(mixed));
+  t('and keeps the failure', mixed.includes('THE CRITICAL FAILURE'));
+  t('still within the limit', mixed.length <= 4096);
 }
 
 console.log('\n--- degenerate input ---');
@@ -108,6 +123,43 @@ console.log('\n--- degenerate input ---');
   t('null does not throw', typeof formatValidationMessage(null) === 'string');
   t('missing sections does not throw', typeof formatValidationMessage({}) === 'string');
   t('empty sections renders a verdict', formatValidationMessage(res([])).startsWith('🟢'));
+}
+
+console.log('\n--- dashboard URL is derived, never stale ---');
+{
+  const url = (env) => dashboardUrl({ env, fetchImpl: async () => ({ ok: true, text: async () => '34.23.154.110' }) });
+  // Scheme follows the cert, so switching TLS on cannot leave a dead http link.
+  t('http without a cert', await url({ DASHBOARD_BIND: '0.0.0.0', DASHBOARD_PORT: '8444' })
+    === 'http://34.23.154.110:8444');
+  t('https once a cert is configured', await url({
+    DASHBOARD_BIND: '0.0.0.0', DASHBOARD_PORT: '8444',
+    DASHBOARD_CERT_FILE: '/c.pem', DASHBOARD_KEY_FILE: '/k.pem',
+  }) === 'https://34.23.154.110:8444');
+  t('a cert without its key is not treated as TLS', await url({
+    DASHBOARD_BIND: '0.0.0.0', DASHBOARD_CERT_FILE: '/c.pem',
+  }) === 'http://34.23.154.110:8444');
+  t('the port is honoured', await url({ DASHBOARD_BIND: '0.0.0.0', DASHBOARD_PORT: '9999' })
+    === 'http://34.23.154.110:9999');
+
+  // Loopback has no URL that works from anywhere else — offering one would lie.
+  resetDashboardHostCache();
+  t('loopback yields no link', await url({ DASHBOARD_BIND: '127.0.0.1' }) === null);
+  resetDashboardHostCache();
+  t('an explicit bind address is used directly',
+    await url({ DASHBOARD_BIND: '10.0.0.5', DASHBOARD_PORT: '8444' }) === 'http://10.0.0.5:8444');
+  resetDashboardHostCache();
+  t('DASHBOARD_URL overrides everything',
+    await url({ DASHBOARD_URL: 'https://swing.example.com', DASHBOARD_BIND: '127.0.0.1' })
+      === 'https://swing.example.com');
+
+  // Off GCE the metadata server is unreachable; that must yield no link rather
+  // than a broken one or an exception.
+  resetDashboardHostCache();
+  const noMeta = await dashboardUrl({
+    env: { DASHBOARD_BIND: '0.0.0.0' },
+    fetchImpl: async () => { throw new Error('ENOTFOUND'); },
+  });
+  t('no metadata server yields null, not a throw', noMeta === null);
 }
 
 console.log(`\n=============================================`);

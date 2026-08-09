@@ -39,6 +39,7 @@ import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/
 import { sendTelegram } from '../src/data/telegram.js';
 import { attachFileLog, tailLog, resolveLogFile } from './lib/logfile.mjs';
 import { formatValidationMessage } from './lib/format-validation.mjs';
+import { dashboardUrl } from './lib/dashboard-url.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -113,6 +114,15 @@ async function recentRuns(limit = 5) {
   return snap.docs.map(d => d.data());
 }
 
+// Appended to replies that report system state. Resolved each time rather than
+// stored, so it can never drift from the dashboard's actual scheme or port.
+async function dashboardLine() {
+  try {
+    const url = await dashboardUrl();
+    return url ? `\n\n📊 <a href="${url}">${url}</a>` : '';
+  } catch { return ''; }
+}
+
 const uptime = () => {
   const s = Math.floor((Date.now() - START) / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -184,7 +194,7 @@ const COMMANDS = {
         lines.push(`${r.ok ? '✅' : '❌'} ${esc(r.job)} ${when} placed=${r.placed ?? 0} skipped=${r.skipped ?? 0}`);
       }
     } catch (e) { lines.push(`runs: ⚠️ ${esc(e.message)}`); }
-    return lines.join('\n');
+    return lines.join('\n') + await dashboardLine();
   },
 
   async status() {
@@ -387,7 +397,7 @@ const COMMANDS = {
     try { ({ stdout } = await run()); }
     catch (e) { stdout = e.stdout; if (!stdout) return `❌ validation could not run: ${esc(e.message)}`; }
     try {
-      return formatValidationMessage(JSON.parse(stdout));
+      return formatValidationMessage(JSON.parse(stdout)) + await dashboardLine();
     } catch (e) {
       return `❌ could not parse the validation result: ${esc(e.message)}`;
     }
@@ -413,7 +423,8 @@ const COMMANDS = {
         { cwd: repoDir, timeout: 600_000, maxBuffer: 4 * 1024 * 1024 },
       );
       const out = `${stdout}${stderr}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
-      return `${dry ? '🔎 Deploy check' : '✅ Deploy'}\n<pre>${esc(out.slice(-3000))}</pre>`;
+      return `${dry ? '🔎 Deploy check' : '✅ Deploy'}\n<pre>${esc(out.slice(-3000))}</pre>`
+        + await dashboardLine();
     } catch (e) {
       const out = `${e.stdout || ''}${e.stderr || e.message}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
       return `❌ Deploy failed — the previous code is still running.\n<pre>${esc(out.slice(-3000))}</pre>`;
