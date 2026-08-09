@@ -42,9 +42,24 @@ export function analyzeJournal({
   // alone, indefinitely. This is the most serious thing this function can find.
   const untracked = positions.filter(p => !tracked.has(p.symbol)).map(p => p.symbol);
   if (untracked.length) {
+    // Say what the journal DOES believe about each one. "Untracked" has several
+    // very different causes, and the next question is always the same:
+    //   • no doc at all      → opened outside the system, or a journal write failed
+    //   • doc says closed    → the system exited it and the broker did not, or it
+    //                          was re-bought manually afterwards
+    //   • doc says error/expired → the order was thought dead but actually filled
+    // Each needs a different response, so guessing between them wastes a round.
+    const detail = untracked.map(sym => {
+      const related = docs.filter(o => o.ticker === sym);
+      if (!related.length) return `${sym}: no journal doc at all`;
+      const states = related
+        .map(o => `${o.status}${o.realizedWinLoss ? `/${o.realizedWinLoss}` : ''}`)
+        .join(', ');
+      return `${sym}: journal says ${states}`;
+    }).join('; ');
     add('error', 'untracked_position',
       `${untracked.length} broker position(s) are not in the journal`,
-      'These have NO managed exit — only their hard stop. Either opened outside the system, or a run placed them and failed to journal.',
+      `${detail}. These have NO managed exit — only their hard stop.`,
       untracked);
   }
 

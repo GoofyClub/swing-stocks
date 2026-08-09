@@ -59,6 +59,30 @@ console.log('\n--- untracked positions (the serious one) ---');
   t('a closed doc does not cover a live position', has(r, 'untracked_position'));
 }
 
+console.log('\n--- untracked positions: the detail must name the cause ---');
+{
+  // "Untracked" has several causes needing different responses, so the finding
+  // has to say which. Guessing between them is what wastes a debugging round.
+  const noDoc = analyzeJournal({ docs: [], positions: [pos('XOM')], now: NOW });
+  t('no doc at all is stated explicitly', /XOM: no journal doc at all/.test(find(noDoc, 'untracked_position').detail));
+
+  const closedDoc = analyzeJournal({
+    docs: [{ ticker: 'XOM', status: 'position_closed', realizedWinLoss: 'win' }],
+    positions: [pos('XOM')], now: NOW,
+  });
+  t('a closed doc is reported with its status',
+    /XOM: journal says position_closed\/win/.test(find(closedDoc, 'untracked_position').detail));
+
+  const errDoc = analyzeJournal({
+    docs: [{ ticker: 'XOM', status: 'error' }], positions: [pos('XOM')], now: NOW,
+  });
+  t("an 'error' doc is reported — the order was thought dead but filled",
+    /XOM: journal says error/.test(find(errDoc, 'untracked_position').detail));
+
+  t('the detail still states the consequence',
+    /NO managed exit/.test(find(noDoc, 'untracked_position').detail));
+}
+
 console.log('\n--- ghost fills ---');
 {
   const r = analyzeJournal({

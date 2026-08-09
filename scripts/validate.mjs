@@ -156,13 +156,30 @@ async function checkFirestore() {
     const seen = new Map();
     for (const r of runs) if (!seen.has(r.job)) seen.set(r.job, r);
     if (!seen.size) warn('no worker runs recorded yet');
+    // What a stale or failed job actually costs. Trading no longer depends on
+    // the signal refresh — the same-day runner scans in-process — so a failure
+    // there is a stale WEB APP, not a stopped trading system. Saying so stops a
+    // red line reading as "my money is at risk" when it isn't.
+    const AFFECTS = {
+      maintenance: 'reconciliation, exits, realized P&L and the drawdown ratchet — TRADING-CRITICAL',
+      sameday: 'entries at the close — TRADING-CRITICAL',
+      refresh: 'Live Signals and History in the web app only; the same-day runner scans in-process and does not read these',
+      'auto-trade': 'the legacy morning path, now manual-only',
+      universe: 'S&P index membership, refreshed weekly',
+    };
     for (const [job, r] of seen) {
       const when = toDate(r.finishedAt) || toDate(r.createdAt);
       const age = when ? daysAgo(when) : null;
-      const line = `${job}: last ${when ? when.toISOString().replace('T', ' ').slice(0, 16) : '?'}${r.ok === false ? ' FAILED' : ''}`;
-      if (r.ok === false) bad(line);
-      else if (age != null && age > 4) warn(`${line} — ${age.toFixed(1)}d ago`);
-      else ok(line);
+      const stamp = when ? when.toISOString().replace('T', ' ').slice(0, 16) : '?';
+      const affects = AFFECTS[job] || AFFECTS[Object.keys(AFFECTS).find(k => job.startsWith(k))] || null;
+      if (r.ok === false) {
+        bad(`${job}: last run ${stamp} FAILED`);
+        if (r.error) info(String(r.error).split('\n')[0].slice(0, 200));
+        if (affects) info(`affects: ${affects}`);
+      } else if (age != null && age > 4) {
+        warn(`${job}: last ${stamp} — ${age.toFixed(1)}d ago`);
+        if (affects) info(`affects: ${affects}`);
+      } else ok(`${job}: last ${stamp}`);
     }
   } catch (e) { warn(`cronRuns unreadable: ${e.message.split('\n')[0]}`); }
 
