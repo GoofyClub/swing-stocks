@@ -74,10 +74,25 @@ async function exitFromFills({ client, order, log }) {
 
   // buildRoundTrips returns { trades, open, skipped } — only CLOSED round trips
   // carry an exit price, so `open` is deliberately ignored here.
-  const { trades } = buildRoundTrips(fills);
-  const trips = (trades || [])
-    .filter(t => t.symbol === String(order.ticker).toUpperCase() && t.side === 'long');
-  if (!trips.length) return null;
+  // buildRoundTrips returns { trades, open, skipped } — only CLOSED round trips
+  // carry an exit price, so `open` is deliberately ignored here.
+  const { trades, open } = buildRoundTrips(fills);
+  const sym = String(order.ticker).toUpperCase();
+  const trips = (trades || []).filter(t => t.symbol === sym && t.side === 'long');
+
+  // Say WHY a match failed. A silent null here is indistinguishable from "the
+  // fills aren't there", "they're there but for a different price", and "the
+  // position is still open" — three problems with three different answers, and
+  // guessing between them from the outside wasted a debugging round already.
+  if (!trips.length) {
+    const stillOpen = (open || []).some(o => o.symbol === sym);
+    const anySymbol = new Set(fills.map(f => String(f.symbol || '').toUpperCase()));
+    log(`realize ${sym}: order gone and no CLOSED round trip in fill history `
+      + `(${fills.length} fill(s) since ${from.toISOString().slice(0, 10)} across ${anySymbol.size} symbol(s)`
+      + `${anySymbol.has(sym) ? `, ${sym} present` : `, ${sym} ABSENT — these fills are probably on a different account`}`
+      + `${stillOpen ? '; a lot is still OPEN, so the position was never closed here' : ''})`);
+    return null;
+  }
 
   const sessionMs = order.sessionDate ? Date.parse(`${order.sessionDate}T00:00:00Z`) : null;
   const candidates = trips.filter(t => {
@@ -85,13 +100,21 @@ async function exitFromFills({ client, order, log }) {
     const afterEntry = sessionMs == null || (t.entryTime && t.entryTime.getTime() >= sessionMs - 86400_000);
     return priceClose && afterEntry;
   });
-  if (!candidates.length) return null;
+  if (!candidates.length) {
+    log(`realize ${sym}: found ${trips.length} round trip(s) but none match entry ${entry} `
+      + `(seen: ${trips.slice(0, 4).map(t => `${t.entryPrice}@${t.entryTime?.toISOString?.().slice(0, 10)}`).join(', ')})`);
+    return null;
+  }
 
   candidates.sort((a, b) => Math.abs(a.entryPrice - entry) - Math.abs(b.entryPrice - entry));
   return candidates[0];
 }
 
-export async function realizeOutcomes({ db, admin, uid, client, log }) {
+// `retryUnavailable` ignores the write-off marker for one run. For when the
+// broker-side cause has been fixed (keys repointed at the right account, say)
+// and you want the docs re-examined without waiting for a version bump.
+//   REALIZE_RETRY=true npm run auto:maintenance
+export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavailable = false }) {
   let realized = 0, unavailable = 0;
   const snap = await db.collection('users').doc(uid).collection('autoOrders')
     .where('status', 'in', ['position_closed', 'exit_submitted']).get();
@@ -101,7 +124,8 @@ export async function realizeOutcomes({ db, admin, uid, client, log }) {
     if (o.realizedWinLoss) continue;                     // already realized
     // Written off by THIS version of the recovery logic — genuinely nothing
     // more to try. An older stamp falls through and gets one more attempt.
-    if (o.realizeUnavailable && (o.realizeUnavailableVersion ?? 1) >= REALIZE_RECOVERY_VERSION) continue;
+    if (!retryUnavailable && o.realizeUnavailable
+        && (o.realizeUnavailableVersion ?? 1) >= REALIZE_RECOVERY_VERSION) continue;
     if ((o.side || 'buy') !== 'buy') continue;           // long-only
     const entry = o.filledAvgPrice ?? o.entry;
     const qty = o.filledQty || o.qty;

@@ -53,6 +53,9 @@ attachFileLog('maint');
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true').toLowerCase() !== 'false';
 const ONLY_UID = process.env.ONLY_UID || null;
 const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === 'true';
+// Re-examine trades previously written off as unrecoverable. One-off, for after
+// the broker-side cause has been fixed.
+const REALIZE_RETRY = String(process.env.REALIZE_RETRY ?? 'false').toLowerCase() === 'true';
 
 const RUN_LOG = [];
 {
@@ -156,7 +159,7 @@ async function processUser(db, uid, cfg) {
   //    page AND blinds the re-entry cooldown, since that reads realizedWinLoss.
   //    Dry-run should mean "place and cancel nothing", not "record nothing".
   let realized = 0, unavailable = 0;
-  try { ({ realized, unavailable } = await realizeOutcomes({ db, admin, uid, client, log })); }
+  try { ({ realized, unavailable } = await realizeOutcomes({ db, admin, uid, client, log, retryUnavailable: REALIZE_RETRY })); }
   catch (e) { log(`realize outcomes failed: ${e.message}`); }
 
   // 4. Equity + drawdown ratchet. Always — the peak must not go stale, and a

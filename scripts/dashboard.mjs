@@ -18,24 +18,32 @@
 // path — the port is the thing that cannot be shared, not the hostname.
 //
 // ── SECURITY ────────────────────────────────────────────────────────────────
-// The log contains ticker, size and account activity. This binds to 0.0.0.0 by
-// default so it is reachable, which means auth is mandatory: it REFUSES TO
-// START without DASHBOARD_USER + DASHBOARD_PASSWORD_HASH, the same stance the
-// Telegram bot takes on its allow-list. Credentials are compared in constant
-// time and repeated failures lock the source IP out.
+// The log contains ticker, size and account activity, so auth is mandatory: it
+// REFUSES TO START without DASHBOARD_USER + DASHBOARD_PASSWORD_HASH, the same
+// stance the Telegram bot takes on its allow-list. Credentials are compared in
+// constant time and repeated failures lock the source IP out.
 //
-// It is HTTP, not HTTPS — basic-auth credentials cross the network in base64.
-// Do not expose it to the internet: bind to a private IP, or reach it over an
-// SSH tunnel:  ssh -L 8444:localhost:8444 <vm>   then http://localhost:8444
-// (set DASHBOARD_BIND=127.0.0.1 to enforce tunnel-only access).
+// Three ways to reach it, in descending order of safety:
 //
-// Generate the hash:   read -rs PW && printf '%s' "$PW" | sha256sum && unset PW
+//   1. TUNNEL — DASHBOARD_BIND=127.0.0.1, then from your LAPTOP (not the VM):
+//        gcloud compute ssh INSTANCE --zone=ZONE -- -L 8444:localhost:8444
+//      Nothing is exposed; the port is not open at all.
+//   2. DIRECT OVER HTTPS — set DASHBOARD_CERT_FILE + DASHBOARD_KEY_FILE
+//      (npm run dashboard:cert) and open https://<vm-ip>:8444. Self-signed, so
+//      the browser warns once about identity; the traffic is still encrypted.
+//   3. DIRECT OVER HTTP — works, and sends your password plus every log line
+//      across the internet in base64. Only sane behind a firewall rule scoped
+//      to your own source IP, and even then it is the weakest option.
+//
+// Generate the password hash:
+//   read -rs PW && printf '%s' "$PW" | sha256sum && unset PW
 // =============================================================================
 
 // Load swing-config/swing.env before anything reads process.env. systemd
 // supplies these via EnvironmentFile; a manual `npm run` does not.
 import './lib/load-env.mjs';
 import http from 'node:http';
+import https from 'node:https';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -46,6 +54,15 @@ const execFileAsync = promisify(execFile);
 
 const PORT = Number(process.env.DASHBOARD_PORT || 8444);
 const BIND = process.env.DASHBOARD_BIND || '0.0.0.0';
+// Optional TLS. Reaching the dashboard directly over the internet means the
+// basic-auth credentials — and every log line — cross the network in the clear
+// unless this is set. A self-signed cert still encrypts the connection; the
+// browser warning is about IDENTITY (nobody vouches that this host is yours),
+// not about the encryption, and clicking through is reasonable for a host whose
+// IP you typed yourself. Generate one with:
+//   npm run dashboard:cert
+const CERT_FILE = process.env.DASHBOARD_CERT_FILE || '';
+const KEY_FILE = process.env.DASHBOARD_KEY_FILE || '';
 const USER = process.env.DASHBOARD_USER || '';
 const PW_HASH = (process.env.DASHBOARD_PASSWORD_HASH || '').trim().toLowerCase();
 const REFRESH_SEC = Number(process.env.DASHBOARD_REFRESH_SEC || 20);
@@ -298,7 +315,7 @@ function renderPage({ sys, stats, counts }) {
 }
 
 // ---- server -----------------------------------------------------------------
-const server = http.createServer(async (req, res) => {
+const handler = async (req, res) => {
   const ip = req.socket.remoteAddress || '?';
   const url = new URL(req.url, 'http://localhost');
 
@@ -350,26 +367,49 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(400, { 'Content-Type': 'text/plain' });
     res.end(redact(String(e.message)) + '\n');
   }
-});
+};
 
-// A client that opens a socket and sends nothing must not hold a slot forever —
-// on any reachable port, scanners produce exactly that traffic.
+// HTTPS when a cert is configured, plain HTTP otherwise. The TLS handshake
+// happens per-connection in the worker, not in the accept loop — a client that
+// completes the TCP connection and then sends nothing must not be able to wedge
+// the listener, and on any reachable port scanners produce exactly that traffic.
+let server, scheme;
+if (CERT_FILE && KEY_FILE) {
+  try {
+    server = https.createServer({ cert: fs.readFileSync(CERT_FILE), key: fs.readFileSync(KEY_FILE) }, handler);
+    scheme = 'https';
+  } catch (e) {
+    console.error(`[dashboard] cannot read TLS cert/key: ${e.message}`);
+    console.error('[dashboard] refusing to fall back to plain HTTP — that would silently downgrade a connection you asked to encrypt.');
+    process.exit(1);
+  }
+} else {
+  server = http.createServer(handler);
+  scheme = 'http';
+}
+
+// A client that opens a socket and sends nothing must not hold a slot forever.
 server.headersTimeout = 10_000;
 server.requestTimeout = 30_000;
 server.keepAliveTimeout = 15_000;
 // The stdlib default backlog fills from background scanning alone; once full the
 // kernel drops SYNs silently and the service looks "active" while nothing loads.
 server.listen(PORT, BIND, 128, () => {
-  console.log(`[dashboard] listening on http://${BIND}:${PORT} (log: ${LOG_FILE})`);
-  if (BIND === '0.0.0.0') {
-    console.warn('[dashboard] bound to all interfaces over plain HTTP — restrict the firewall, ' +
-      'or set DASHBOARD_BIND=127.0.0.1 and reach it through an SSH tunnel.');
+  console.log(`[dashboard] listening on ${scheme}://${BIND}:${PORT} (log: ${LOG_FILE})`);
+  if (BIND !== '127.0.0.1' && scheme === 'http') {
+    console.warn('[dashboard] reachable from other hosts over PLAIN HTTP — your password and every');
+    console.warn('[dashboard] log line cross the network unencrypted. Either restrict the firewall to');
+    console.warn('[dashboard] your own IP, or set DASHBOARD_CERT_FILE/DASHBOARD_KEY_FILE (npm run dashboard:cert).');
   }
 });
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') {
     console.error(`[dashboard] port ${PORT} is already taken (the ORB dashboard, perhaps). ` +
       'One port serves one process — set DASHBOARD_PORT to a free one.');
+    process.exit(1);
+  }
+  if (e.code === 'EACCES') {
+    console.error(`[dashboard] not permitted to bind port ${PORT} (ports below 1024 need root). Pick a higher DASHBOARD_PORT.`);
     process.exit(1);
   }
   console.error(`[dashboard] ${e.message}`);

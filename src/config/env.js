@@ -75,6 +75,10 @@ export const CONFIG_SPEC = [
     desc: 'Bind address. Set 127.0.0.1 to force access through an SSH tunnel (recommended — this is plain HTTP).' },
   { key: 'DASHBOARD_REFRESH_SEC', type: N, default: 20, scope: 'dashboard',
     desc: 'Auto-refresh interval for the log pane.' },
+  { key: 'DASHBOARD_CERT_FILE', type: S, default: '', scope: 'dashboard',
+    desc: 'TLS certificate path. Set this AND the key to serve HTTPS — required if you open the port to the internet, or your password and every log line cross it in the clear. Generate: npm run dashboard:cert' },
+  { key: 'DASHBOARD_KEY_FILE', type: S, default: '', scope: 'dashboard',
+    desc: 'TLS private key path. Must accompany DASHBOARD_CERT_FILE.' },
   { key: 'SWING_LOG_FILE', type: S, default: '', scope: 'dashboard',
     desc: 'Override the shared log path. Default: <repo>/logs/swing.log — every runner, the bot and deploys append to it.' },
 ];

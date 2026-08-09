@@ -111,34 +111,81 @@ sudo systemctl enable --now swing-dashboard
 
 ### Reaching it
 
-The dashboard speaks plain HTTP, so basic-auth credentials would cross the
-network in base64. With `DASHBOARD_BIND=127.0.0.1` it listens only on the VM's
-loopback, and an SSH tunnel is the way in.
+Three options. Pick one.
 
-**Run the tunnel command on your LAPTOP, not on the VM.** Running it from the VM
-just makes the VM connect to itself, which is what produces
-`Permission denied (publickey)` — the VM has no key authorising itself.
+#### A. Direct, over HTTPS — `https://<vm-ip>:8444`
 
-```bash
-# on your laptop — gcloud manages the keys for you
-gcloud compute ssh instance-20260717-032820 --zone=YOUR_ZONE -- -L 8444:localhost:8444
-```
-
-Leave that session open, then browse to **http://localhost:8444**.
-
-Plain `ssh -L 8444:localhost:8444 <ip>` also works, but only if you have already
-added your own key to the instance; `gcloud compute ssh` does that step for you.
-
-From **Cloud Shell** instead of a laptop:
+No tunnel, works from any browser. The self-signed cert encrypts the
+connection; the browser warns once because nobody vouches that the host is
+yours, which is an *identity* warning, not an encryption one. For a host whose
+IP you typed in yourself, clicking through is reasonable.
 
 ```bash
-gcloud compute ssh instance-20260717-032820 --zone=YOUR_ZONE -- -L 8444:localhost:8444
+cd ~/swing-stocks
+npm run dashboard:cert            # detects this VM's external IP automatically
+# or: ./scripts/make-dashboard-cert.sh 34.23.154.110
 ```
 
-then use Web Preview → *Change port* → 8444.
+It prints the three lines to add to `swing-config/swing.env`:
 
-With the tunnel in use, an ingress firewall rule for 8444 is unnecessary —
-remove it.
+```bash
+DASHBOARD_BIND=0.0.0.0
+DASHBOARD_CERT_FILE=/home/YOU/swing-stocks/swing-config/dashboard-cert.pem
+DASHBOARD_KEY_FILE=/home/YOU/swing-stocks/swing-config/dashboard-key.pem
+```
+
+```bash
+sudo systemctl restart swing-dashboard
+journalctl -u swing-dashboard -n 5     # expect "listening on https://0.0.0.0:8444"
+```
+
+Then the firewall. **Scope it to your own IP** — an open 8444 gets found by
+scanners within hours, and while they can't get past the password, they can
+burn the lockout and fill your log:
+
+```bash
+curl -s ifconfig.me      # your current public IP
+
+gcloud compute firewall-rules create swing-dashboard \
+  --allow=tcp:8444 --source-ranges=YOUR.IP.HERE/32 \
+  --target-tags=swing-dashboard --description="Swing log dashboard"
+
+gcloud compute instances add-tags INSTANCE --zone=ZONE --tags=swing-dashboard
+```
+
+That last step is the one people miss. A rule with `--target-tags` matches
+**nothing** until the instance carries the tag, and the symptom is a connection
+**timeout** — indistinguishable from "the service isn't running". Check with:
+
+```bash
+gcloud compute instances describe INSTANCE --zone=ZONE --format='get(tags.items)'
+```
+
+For a rule that applies to every instance instead, drop `--target-tags`.
+
+Browse to **https://34.23.154.110:8444** — note **https**, not http. Plain HTTP
+against the TLS port fails with an empty response rather than a useful error.
+
+#### B. Direct, over plain HTTP
+
+Same as A without the cert: set `DASHBOARD_BIND=0.0.0.0`, leave the cert
+variables unset, add the firewall rule. Your password and every log line then
+cross the internet in base64, readable by anything in between. Only worth doing
+behind a `--source-ranges` rule, and A costs one extra command.
+
+#### C. Tunnel — nothing exposed at all
+
+Keep `DASHBOARD_BIND=127.0.0.1`; the port is never open. Run this **on your
+laptop, not on the VM** — from the VM it dials itself and fails with
+`Permission denied (publickey)`:
+
+```bash
+gcloud compute ssh INSTANCE --zone=ZONE -- -L 8444:localhost:8444
+```
+
+Leave it open, browse to `http://localhost:8444`. `gcloud compute ssh` handles
+key provisioning; plain `ssh -L` works only if your key is already on the
+instance.
 
 ---
 
@@ -217,12 +264,14 @@ The allow-list is mandatory — the bot refuses to start without it.
 |---|---|
 | `TELEGRAM_BOT_TOKEN is required` looping, token clearly set | The unit's `EnvironmentFile` points where the config no longer is, so systemd starts it with an empty environment and the error names only the first missing key. `./scripts/setup-vm.sh --check` compares them; fix with `--units` and restart. |
 | `FIREBASE_PROJECT_ID must be set` on a manual run | Old code. The scripts now read `swing.env` themselves — `git pull`. |
-| `order not found` on realize | The order object is gone (paper reset, or an id written under a different account). Realization now falls back to fill history; only a trade with no matching fills is written off. |
+| `order not found` on realize | The order object is gone (paper reset, or an id written under a different account). Realization falls back to fill history; the log says which of "symbol absent from fills", "still open", or "entry price doesn't match" applies. Once fixed, re-examine written-off trades with `REALIZE_RETRY=true npm run auto:maintenance`. |
 | `RESOURCE_EXHAUSTED: Quota exceeded` | Firestore free-tier daily reads. Consider Blaze. |
 | `Could not load the default credentials` | VM missing the `cloud-platform` scope. |
 | `PERMISSION_DENIED` on Firestore | Missing `roles/datastore.user` **on the Firebase project**. |
 | `Permission denied (publickey)` from the tunnel | You ran `ssh -L …` on the VM. Run it on your laptop, or use `gcloud compute ssh`. |
 | `EADDRINUSE` on the dashboard | Port taken (ORB uses 8443). Set `DASHBOARD_PORT`. |
+| Dashboard connection **times out** from a browser | Firewall. Usually a `--target-tags` rule whose tag the instance doesn't carry — check with `gcloud compute instances describe INSTANCE --zone=ZONE --format='get(tags.items)'`. A timeout means blocked; "connection refused" would mean the service is down. |
+| Dashboard gives an empty reply | You used `http://` against a TLS-enabled port. Use `https://`. |
 | `outside the 15:35-15:50 ET close window` | Timer fired late, or `OnCalendar` lacks `America/New_York`. |
 | `DEADLINE: past 15:58 ET` | Scan outran the window. Fire earlier or use `WATCHLIST_SET=core`. |
 | `placed=0` with recognisable skips | Working as intended — nothing passed your filters. |
