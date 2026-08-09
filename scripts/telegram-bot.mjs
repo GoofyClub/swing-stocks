@@ -130,7 +130,8 @@ const COMMANDS = {
       '/positions — open positions',
       '/pnl — realized + unrealized P&amp;L',
       '/log [n] [filter] — shared log tail, e.g. <code>/log 40 PLACED</code>',
-      '/errors — recent failed runs', '',
+      '/errors — recent failed runs',
+      '/validate — full system check (read-only)', '',
       '<b>CONTROL</b>',
       '/pause — stop all new entries (persists)',
       '/resume — re-enable entries',
@@ -364,6 +365,30 @@ const COMMANDS = {
 
   async config() {
     return `<b>Runtime config</b> (secrets masked)\n<pre>${esc(describeConfig(cfg))}</pre>`;
+  },
+
+  // Full system check. Read-only by construction, so it is always safe to run
+  // from a phone — including in the middle of a session, which is exactly when
+  // you want it and exactly when a state-changing "health check" would be
+  // unusable. --quick skips the test suite and bar fetch to fit Telegram's
+  // timeout; `/validate full` runs everything.
+  async validate(args) {
+    const full = (args[0] || '').toLowerCase() === 'full';
+    const repoDir = cfg.REPO_DIR || SELF_REPO_DIR;
+    try {
+      const { stdout } = await execFileAsync(
+        'node', ['scripts/validate.mjs', ...(full ? [] : ['--quick'])],
+        { cwd: repoDir, timeout: full ? 420_000 : 90_000, maxBuffer: 4 * 1024 * 1024 },
+      );
+      return `<pre>${esc(stdout.replace(/\x1b\[[0-9;]*m/g, '').trim().slice(-3600))}</pre>`;
+    } catch (e) {
+      // Exit code 1 means problems were FOUND, which is a successful run with a
+      // useful report — not an execution failure. Show the report either way.
+      const out = `${e.stdout || ''}${e.stderr || ''}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
+      return out
+        ? `<pre>${esc(out.slice(-3600))}</pre>`
+        : `❌ validation could not run: ${esc(e.message)}`;
+    }
   },
 
   // Delegates to scripts/deploy.sh — one deploy procedure, whether it is

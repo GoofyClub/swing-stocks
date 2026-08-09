@@ -14,6 +14,41 @@ Paths below assume the standard layout:
 
 ---
 
+## Validate everything
+
+One read-only command. Places no orders, cancels nothing, writes nothing — so
+it is safe to run at any time, including mid-session.
+
+```bash
+cd ~/swing-stocks
+npm run validate              # full: includes the test suite and a live bar fetch
+npm run validate -- --quick   # skip those two (a few seconds)
+```
+
+From Telegram: `/validate` (quick) or `/validate full`.
+
+Exit code 0 = healthy, 1 = something needs attention. It checks node, the
+config file and its permissions, both timers, all four units' `EnvironmentFile`
+paths, Firestore reachability and recent worker runs, every enabled broker
+account, market-data fetching, the log file, the dashboard's bind address, and
+whether the checkout is behind origin or has a red test suite.
+
+The part worth reading is section 4, which cross-checks the broker against the
+order journal:
+
+| Finding | Why it matters |
+|---|---|
+| **untracked position** | The exit pass iterates the journal, so a position with no doc is never evaluated for a native/time/trailing exit. It rides on its hard stop alone, indefinitely. |
+| **stuck at 'submitted'** | Reconciliation is not running, which also hides the position from exit management. |
+| **closed but unrealized** | The re-entry cooldown reads `realizedWinLoss`; without it, a name that just stopped out can be re-bought immediately. |
+| **stale equity snapshot** | The drawdown peak is a persisted ratchet. Frozen, it makes drawdown look *smaller* than reality — the halt silently stops firing. |
+| **duplicate open docs** | Broker positions are per-symbol, so exiting one doc liquidates the whole holding. |
+| **ghost fill** | Journal says filled, broker holds nothing. Normal for minutes after an exit; persistent means maintenance is not reconciling. |
+
+These rules are pure and unit-tested (`tests/integrity.mjs`) — a false "all
+clear" would be worse than no check, since it is an explicit assurance that no
+unprotected position exists.
+
 ## Daily checks
 
 ```bash
