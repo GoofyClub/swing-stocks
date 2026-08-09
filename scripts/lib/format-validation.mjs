@@ -15,7 +15,8 @@
 // always at a line boundary so markup can never be severed mid-tag.
 // =============================================================================
 
-const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+import { esc, fit } from './tg.mjs';
+
 const LIMIT = 3900;   // headroom under Telegram's 4096
 
 const MARK = { ok: '✓', warn: '⚠️', bad: '❌' };
@@ -93,9 +94,5 @@ export function formatValidationMessage(result) {
 
   let text = build({});
   if (text.length > LIMIT) text = build({ compressOk: true });
-  if (text.length > LIMIT) {
-    text = text.slice(0, LIMIT);
-    text = text.slice(0, text.lastIndexOf('\n')) + '\n<i>…truncated. Run npm run validate on the VM for the full report.</i>';
-  }
-  return text;
+  return fit(text, { limit: LIMIT, note: '…truncated. Run npm run validate on the VM for the full report.' });
 }

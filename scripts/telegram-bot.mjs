@@ -40,6 +40,7 @@ import { sendTelegram } from '../src/data/telegram.js';
 import { attachFileLog, tailLog, resolveLogFile } from './lib/logfile.mjs';
 import { formatValidationMessage } from './lib/format-validation.mjs';
 import { dashboardUrl } from './lib/dashboard-url.mjs';
+import { formatDeployMessage } from './lib/format-deploy.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -161,21 +162,22 @@ const COMMANDS = {
   },
 
   async health() {
-    const lines = [`<b>${esc(LABEL)} — Health</b>`, `bot uptime: ${uptime()}`];
+    const lines = [`<b>${esc(LABEL)} — Health</b>`, `<i>bot up ${uptime()}</i>`, ''];
     try {
       const paused = await isPaused();
-      lines.push(`automation: ${paused ? '⛔ PAUSED' : '✅ active'}`);
-    } catch (e) { lines.push(`automation: ⚠️ ${esc(e.message)}`); }
+      lines.push(`${paused ? '⛔' : '✅'} automation ${paused ? 'PAUSED' : 'active'}`);
+    } catch (e) { lines.push(`⚠️ automation: ${esc(e.message)}`); }
 
     try {
       const { uid, cfg: uc } = await resolveUser();
-      lines.push(`user: ${uid.slice(0, 6)}… (${uc.enabled ? 'enabled' : 'disabled'})`);
+      lines.push(`${uc.enabled ? '✅' : '⛔'} account ${uid.slice(0, 6)}… ${uc.enabled ? 'enabled' : 'DISABLED'}`);
       const { client, live } = brokerFor(uc);
       const acct = await client.getAccount();
       const clock = await client.getClock();
-      lines.push(`broker: ✅ ${live ? '🔴 LIVE' : 'paper'} equity ${fmtUsd(acct.equity)}`);
-      lines.push(`market: ${clock.isOpen ? 'open' : `closed (next ${esc(clock.nextOpen)})`}`);
-    } catch (e) { lines.push(`broker: ❌ ${esc(e.message)}`); }
+      lines.push(`✅ broker ${live ? '🔴 LIVE' : 'paper'} · ${fmtUsd(acct.equity)}`);
+      lines.push(`${clock.isOpen ? '🔔' : '🌙'} market ${clock.isOpen ? 'open' : `closed until ${esc(String(clock.nextOpen).slice(0, 16))}`}`);
+    } catch (e) { lines.push(`❌ broker: ${esc(e.message)}`); }
+    lines.push('');
 
     // Both timers, because the system is only whole with both. A disarmed
     // maintenance timer looks like nothing is wrong until a position is sitting
@@ -194,10 +196,12 @@ const COMMANDS = {
 
     try {
       const runs = await recentRuns(3);
-      if (!runs.length) lines.push('runs: none recorded');
+      if (!runs.length) lines.push('<i>no runs recorded yet</i>');
+      else lines.push('<b>Recent runs</b>');
       for (const r of runs) {
         const when = r.finishedAt?.toDate ? r.finishedAt.toDate().toISOString().replace('T', ' ').slice(0, 16) : '?';
-        lines.push(`${r.ok ? '✅' : '❌'} ${esc(r.job)} ${when} placed=${r.placed ?? 0} skipped=${r.skipped ?? 0}`);
+        lines.push(`  ${r.ok ? '✓' : '❌'} ${esc(r.job)} <i>${when}</i>`
+          + (r.placed || r.skipped ? ` · placed ${r.placed ?? 0}, skipped ${r.skipped ?? 0}` : ''));
       }
     } catch (e) { lines.push(`runs: ⚠️ ${esc(e.message)}`); }
     return lines.join('\n') + await dashboardLine();
@@ -208,29 +212,45 @@ const COMMANDS = {
     const { client, live } = brokerFor(uc);
     const [acct, positions] = await Promise.all([client.getAccount(), client.getPositions()]);
     const paused = await isPaused();
+    const slots = uc.maxConcurrentPositions ?? null;
     return [
-      `<b>Status</b> ${paused ? '⛔ PAUSED' : '✅ active'}`,
-      `user ${uid.slice(0, 6)}… · ${live ? '🔴 LIVE' : 'paper'}`,
-      `equity ${fmtUsd(acct.equity)} · buying power ${fmtUsd(acct.buyingPower)}`,
-      `open positions ${positions.length} / ${uc.maxConcurrentPositions ?? '—'}`,
-      `risk ${uc.riskPerTradePct ?? '—'}% · sizing ${esc(uc.sizingMode || 'risk')}`,
-      `strategies ${esc((uc.strategies?.length ? uc.strategies : ['all']).join(', '))}`,
-      `tiers ${esc((uc.tiers?.length ? uc.tiers : ['all']).join(', '))}`,
-      `indexes ${esc((uc.indexes?.length ? uc.indexes : ['all']).join(', '))}`,
-    ].join('\n');
+      `${paused ? '⛔' : '✅'} <b>${esc(LABEL)} — ${paused ? 'PAUSED' : 'Active'}</b>`,
+      `<i>${uid.slice(0, 6)}… · ${live ? '🔴 LIVE' : 'paper'}</i>`,
+      '',
+      `💰 <b>${fmtUsd(acct.equity)}</b> equity · ${fmtUsd(acct.buyingPower)} buying power`,
+      `📈 ${positions.length}${slots ? `/${slots}` : ''} position${positions.length === 1 ? '' : 's'}${slots && positions.length >= slots ? '  <i>(full — new signals will be turned away)</i>' : ''}`,
+      '',
+      `<b>Rules</b>`,
+      `  risk ${uc.riskPerTradePct ?? '—'}% per trade · sizing ${esc(uc.sizingMode || 'risk')}`,
+      `  strategies ${esc((uc.strategies?.length ? uc.strategies : ['all']).join(', '))}`,
+      `  tiers ${esc((uc.tiers?.length ? uc.tiers : ['all']).join(', '))}`,
+      `  indexes ${esc((uc.indexes?.length ? uc.indexes : ['all']).join(', '))}`,
+    ].join('\n') + await dashboardLine();
   },
 
   async positions() {
     const { cfg: uc } = await resolveUser();
     const { client } = brokerFor(uc);
     const ps = await client.getPositions();
-    if (!ps.length) return 'No open positions.';
+    if (!ps.length) return `<b>${esc(LABEL)}</b> — no open positions.`;
+    let total = 0;
     const rows = ps.map(p => {
       const pl = Number(p.unrealizedPl ?? p.unrealized_pl ?? NaN);
-      const plpc = Number(p.unrealizedPlpc ?? p.unrealized_plpc ?? NaN) * 100;
-      return `${p.symbol} ×${p.qty} @ ${Number(p.avgEntryPrice ?? p.avg_entry_price ?? 0).toFixed(2)} → ${fmtUsd(pl)}${Number.isFinite(plpc) ? ` (${plpc >= 0 ? '+' : ''}${plpc.toFixed(2)}%)` : ''}`;
+      const mv = Number(p.marketValue ?? p.market_value ?? NaN);
+      const entry = Number(p.avgEntry ?? p.avgEntryPrice ?? p.avg_entry_price ?? 0);
+      // Percent from the entry basis rather than a field that may be absent —
+      // Alpaca's shape differs between the raw API and our adapter.
+      const basis = entry * Math.abs(Number(p.qty) || 0);
+      const plpc = basis > 0 && Number.isFinite(pl) ? (pl / basis) * 100 : NaN;
+      if (Number.isFinite(pl)) total += pl;
+      const arrow = !Number.isFinite(pl) ? '·' : pl >= 0 ? '🟢' : '🔴';
+      return `${arrow} <b>${esc(p.symbol)}</b> ×${esc(p.qty)} @ ${entry.toFixed(2)}`
+        + `\n     ${fmtUsd(pl)}${Number.isFinite(plpc) ? ` (${plpc >= 0 ? '+' : ''}${plpc.toFixed(2)}%)` : ''}`
+        + `${Number.isFinite(mv) ? ` · value ${fmtUsd(mv)}` : ''}`;
     });
-    return `<b>Positions (${ps.length})</b>\n` + rows.join('\n');
+    return `<b>${esc(LABEL)} — ${ps.length} position${ps.length === 1 ? '' : 's'}</b>\n`
+      + `<i>unrealized ${fmtUsd(total)}</i>\n\n`
+      + rows.join('\n');
   },
 
   async pnl() {
@@ -253,12 +273,18 @@ const COMMANDS = {
     } catch (e) { /* index may be missing; day P&L below still works */ }
 
     const closed = wins + losses;
+    const dayMark = dayPl == null ? '·' : dayPl >= 0 ? '🟢' : '🔴';
     return [
-      '<b>P&amp;L</b>',
-      `today ${dayPl == null ? '—' : `${fmtUsd(dayPl)} (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)`}`,
-      `equity ${fmtUsd(acct.equity)}`,
-      closed ? `realized ${fmtUsd(net)} over ${counted} trade(s)` : 'realized — none journalled yet',
-      closed ? `record ${wins}W / ${losses}L (${Math.round((wins / closed) * 100)}%)` : '',
+      `<b>${esc(LABEL)} — P&amp;L</b>`,
+      '',
+      `${dayMark} <b>Today</b> ${dayPl == null ? '—' : `${fmtUsd(dayPl)} (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)`}`,
+      `💰 <b>Equity</b> ${fmtUsd(acct.equity)}`,
+      '',
+      closed ? `<b>Realized</b> ${net >= 0 ? '🟢' : '🔴'} ${fmtUsd(net)} over ${counted} trade${counted === 1 ? '' : 's'}`
+             : '<b>Realized</b> — nothing journalled yet',
+      closed ? `  ${wins}W / ${losses}L · ${Math.round((wins / closed) * 100)}% win rate` : '',
+      // Unrealized is deliberately absent: it is in /positions, and a headline
+      // number mixing booked and open P&L reads as more certain than it is.
     ].filter(Boolean).join('\n');
   },
 
@@ -274,11 +300,14 @@ const COMMANDS = {
     try { text = tailLog(n, filter ? { grep: filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') } : {}); }
     catch { /* fall through to Firestore */ }
     if (text.trim()) {
-      const head = `<b>${esc(resolveLogFile().split('/').pop())}</b> · last ${text.split('\n').length} line(s)`
+      const head = `📄 <b>${esc(LABEL)} log</b> · last ${text.split('\n').length} line${text.split('\n').length === 1 ? '' : 's'}`
         + (filter ? ` matching <code>${esc(filter)}</code>` : '');
       // Telegram rejects messages over ~4096 chars; keep the NEWEST lines.
-      return `${head}\n<pre>${esc(text.slice(-3400))}</pre>`;
+      return `${head}\n<pre>${esc(text.slice(-3400))}</pre>` + await dashboardLine();
     }
+    // A filter that matched nothing is NOT the same as an empty log, and the
+    // Firestore fallback below would make it look like one.
+    if (filter) return `📄 <b>${esc(LABEL)} log</b> — nothing matching <code>${esc(filter)}</code> in the last ${n * 40} lines.`;
     const runs = await recentRuns(1);
     if (!runs.length) return 'No log file on this box and no runs recorded.';
     const r = runs[0];
@@ -290,23 +319,25 @@ const COMMANDS = {
   async errors() {
     const snap = await db.collection('cronRuns').orderBy('createdAt', 'desc').limit(25).get();
     const bad = snap.docs.map(d => d.data()).filter(r => !r.ok || r.errors > 0);
-    if (!bad.length) return '✅ No failed runs in the last 25.';
-    return '<b>Recent failures</b>\n' + bad.slice(0, 8).map(r => {
-      const when = r.finishedAt?.toDate ? r.finishedAt.toDate().toISOString().replace('T', ' ').slice(0, 16) : '?';
-      return `❌ ${esc(r.job)} ${when}\n   ${esc(String(r.error || `${r.errors} error(s)`).slice(0, 180))}`;
-    }).join('\n');
+    if (!bad.length) return `✅ <b>${esc(LABEL)}</b> — no failed runs in the last 25.`;
+    return `<b>${esc(LABEL)} — ${bad.length} failed run${bad.length === 1 ? '' : 's'}</b> <i>(of the last 25)</i>\n\n`
+      + bad.slice(0, 8).map(r => {
+        const when = r.finishedAt?.toDate ? r.finishedAt.toDate().toISOString().replace('T', ' ').slice(0, 16) : '?';
+        return `❌ <b>${esc(r.job)}</b> <i>${when}</i>\n     ${esc(String(r.error || `${r.errors} error(s)`).slice(0, 180))}`;
+      }).join('\n\n');
   },
 
   async pause() {
     await db.collection('publicConfig').doc('automation')
       .set({ paused: true, pausedAt: admin.firestore.FieldValue.serverTimestamp(), pausedVia: 'telegram' }, { merge: true });
-    return '⛔ Paused. No new entries will be placed by any worker.\nExisting positions and their brackets are untouched — use /flatten to exit.';
+    return `⛔ <b>${esc(LABEL)} paused</b>\n\nNo new entries will be placed by any runner.\n`
+      + `<i>Open positions and their protective orders are untouched, and exits keep running — pausing is not abandoning risk. Use /flatten to close out.</i>`;
   },
 
   async resume() {
     await db.collection('publicConfig').doc('automation')
       .set({ paused: false, resumedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    return '✅ Resumed. Workers will place entries on their next run.';
+    return `✅ <b>${esc(LABEL)} resumed</b>\n\n<i>Entries resume at the next runner firing — 15:38 ET on a weekday.</i>`;
   },
 
   // Destructive: requires CONFIRM so a mistap can't liquidate the account.
@@ -315,21 +346,25 @@ const COMMANDS = {
       const { cfg: uc } = await resolveUser();
       const { client, live } = brokerFor(uc);
       const ps = await client.getPositions();
-      if (!ps.length) return 'No open positions to flatten.';
-      return `⚠️ This closes <b>${ps.length}</b> position(s) on the ${live ? '🔴 LIVE' : 'paper'} account at market and cancels their orders:\n` +
-        ps.map(p => `• ${p.symbol} ×${p.qty}`).join('\n') +
-        '\n\nSend <code>/flatten CONFIRM</code> to proceed.';
+      if (!ps.length) return `<b>${esc(LABEL)}</b> — no open positions to flatten.`;
+      return `⚠️ <b>${esc(LABEL)} — close ${ps.length} position${ps.length === 1 ? '' : 's'}?</b>\n`
+        + `<i>${live ? '🔴 REAL MONEY' : 'paper'} account · market orders · protective orders cancelled</i>\n\n`
+        + ps.map(p => `• <b>${esc(p.symbol)}</b> ×${esc(p.qty)}`).join('\n')
+        + '\n\nSend <code>/flatten CONFIRM</code> to proceed.';
     }
     const { cfg: uc } = await resolveUser();
     const { client } = brokerFor(uc);
     const ps = await client.getPositions();
-    if (!ps.length) return 'No open positions to flatten.';
+    if (!ps.length) return `<b>${esc(LABEL)}</b> — no open positions to flatten.`;
     const done = [], failed = [];
     for (const p of ps) {
       try { await client.closePosition(p.symbol, { cancelOrders: true }); done.push(p.symbol); }
       catch (e) { failed.push(`${p.symbol} (${e.message})`); }
     }
-    return `Flatten submitted.\n✅ ${done.join(', ') || 'none'}` + (failed.length ? `\n❌ ${esc(failed.join(', '))}` : '');
+    return `${failed.length ? '⚠️' : '✅'} <b>${esc(LABEL)} — flatten submitted</b>\n\n`
+      + (done.length ? `✅ closed: ${esc(done.join(', '))}\n` : '')
+      + (failed.length ? `❌ failed: ${esc(failed.join(', '))}\n` : '')
+      + `\n<i>Market orders are submitted, not filled — check /positions in a moment.</i>`;
   },
 
   async exclude(args) {
@@ -337,21 +372,25 @@ const COMMANDS = {
     const { uid, cfg: uc } = await resolveUser();
     const list = Array.isArray(uc.excludeTickers) ? [...uc.excludeTickers] : [];
     const ref = db.collection('users').doc(uid).collection('automation').doc('config');
-    if (!op || op === 'list') return list.length ? `<b>Excluded</b>\n${esc(list.join(', '))}` : 'Exclusion list is empty.';
+    if (!op || op === 'list') {
+      return list.length
+        ? `🚫 <b>${esc(LABEL)} — never-trade list (${list.length})</b>\n${esc(list.join(', '))}`
+        : `<b>${esc(LABEL)}</b> — the never-trade list is empty.`;
+    }
     const ticker = (tickerRaw || '').toUpperCase();
     if (!ticker) return 'Usage: /exclude add TSLA  |  /exclude remove TSLA  |  /exclude list';
     if (op === 'add') {
       if (list.includes(ticker)) return `${ticker} is already excluded.`;
       list.push(ticker);
       await ref.set({ excludeTickers: list, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      return `✅ ${ticker} will never be auto-traded.`;
+      return `🚫 <b>${esc(ticker)}</b> added — it will never be auto-traded.\n<i>${list.length} name${list.length === 1 ? '' : 's'} excluded.</i>`;
     }
     if (op === 'remove') {
       const i = list.indexOf(ticker);
       if (i < 0) return `${ticker} is not on the list.`;
       list.splice(i, 1);
       await ref.set({ excludeTickers: list, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      return `✅ ${ticker} removed from the exclusion list.`;
+      return `✅ <b>${esc(ticker)}</b> removed — it can be auto-traded again.\n<i>${list.length} name${list.length === 1 ? '' : 's'} still excluded.</i>`;
     }
     return 'Usage: /exclude add TSLA  |  /exclude remove TSLA  |  /exclude list';
   },
@@ -368,16 +407,22 @@ const COMMANDS = {
       'fixedNotional', 'maxPositionNotional',
     ]);
     const [field, rawVal] = args;
-    if (!field) return `Usage: /set &lt;field&gt; &lt;value&gt;\nSettable: ${[...NUMERIC].join(', ')}`;
+    if (!field) {
+      return `<b>${esc(LABEL)} — /set</b>\n<code>/set &lt;field&gt; &lt;value&gt;</code>\n\n<b>Settable</b>\n`
+        + [...NUMERIC].map(f => `  ${f}`).join('\n')
+        + '\n\n<i>Strategy, tier and index selection stays in the UI — they are multi-value and a corrupt allow-list silently stops all trading.</i>';
+    }
     if (!NUMERIC.has(field)) {
-      return `❌ '${esc(field)}' is not settable here.\nSettable: ${[...NUMERIC].join(', ')}\nStrategy/tier/index selection is UI-only by design.`;
+      return `❌ <code>${esc(field)}</code> is not settable here.\n\n<b>Settable</b>\n`
+        + [...NUMERIC].map(f => `  ${f}`).join('\n')
+        + '\n\n<i>Strategy, tier and index selection is UI-only by design.</i>';
     }
     const val = Number(rawVal);
     if (!Number.isFinite(val) || val < 0) return `❌ '${esc(rawVal)}' is not a valid number.`;
     const { uid, cfg: uc } = await resolveUser();
     await db.collection('users').doc(uid).collection('automation').doc('config')
       .set({ [field]: val, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    return `✅ ${esc(field)}: ${uc[field] ?? '—'} → <b>${val}</b>`;
+    return `✅ <b>${esc(field)}</b>\n  ${uc[field] ?? '—'} → <b>${val}</b>\n\n<i>Applies from the next runner firing.</i>`;
   },
 
   async config() {
@@ -428,12 +473,10 @@ const COMMANDS = {
         'bash', ['scripts/deploy.sh', dry ? '--check' : ''].filter(Boolean),
         { cwd: repoDir, timeout: 600_000, maxBuffer: 4 * 1024 * 1024 },
       );
-      const out = `${stdout}${stderr}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
-      return `${dry ? '🔎' : '✅'} <b>${esc(LABEL)}</b> ${dry ? 'deploy check' : 'deployed'}\n<pre>${esc(out.slice(-3000))}</pre>`
+      return formatDeployMessage(`${stdout}${stderr}`, { label: LABEL, ok: true, check: dry })
         + await dashboardLine();
     } catch (e) {
-      const out = `${e.stdout || ''}${e.stderr || e.message}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
-      return `❌ <b>${esc(LABEL)}</b> deploy failed — the previous code is still running.\n<pre>${esc(out.slice(-3000))}</pre>`;
+      return formatDeployMessage(`${e.stdout || ''}${e.stderr || e.message}`, { label: LABEL, ok: false, check: dry });
     }
   },
 };
