@@ -396,7 +396,16 @@ server.keepAliveTimeout = 15_000;
 // kernel drops SYNs silently and the service looks "active" while nothing loads.
 server.listen(PORT, BIND, 128, () => {
   console.log(`[dashboard] listening on ${scheme}://${BIND}:${PORT} (log: ${LOG_FILE})`);
-  if (BIND !== '127.0.0.1' && scheme === 'http') {
+  // State the reachability consequence outright. Binding to loopback and then
+  // debugging the firewall for an hour is an easy trap: from outside, a
+  // loopback-only listener and a blocked port look identical — both time out.
+  if (BIND === '127.0.0.1') {
+    console.log('[dashboard] LOOPBACK ONLY — not reachable from other hosts, whatever the firewall says.');
+    console.log('[dashboard] Reach it with an SSH tunnel from your laptop:');
+    console.log(`[dashboard]   gcloud compute ssh INSTANCE --zone=ZONE -- -L ${PORT}:localhost:${PORT}`);
+    console.log(`[dashboard] For direct browser access instead, set DASHBOARD_BIND=0.0.0.0 (and ideally`);
+    console.log('[dashboard] DASHBOARD_CERT_FILE/DASHBOARD_KEY_FILE — see npm run dashboard:cert).');
+  } else if (scheme === 'http') {
     console.warn('[dashboard] reachable from other hosts over PLAIN HTTP — your password and every');
     console.warn('[dashboard] log line cross the network unencrypted. Either restrict the firewall to');
     console.warn('[dashboard] your own IP, or set DASHBOARD_CERT_FILE/DASHBOARD_KEY_FILE (npm run dashboard:cert).');

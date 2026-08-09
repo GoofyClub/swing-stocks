@@ -318,6 +318,17 @@ else
     if [[ -n "${DASHBOARD_USER:-}" && -n "${DASHBOARD_PASSWORD_HASH:-}" ]]; then
       sudo systemctl enable --now swing-dashboard >/dev/null 2>&1 \
         && ok "dashboard enabled on port ${DASHBOARD_PORT:-8444}" || warn "could not enable dashboard"
+      # From outside, a loopback-only listener and a blocked port look the
+      # same: both time out. Say which one this is before the firewall gets
+      # blamed for it.
+      if [[ "${DASHBOARD_BIND:-0.0.0.0}" == "127.0.0.1" ]]; then
+        warn "DASHBOARD_BIND=127.0.0.1 — loopback only. https://<vm-ip>:${DASHBOARD_PORT:-8444} will TIME OUT no matter what the firewall allows."
+        warn "  For direct browser access:  npm run dashboard:cert   then set DASHBOARD_BIND=0.0.0.0"
+      elif [[ -z "${DASHBOARD_CERT_FILE:-}" ]]; then
+        warn "dashboard is reachable over PLAIN HTTP — password and log lines cross the network in the clear. npm run dashboard:cert"
+      else
+        ok "dashboard serving HTTPS on 0.0.0.0:${DASHBOARD_PORT:-8444}"
+      fi
     else
       warn "dashboard NOT enabled — set DASHBOARD_USER and DASHBOARD_PASSWORD_HASH, then: sudo systemctl enable --now swing-dashboard"
       warn "  hash a password:  read -rs PW && printf '%s' \"\$PW\" | sha256sum && unset PW"
