@@ -62,7 +62,9 @@ export const CONFIG_SPEC = [
   { key: 'BOT_POLL_SECONDS', type: N, default: 25, scope: 'bot',
     desc: 'Telegram long-poll timeout. 25s keeps the connection cheap and responsive.' },
   { key: 'REPO_DIR', type: S, default: '', scope: 'bot',
-    desc: 'Absolute path to the checkout, used by /deploy. Empty disables /deploy.' },
+    desc: 'Override the checkout path used by /deploy. Normally unset — the bot detects its own checkout from its file location. Only needed if the bot runs outside the repo it should deploy.' },
+  { key: 'DEPLOY_ENABLED', type: B, default: true, scope: 'bot',
+    desc: 'Set false to disable Telegram /deploy entirely. It already requires CONFIRM and runs deploy.sh, which is fast-forward-only, tests before restarting, and refuses inside the 15:38 ET window.' },
 
   // ---- Log dashboard (scripts/dashboard.mjs) ------------------------------
   { key: 'DASHBOARD_USER', type: S, default: '', scope: 'dashboard',
@@ -72,7 +74,7 @@ export const CONFIG_SPEC = [
   { key: 'DASHBOARD_PORT', type: N, default: 8444, scope: 'dashboard',
     desc: 'Listen port. Cannot be shared with another dashboard — one port, one process. ORB uses 8443.' },
   { key: 'DASHBOARD_BIND', type: S, default: '0.0.0.0', scope: 'dashboard',
-    desc: 'Bind address. Set 127.0.0.1 to force access through an SSH tunnel (recommended — this is plain HTTP).' },
+    desc: 'Bind address. 127.0.0.1 = loopback only, reachable solely through an SSH tunnel. 0.0.0.0 = reachable from other hosts, which needs a firewall rule AND ideally DASHBOARD_CERT_FILE (otherwise the password crosses the network in the clear).' },
   { key: 'DASHBOARD_REFRESH_SEC', type: N, default: 20, scope: 'dashboard',
     desc: 'Auto-refresh interval for the log pane.' },
   { key: 'DASHBOARD_CERT_FILE', type: S, default: '', scope: 'dashboard',

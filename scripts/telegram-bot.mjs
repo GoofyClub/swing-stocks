@@ -38,8 +38,17 @@ import { initFirestore, admin } from '../src/config/firebaseAdmin.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { sendTelegram } from '../src/data/telegram.js';
 import { attachFileLog, tailLog, resolveLogFile } from './lib/logfile.mjs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
+
+// The checkout /deploy operates on. This file lives at <repo>/scripts/, so the
+// repo root is knowable without configuration — requiring REPO_DIR to be set
+// meant /deploy failed on a perfectly normal install with an error that read
+// like a missing feature rather than a missing setting. REPO_DIR remains as an
+// override for the unusual case where the bot runs outside the repo it deploys.
+const SELF_REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Attach before loadConfig() so a startup failure (a missing token, a bad
 // EnvironmentFile path) is recorded in the shared log rather than only in this
 // unit's journal — that failure is exactly the one you go looking for later.
@@ -362,18 +371,19 @@ const COMMANDS = {
   // matters (verify before restart, refuse mid-session, restart the bot
   // detached because this process is its own parent here).
   async deploy(args) {
-    if (!cfg.REPO_DIR) return '❌ /deploy is disabled — set REPO_DIR to the checkout path to enable it.';
+    if (!cfg.DEPLOY_ENABLED) return '❌ /deploy is disabled (DEPLOY_ENABLED=false).';
+    const repoDir = cfg.REPO_DIR || SELF_REPO_DIR;
     const dry = (args[0] || '').toLowerCase() === 'check';
     if (!dry && (args[0] || '').toUpperCase() !== 'CONFIRM') {
       return '⚠️ <code>/deploy CONFIRM</code> pulls, runs the tests, and restarts the services in '
-        + `${esc(cfg.REPO_DIR)}.\nScheduled runs use the code on disk, so this changes what trades next.\n`
+        + `${esc(repoDir)}.\nScheduled runs use the code on disk, so this changes what trades next.\n`
         + 'It refuses to run inside the 15:38 ET window.\nUse <code>/deploy check</code> to see what would happen first.';
     }
     try {
       // Generous timeout: npm ci plus the full suite is slower than a git pull.
       const { stdout, stderr } = await execFileAsync(
         'bash', ['scripts/deploy.sh', dry ? '--check' : ''].filter(Boolean),
-        { cwd: cfg.REPO_DIR, timeout: 600_000, maxBuffer: 4 * 1024 * 1024 },
+        { cwd: repoDir, timeout: 600_000, maxBuffer: 4 * 1024 * 1024 },
       );
       const out = `${stdout}${stderr}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
       return `${dry ? '🔎 Deploy check' : '✅ Deploy'}\n<pre>${esc(out.slice(-3000))}</pre>`;

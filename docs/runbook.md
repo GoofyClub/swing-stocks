@@ -249,8 +249,11 @@ curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id"
 # in swing-config/swing.env
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_ALLOWED_CHAT_IDS=your-chat-id
-REPO_DIR=/home/YOU/swing-stocks     # enables /deploy
 ```
+
+`/deploy` needs no configuration — the bot deploys the checkout it is running
+from. `REPO_DIR` only overrides that (for a bot running outside the repo it
+deploys), and `DEPLOY_ENABLED=false` turns the command off.
 
 The allow-list is mandatory — the bot refuses to start without it.
 

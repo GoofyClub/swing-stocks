@@ -43,7 +43,8 @@ curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id"
 ```bash
 TELEGRAM_BOT_TOKEN=123456:ABC-your-token
 TELEGRAM_ALLOWED_CHAT_IDS=987654321      # comma-separate for several
-REPO_DIR=/home/srinathrn89/swing-stocks  # enables /deploy; omit to disable it
+# REPO_DIR is NOT needed — the bot finds its own checkout. Set it only if the
+# bot runs outside the repo it should deploy. DEPLOY_ENABLED=false turns /deploy off.
 ```
 
 **4. Test in the foreground first:**
@@ -103,7 +104,7 @@ journalctl -u swing-bot -f
 | `/exclude add\|remove\|list TICKER` | Never-auto-trade list. |
 | `/set <field> <value>` | Numeric risk/sizing fields only; lists the allowed set when called bare. |
 | `/config` | Effective runtime config, secrets masked. |
-| `/deploy CONFIRM` | `git pull --ff-only && npm ci` in `REPO_DIR`. Disabled unless `REPO_DIR` is set. |
+| `/deploy CONFIRM` | Runs `scripts/deploy.sh` in the bot's own checkout: fast-forward pull, `npm ci`, tests, then restarts only what changed. Refuses inside the 15:38 ET window and on a red suite. `/deploy check` previews. Set `DEPLOY_ENABLED=false` to disable. |
 
 ## Notes
 
