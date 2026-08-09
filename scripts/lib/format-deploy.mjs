@@ -26,6 +26,14 @@ const SECTION_NOTE = {
   Services: 'restarts',
 };
 
+// Same visual language as /validate: a subject icon, plus a dot carrying the
+// section's own verdict so the heading answers "did this step go well?".
+const SECTION_ICON = {
+  Timing: '⏱', Source: '🌿', Dependencies: '📦', Verification: '🧪', Services: '🔄',
+};
+const statusDot = (items) => items.some(x => x.level === '✗') ? '🔴'
+  : items.some(x => x.level === '!') ? '🟡' : '🟢';
+
 export function parseDeployOutput(raw) {
   const sections = [];
   let current = null;
@@ -97,8 +105,9 @@ export function formatDeployMessage(raw, { label = 'Swing', ok = true, check = f
     if (!sec.items.length) continue;
     if (/^summary$/i.test(sec.title)) continue;      // already said above
     const note = SECTION_NOTE[sec.title];
+    const icon = SECTION_ICON[sec.title] || '•';
     out.push('');
-    out.push(`${b(sec.title)}${note ? ` ${i(`— ${note}`)}` : ''}`);
+    out.push(`${statusDot(sec.items)} ${icon} ${b(sec.title)}${note ? ` ${i(`— ${note}`)}` : ''}`);
     for (const it of sec.items) {
       if (it.level === null) out.push(`     ${i(it.message)}`);
       else out.push(`  ${MARK[it.level]} ${esc(it.message)}`);

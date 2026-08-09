@@ -21,6 +21,26 @@ const LIMIT = 3900;   // headroom under Telegram's 4096
 
 const MARK = { ok: '✓', warn: '⚠️', bad: '❌' };
 
+// A subject icon per section, so the eye can jump to the area it cares about
+// without reading the words. Matched by prefix — the per-account sections are
+// titled "Account NPRKnT…", which no fixed key would cover.
+const SECTION_ICON = [
+  [/^Environment/, '⚙️'],
+  [/^Services/, '⏱'],
+  [/^Firestore/, '🗄'],
+  [/^Account\b/, '👤'],
+  [/^Accounts/, '💼'],
+  [/^Market data/, '📈'],
+  [/^Logging/, '📄'],
+  [/^Code/, '🧩'],
+];
+const iconFor = (title) => (SECTION_ICON.find(([re]) => re.test(title)) || [, '•'])[1];
+
+// A section's own verdict, so the heading itself carries the status rather than
+// making you scan its lines for a red mark.
+const statusDot = (items) => items.some(i => i.level === 'bad') ? '🔴'
+  : items.some(i => i.level === 'warn') ? '🟡' : '🟢';
+
 // Facts worth repeating in the footer even when everything is green. Matched by
 // shape, since the report's wording changes more often than its subjects do.
 const FOOTER_PATTERNS = [
@@ -38,13 +58,15 @@ function renderSections(result, { compressOk = false } = {}) {
     // In compressed mode a wholly-healthy section collapses to a count. This is
     // the first thing sacrificed when the message is too long, because "5 checks
     // passed" loses far less than dropping a failure would.
+    const heading = `${statusDot(sec.items)} ${iconFor(sec.title)} <b>${esc(sec.title)}</b>`;
+
     if (compressOk && !problems.length) {
       const n = sec.items.filter(i => i.level === 'ok').length;
-      if (n) out.push(`\n<b>${esc(sec.title)}</b>\n  ✓ ${n} check${n > 1 ? 's' : ''} passed`);
+      if (n) out.push(`\n${heading}\n  ✓ ${n} check${n > 1 ? 's' : ''} passed`);
       continue;
     }
 
-    out.push(`\n<b>${esc(sec.title)}</b>`);
+    out.push(`\n${heading}`);
     for (const it of sec.items) {
       if (it.level === 'info') out.push(`     <i>${esc(it.message)}</i>`);
       else out.push(`  ${MARK[it.level] || '·'} ${esc(it.message)}`);
@@ -90,7 +112,13 @@ export function formatValidationMessage(result) {
     for (const f of facts) footer.push(`• ${esc(f)}`);
   }
 
-  const build = (opts) => [...header, ...renderSections(result, opts), ...footer].join('\n');
+  // The footer repeats facts that the full sections already show, so it only
+  // earns its place once those sections have been compressed away.
+  const build = (opts) => [
+    ...header,
+    ...renderSections(result, opts),
+    ...(opts.compressOk ? footer : []),
+  ].join('\n');
 
   let text = build({});
   if (text.length > LIMIT) text = build({ compressOk: true });

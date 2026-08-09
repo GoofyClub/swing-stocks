@@ -71,7 +71,7 @@ console.log('\n--- problems come first, with their explanation ---');
     out.indexOf('not in the journal') < out.indexOf('<b>Environment</b>'));
 }
 
-console.log('\n--- key facts surface even when green ---');
+console.log('\n--- key facts are visible ---');
 {
   const out = formatValidationMessage(res([
     { title: 'Accounts', items: [
@@ -80,9 +80,39 @@ console.log('\n--- key facts surface even when green ---');
       { level: 'ok', message: 'equity snapshot current (2026-08-09, peak $5130, dd 1.0%)' },
     ] },
   ]));
-  t('equity is surfaced', out.includes('equity $5081'));
-  t('realized performance is surfaced', out.includes('54% win'));
-  t('the drawdown ratchet is surfaced', out.includes('equity snapshot current'));
+  t('equity is shown', out.includes('equity $5081'));
+  t('realized performance is shown', out.includes('54% win'));
+  t('the drawdown ratchet is shown', out.includes('equity snapshot current'));
+  // Not twice: with the full section visible, a footer repeating it is noise.
+  t('and not duplicated in a footer', out.split('54% win').length === 2);
+}
+
+console.log('\n--- section headings carry an icon and their own verdict ---');
+{
+  const out = formatValidationMessage(res([
+    { title: 'Environment', items: [{ level: 'ok', message: 'fine' }] },
+    { title: 'Firestore', items: [{ level: 'bad', message: 'broken' }] },
+    { title: 'Account NPRKnT…', items: [{ level: 'warn', message: 'iffy' }] },
+    { title: 'Code', items: [{ level: 'ok', message: 'green' }] },
+  ], { fails: 1, warns: 1 }));
+
+  // The heading states the section's status, so you do not have to scan its
+  // lines to find out whether anything in it went wrong.
+  t('a healthy section is green', /🟢 ⚙️ <b>Environment<\/b>/.test(out));
+  t('a failing section is red', /🔴 🗄 <b>Firestore<\/b>/.test(out));
+  t('a warning section is amber', /🟡 👤 <b>Account NPRKnT…<\/b>/.test(out));
+  t('code has its own icon', /🧩 <b>Code<\/b>/.test(out));
+  // "Accounts" (the list) and "Account X" (one account) must not collide.
+  const both = formatValidationMessage(res([
+    { title: 'Accounts', items: [{ level: 'ok', message: 'one enabled' }] },
+    { title: 'Account ABC…', items: [{ level: 'ok', message: 'paper' }] },
+  ]));
+  t('the account list and a single account differ',
+    /💼 <b>Accounts<\/b>/.test(both) && /👤 <b>Account ABC…<\/b>/.test(both));
+  // An unknown section must still render, with a neutral marker.
+  t('an unknown section still gets a heading',
+    /• <b>Brand New<\/b>/.test(formatValidationMessage(res([
+      { title: 'Brand New', items: [{ level: 'ok', message: 'x' }] }]))));
 }
 
 console.log('\n--- Telegram safety ---');
