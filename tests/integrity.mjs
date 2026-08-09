@@ -59,6 +59,40 @@ console.log('\n--- untracked positions (the serious one) ---');
   t('a closed doc does not cover a live position', has(r, 'untracked_position'));
 }
 
+console.log('\n--- partially_filled is an OPEN position ---');
+{
+  // The bug this pins: a partial fill means the broker executed some of the
+  // order, so shares are held and at risk. Treating it as not-open made the
+  // position invisible to every managed exit — it rode on its hard stop alone,
+  // indefinitely, while looking like an ordinary tracked position.
+  const r = analyzeJournal({
+    docs: [{ ticker: 'XOM', status: 'partially_filled' }],
+    positions: [pos('XOM')], now: NOW,
+  });
+  t('a partially-filled position counts as tracked', !has(r, 'untracked_position'));
+  t('and the journal reads as consistent', r.ok === true);
+
+  // It is a real holding, so dry-run must still warn about it.
+  const d = analyzeJournal({
+    docs: [{ ticker: 'XOM', status: 'partially_filled' }],
+    positions: [pos('XOM')], dryRun: true, now: NOW,
+  });
+  t('dry-run still warns it is unmanaged', has(d, 'dryrun_with_positions'));
+
+  // And it must not be swept as a stale unfilled entry — shares are held.
+  const stale = analyzeJournal({
+    docs: [{ ticker: 'XOM', status: 'partially_filled', createdAt: daysAgo(9) }],
+    positions: [pos('XOM')], now: NOW,
+  });
+  t('an old partial fill is not "stuck at submitted"', !has(stale, 'stuck_submitted'));
+
+  // If the broker no longer holds it, that IS a ghost — same as a full fill.
+  const gone = analyzeJournal({
+    docs: [{ ticker: 'XOM', status: 'partially_filled' }], positions: [], now: NOW,
+  });
+  t('a partial fill with no position is a ghost fill', has(gone, 'ghost_fill'));
+}
+
 console.log('\n--- untracked positions: the detail must name the cause ---');
 {
   // "Untracked" has several causes needing different responses, so the finding

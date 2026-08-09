@@ -38,6 +38,7 @@ import { initFirestore, admin } from '../src/config/firebaseAdmin.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { sendTelegram } from '../src/data/telegram.js';
 import { attachFileLog, tailLog, resolveLogFile } from './lib/logfile.mjs';
+import { formatValidationMessage } from './lib/format-validation.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -375,19 +376,20 @@ const COMMANDS = {
   async validate(args) {
     const full = (args[0] || '').toLowerCase() === 'full';
     const repoDir = cfg.REPO_DIR || SELF_REPO_DIR;
+    // --json so the reply can be a readable message rather than a pasted
+    // terminal dump. Exit code 1 means problems were FOUND, which is a
+    // successful run with a useful report — the JSON is on stdout either way.
+    const run = () => execFileAsync(
+      'node', ['scripts/validate.mjs', '--json', ...(full ? [] : ['--quick'])],
+      { cwd: repoDir, timeout: full ? 420_000 : 90_000, maxBuffer: 8 * 1024 * 1024 },
+    );
+    let stdout;
+    try { ({ stdout } = await run()); }
+    catch (e) { stdout = e.stdout; if (!stdout) return `❌ validation could not run: ${esc(e.message)}`; }
     try {
-      const { stdout } = await execFileAsync(
-        'node', ['scripts/validate.mjs', ...(full ? [] : ['--quick'])],
-        { cwd: repoDir, timeout: full ? 420_000 : 90_000, maxBuffer: 4 * 1024 * 1024 },
-      );
-      return `<pre>${esc(stdout.replace(/\x1b\[[0-9;]*m/g, '').trim().slice(-3600))}</pre>`;
+      return formatValidationMessage(JSON.parse(stdout));
     } catch (e) {
-      // Exit code 1 means problems were FOUND, which is a successful run with a
-      // useful report — not an execution failure. Show the report either way.
-      const out = `${e.stdout || ''}${e.stderr || ''}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
-      return out
-        ? `<pre>${esc(out.slice(-3600))}</pre>`
-        : `❌ validation could not run: ${esc(e.message)}`;
+      return `❌ could not parse the validation result: ${esc(e.message)}`;
     }
   },
 

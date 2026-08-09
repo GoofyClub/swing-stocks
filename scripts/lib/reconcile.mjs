@@ -25,8 +25,12 @@ const TERMINAL = ['filled', 'canceled', 'expired', 'rejected', 'done_for_day'];
 
 export async function reconcileOrders({ db, admin, uid, client, log, currentSession = null, notify = null }) {
   let refreshed = 0, expired = 0, filled = 0;
+  // 'partially_filled' is NOT terminal — the rest of the order is still working.
+  // Querying only 'submitted' meant a doc that partially filled was never
+  // revisited, so its filledQty froze at the first partial and it could never
+  // reach 'filled' even after the remainder executed.
   const open = await db.collection('users').doc(uid).collection('autoOrders')
-    .where('status', '==', 'submitted').get();
+    .where('status', 'in', ['submitted', 'partially_filled']).get();
 
   for (const d of open.docs) {
     const data = d.data();

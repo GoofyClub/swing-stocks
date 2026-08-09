@@ -17,7 +17,9 @@ const toDate = (v) => (v?.toDate ? v.toDate() : v ? new Date(v) : null);
 const ageDays = (v, now) => { const d = toDate(v); return d ? (now - d.getTime()) / DAY_MS : null; };
 
 // Statuses that mean "we believe a position is open at the broker".
-const OPEN_STATUSES = ['filled', 'exit_submitted'];
+// 'partially_filled' belongs here: the broker filled some of the order, so
+// shares are held and at risk even though the rest is still working.
+const OPEN_STATUSES = ['filled', 'partially_filled', 'exit_submitted'];
 const CLOSED_STATUSES = ['position_closed', 'exit_submitted'];
 
 export function analyzeJournal({
@@ -66,10 +68,15 @@ export function analyzeJournal({
   // ---- ghost fills ---------------------------------------------------------
   // Normal for a few minutes after an exit; persistent means the maintenance
   // pass is not running to mark them closed.
-  const ghosts = docs.filter(o => o.status === 'filled' && !held.has(o.ticker)).map(o => o.ticker);
+  // Any status meaning "we hold shares" qualifies, partial fills included —
+  // otherwise a partial fill that got closed would silently keep its open
+  // status and never be reconciled.
+  const ghosts = docs
+    .filter(o => ['filled', 'partially_filled'].includes(o.status) && !held.has(o.ticker))
+    .map(o => o.ticker);
   if (ghosts.length) {
     add('warn', 'ghost_fill',
-      `${ghosts.length} journal doc(s) say 'filled' but the broker holds nothing`,
+      `${ghosts.length} journal doc(s) claim an open position the broker does not hold`,
       'Expected briefly after an exit. Persistent means the maintenance pass is not reconciling.',
       ghosts);
   }

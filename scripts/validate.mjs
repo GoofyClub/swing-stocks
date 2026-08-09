@@ -47,13 +47,32 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const QUICK = process.argv.includes('--quick');
 const ONLY_UID = process.env.ONLY_UID || null;
 
+// --json emits a structured result instead of the terminal report, so callers
+// (the Telegram bot) can render it their own way rather than pasting a wall of
+// fixed-width text into a chat.
+const JSON_OUT = process.argv.includes('--json');
+
 let fails = 0, warns = 0;
+const RESULT = { sections: [], startedAt: new Date().toISOString() };
+let section = null;
+
 const C = { g: '\x1b[32m', y: '\x1b[33m', r: '\x1b[31m', b: '\x1b[1m', x: '\x1b[0m' };
-const ok = (m) => console.log(`  ${C.g}✓${C.x} ${m}`);
-const warn = (m) => { warns++; console.log(`  ${C.y}!${C.x} ${m}`); };
-const bad = (m) => { fails++; console.log(`  ${C.r}✗${C.x} ${m}`); };
-const hdr = (m) => console.log(`\n${C.b}${m}${C.x}`);
-const info = (m) => console.log(`    ${m}`);
+const emit = (level, message) => {
+  if (section) section.items.push({ level, message });
+  if (JSON_OUT) return;
+  const mark = level === 'ok' ? `${C.g}✓${C.x}` : level === 'warn' ? `${C.y}!${C.x}`
+    : level === 'bad' ? `${C.r}✗${C.x}` : ' ';
+  console.log(level === 'info' ? `    ${message}` : `  ${mark} ${message}`);
+};
+const ok = (m) => emit('ok', m);
+const warn = (m) => { warns++; emit('warn', m); };
+const bad = (m) => { fails++; emit('bad', m); };
+const info = (m) => emit('info', m);
+const hdr = (m) => {
+  section = { title: m.replace(/^\d+\.\s*/, '').trim(), items: [] };
+  RESULT.sections.push(section);
+  if (!JSON_OUT) console.log(`\n${C.b}${m}${C.x}`);
+};
 
 const sh = async (cmd, args) => {
   try { return (await execFileAsync(cmd, args, { timeout: 15000 })).stdout.trim(); }
@@ -314,7 +333,13 @@ async function checkCode() {
   const head = await sh('git', ['-C', REPO, 'log', '-1', '--pretty=%h %s (%cr)']);
   if (head) ok(`HEAD ${head}`);
   const dirty = await sh('git', ['-C', REPO, 'status', '--porcelain', '--untracked-files=no']);
-  if (dirty) warn(`working tree has uncommitted changes — deploy.sh will refuse:\n${dirty.split('\n').slice(0, 5).map(l => '      ' + l).join('\n')}`);
+  if (dirty) {
+    // One message per line, not a message containing newlines — an embedded
+    // newline breaks every renderer downstream (the Telegram formatter treats
+    // one item as one line).
+    warn(`working tree has ${dirty.split('\n').length} uncommitted change(s) — deploy.sh will refuse`);
+    for (const l of dirty.split('\n').slice(0, 5)) info(l.trim());
+  }
   await sh('git', ['-C', REPO, 'fetch', '--quiet', 'origin']);
   const branch = await sh('git', ['-C', REPO, 'rev-parse', '--abbrev-ref', 'HEAD']);
   const behind = await sh('git', ['-C', REPO, 'rev-list', '--count', `HEAD..origin/${branch}`]);
@@ -337,8 +362,13 @@ async function checkCode() {
 // ---- main -------------------------------------------------------------------
 async function main() {
   const c = marketClock();
-  console.log(`${C.b}Swing system validation${C.x}  —  ${c.date} ${String(Math.floor(c.minutes / 60)).padStart(2, '0')}:${String(c.minutes % 60).padStart(2, '0')} ET${QUICK ? '  (quick)' : ''}`);
-  console.log('Read-only: places no orders, cancels nothing, writes nothing.');
+  RESULT.etDate = c.date;
+  RESULT.etTime = `${String(Math.floor(c.minutes / 60)).padStart(2, '0')}:${String(c.minutes % 60).padStart(2, '0')}`;
+  RESULT.quick = QUICK;
+  if (!JSON_OUT) {
+    console.log(`${C.b}Swing system validation${C.x}  —  ${c.date} ${RESULT.etTime} ET${QUICK ? '  (quick)' : ''}`);
+    console.log('Read-only: places no orders, cancels nothing, writes nothing.');
+  }
 
   const env = await checkEnvironment();
   await checkServices();
@@ -348,13 +378,21 @@ async function main() {
   await checkLogging();
   await checkCode();
 
-  hdr('Summary');
-  if (fails) {
-    console.log(`  ${C.r}✗ ${fails} problem(s)${C.x}${warns ? `, ${warns} warning(s)` : ''} — resolve the ✗ items above.`);
-  } else if (warns) {
-    console.log(`  ${C.y}! healthy, with ${warns} warning(s)${C.x} — review, none are blocking.`);
+  RESULT.fails = fails;
+  RESULT.warns = warns;
+  RESULT.ok = fails === 0;
+  if (JSON_OUT) {
+    // stdout is the machine channel here — nothing else may be written to it.
+    process.stdout.write(JSON.stringify(RESULT));
   } else {
-    console.log(`  ${C.g}✓ all checks passed${C.x}`);
+    hdr('Summary');
+    if (fails) {
+      console.log(`  ${C.r}✗ ${fails} problem(s)${C.x}${warns ? `, ${warns} warning(s)` : ''} — resolve the ✗ items above.`);
+    } else if (warns) {
+      console.log(`  ${C.y}! healthy, with ${warns} warning(s)${C.x} — review, none are blocking.`);
+    } else {
+      console.log(`  ${C.g}✓ all checks passed${C.x}`);
+    }
   }
   process.exit(fails ? 1 : 0);
 }

@@ -7,6 +7,11 @@
 // express, by replaying the SAME settlement logic the app uses for W/L verdicts
 // (settleSignal) over daily bars since the entry session:
 //
+// 'partially_filled' counts as open, and must: the broker filled some of the
+// order, so shares are held and at risk. Omitting it meant a partial fill was
+// invisible to every managed exit — it rode on its hard stop alone, forever,
+// while looking like an ordinary tracked position from the outside.
+//
 //   • native     — RSI2's close > 5-SMA indicator exit
 //   • time_stop  — per-strategy max hold
 //   • trail      — the trailing stop for trend/breakout strategies
@@ -32,7 +37,7 @@ export async function manageExits({ db, admin, uid, client, log, dryRun = false,
   let closed = 0, checked = 0;
   try {
     const filled = await db.collection('users').doc(uid).collection('autoOrders')
-      .where('status', 'in', ['filled', 'exit_submitted']).get();
+      .where('status', 'in', ['filled', 'partially_filled', 'exit_submitted']).get();
     if (filled.empty) return { checked, closed };
 
     const livePositions = await client.getPositions();
