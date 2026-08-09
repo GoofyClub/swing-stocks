@@ -72,8 +72,11 @@ bot takes on its chat allow-list.
   so `DASHBOARD_BIND=127.0.0.1` plus an SSH tunnel is the recommended setup:
 
   ```bash
-  ssh -L 8444:localhost:8444 YOUR_VM     # then http://localhost:8444
+  # ON YOUR LAPTOP, not on the VM — from the VM this just dials itself and
+  # fails with "Permission denied (publickey)".
+  gcloud compute ssh YOUR_INSTANCE --zone=YOUR_ZONE -- -L 8444:localhost:8444
   ```
+  Then browse to http://localhost:8444.
 
   Use `0.0.0.0` only behind a firewall rule that restricts the source IP.
 

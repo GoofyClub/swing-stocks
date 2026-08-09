@@ -219,14 +219,114 @@ console.log('\n--- realizeOutcomes: a vanished order is permanent, not transient
   };
   const r = await realizeOutcomes({ db, admin, uid: 'u1', client, log });
   const p = patchFor(db, /autoOrders/)[0];
-  t('a 404 marks the doc unrecoverable', p.realizeUnavailable === true);
-  t('the reason is recorded', /account/i.test(p.realizeUnavailableReason || ''));
+  t('a 404 with no fill history marks the doc unrecoverable', p.realizeUnavailable === true);
+  t('the reason is recorded', /fill history/i.test(p.realizeUnavailableReason || ''));
+  t('the recovery version is stamped', p.realizeUnavailableVersion >= 2);
   t('it is counted separately from realized', r.unavailable === 1 && r.realized === 0);
   t('no realized outcome is invented', p.realizedWinLoss === undefined);
 
   // The whole point: a second pass must not call the broker again.
   await realizeOutcomes({ db, admin, uid: 'u1', client, log });
   t('a marked doc is never re-fetched', calls === 1);
+}
+
+console.log('\n--- realizeOutcomes: recovering a vanished order from fill history ---');
+{
+  // Fills are independent of order ids, so they survive whatever removed the
+  // order. This is the same source the Performance tab reconstructs from —
+  // which is exactly why a trade could show there while realization gave up.
+  const fills = (sym, t1, p1, q1, t2, p2) => ([
+    { symbol: sym, side: 'buy',  qty: String(q1), price: String(p1), transaction_time: t1 },
+    { symbol: sym, side: 'sell', qty: String(q1), price: String(p2), transaction_time: t2 },
+  ]);
+  const rows = [{
+    ticker: 'BNL', side: 'buy', status: 'position_closed', qty: 10, filledQty: 10,
+    filledAvgPrice: 100, sl: 95, brokerOrderId: 'dead', sessionDate: '2026-08-03',
+  }];
+  const db = fakeDb({ 'users/u1/autoOrders': rows });
+  const client = {
+    getOrder: async () => { const e = new Error('order not found'); e.status = 404; throw e; },
+    getActivities: async () => fills('BNL', '2026-08-03T19:45:00Z', 100, 10, '2026-08-06T14:00:00Z', 107),
+  };
+  const r = await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  const p = patchFor(db, /autoOrders/)[0];
+  t('recovers the exit from fills instead of giving up', p.realizedExit === 107);
+  t('books it as a win', p.realizedWinLoss === 'win');
+  t('P&L matches qty × (exit − entry)', p.realizedPnl === 70);
+  t('labels the source', p.realizedExitReason === 'fill_history');
+  t('counts as realized, not unavailable', r.realized === 1 && r.unavailable === 0);
+  t('clears any write-off flag', p.realizeUnavailable === false);
+}
+{
+  // A previous version wrote this off. The bumped recovery version must give it
+  // ONE more attempt — otherwise improving the fallback rescues nothing already
+  // marked, and a manual backfill would be needed every time it improves.
+  const rows = [{
+    ticker: 'CZR', side: 'buy', status: 'position_closed', qty: 4, filledQty: 4,
+    filledAvgPrice: 50, sl: 47, brokerOrderId: 'dead', sessionDate: '2026-08-03',
+    realizeUnavailable: true, realizeUnavailableVersion: 1,
+  }];
+  const db = fakeDb({ 'users/u1/autoOrders': rows });
+  const client = {
+    getOrder: async () => { const e = new Error('order not found'); e.status = 404; throw e; },
+    getActivities: async () => ([
+      { symbol: 'CZR', side: 'buy',  qty: '4', price: '50', transaction_time: '2026-08-03T19:45:00Z' },
+      { symbol: 'CZR', side: 'sell', qty: '4', price: '48', transaction_time: '2026-08-05T14:00:00Z' },
+    ]),
+  };
+  const r = await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  t('an older write-off is retried by a newer recovery version', r.realized === 1);
+  t('and books the real loss', patchFor(db, /autoOrders/)[0].realizedWinLoss === 'loss');
+}
+{
+  // Mis-attribution is worse than no attribution: a confidently wrong P&L feeds
+  // the cooldown and the Auto Orders page. A round trip whose entry price does
+  // not match must NOT be claimed.
+  const rows = [{
+    ticker: 'DUK', side: 'buy', status: 'position_closed', qty: 5, filledQty: 5,
+    filledAvgPrice: 100, sl: 95, brokerOrderId: 'dead', sessionDate: '2026-08-03',
+  }];
+  const db = fakeDb({ 'users/u1/autoOrders': rows });
+  const client = {
+    getOrder: async () => { const e = new Error('order not found'); e.status = 404; throw e; },
+    // A real DUK round trip, but from a completely different entry price.
+    getActivities: async () => ([
+      { symbol: 'DUK', side: 'buy',  qty: '5', price: '70', transaction_time: '2026-08-03T19:45:00Z' },
+      { symbol: 'DUK', side: 'sell', qty: '5', price: '75', transaction_time: '2026-08-05T14:00:00Z' },
+    ]),
+  };
+  const r = await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  t('a mismatched entry price is not claimed', r.realized === 0 && r.unavailable === 1);
+}
+{
+  // Several round trips in the same name: the one matching our entry wins.
+  const rows = [{
+    ticker: 'WRB', side: 'buy', status: 'position_closed', qty: 2, filledQty: 2,
+    filledAvgPrice: 60, sl: 57, brokerOrderId: 'dead', sessionDate: '2026-08-03',
+  }];
+  const db = fakeDb({ 'users/u1/autoOrders': rows });
+  const client = {
+    getOrder: async () => { const e = new Error('order not found'); e.status = 404; throw e; },
+    getActivities: async () => ([
+      { symbol: 'WRB', side: 'buy',  qty: '2', price: '40', transaction_time: '2026-08-03T15:00:00Z' },
+      { symbol: 'WRB', side: 'sell', qty: '2', price: '44', transaction_time: '2026-08-03T18:00:00Z' },
+      { symbol: 'WRB', side: 'buy',  qty: '2', price: '60', transaction_time: '2026-08-03T19:45:00Z' },
+      { symbol: 'WRB', side: 'sell', qty: '2', price: '63', transaction_time: '2026-08-06T14:00:00Z' },
+    ]),
+  };
+  await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  const p = patchFor(db, /autoOrders/)[0];
+  t('picks the round trip matching our entry price', p.realizedExit === 63);
+  t('not the unrelated earlier trade in the same name', p.realizedExit !== 44);
+}
+{
+  // A client with no getActivities (older adapter, or a test double) must
+  // degrade to the write-off rather than throwing.
+  const rows = [{ ticker: 'OLD', side: 'buy', status: 'position_closed', qty: 1, filledAvgPrice: 10, sl: 9, brokerOrderId: 'dead' }];
+  const db = fakeDb({ 'users/u1/autoOrders': rows });
+  const client = { getOrder: async () => { const e = new Error('gone'); e.status = 404; throw e; } };
+  const r = await realizeOutcomes({ db, admin, uid: 'u1', client, log });
+  t('a client without getActivities degrades safely', r.unavailable === 1);
 }
 {
   // A TRANSIENT failure must still be retried — marking a 500 as permanent

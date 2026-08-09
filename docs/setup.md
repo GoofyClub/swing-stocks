@@ -285,8 +285,14 @@ It speaks plain HTTP, so basic-auth credentials cross the network in base64.
 With `DASHBOARD_BIND=127.0.0.1` it is unreachable except through a tunnel:
 
 ```bash
-ssh -L 8444:localhost:8444 YOUR_VM      # then open http://localhost:8444
+# ON YOUR LAPTOP — not on the VM. Running it from the VM makes the VM connect to
+# itself, which fails with "Permission denied (publickey)".
+gcloud compute ssh YOUR_INSTANCE --zone=YOUR_ZONE -- -L 8444:localhost:8444
 ```
+
+Leave that open, then browse to **http://localhost:8444**. Plain
+`ssh -L 8444:localhost:8444 <ip>` works too, but only once your own key is on
+the instance — `gcloud compute ssh` handles that for you.
 
 Set `DASHBOARD_BIND=0.0.0.0` only behind a firewall rule that restricts the
 source IP. It **cannot** share the ORB dashboard's port 8443 — one listening
@@ -313,6 +319,7 @@ From Telegram: `/health`, `/status`, `/positions`, `/pnl`, `/log`, `/errors`,
 
 ## Related
 
+- [runbook.md](runbook.md) — every operational command in one place
 - [architecture.md](architecture.md) — what runs on the VM vs GitHub Actions, and why
 - [logging.md](logging.md) — the single log file, the dashboard, `deploy.sh`
 - [going-live.md](going-live.md) — `DRY_RUN`/`ALLOW_LIVE`, promotion checklist, security
