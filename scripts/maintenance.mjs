@@ -47,6 +47,7 @@ import { reconcileOrders } from './lib/reconcile.mjs';
 import { realizeOutcomes } from './lib/realize.mjs';
 import { snapshotEquity } from './lib/equity.mjs';
 import { attachFileLog } from './lib/logfile.mjs';
+import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
 
 attachFileLog('maint');
 
@@ -224,4 +225,19 @@ async function main() {
   await recordRun(db, { startedAt, users: configs.length, totals, errors });
 }
 
-main().catch(e => { console.error('[maint] fatal', e); process.exit(1); });
+// A run that aborts here has skipped reconciliation, exits, realization and the
+// drawdown ratchet. Dying with only a log line makes that indistinguishable from
+// a quiet, healthy day — which is how the most dangerous failure in this system
+// stays invisible. Alert through the env-configured Telegram credentials, which
+// need no Firestore and so survive the failure that is most likely to cause this.
+main().catch(async (e) => {
+  console.error('[maint] fatal', e);
+  try {
+    await alertOperator(isQuotaError(e)
+      ? quotaAlertText('The 09:45/16:15 ET maintenance run')
+      : `🔴 <b>Maintenance run failed</b>\n<i>${String(e.message || e).slice(0, 300)}</i>\n\n`
+        + 'Exits, reconciliation and the drawdown ratchet did not run this pass. '
+        + 'Open positions still have their broker stops.');
+  } catch { /* alerting must never mask the original failure */ }
+  process.exit(1);
+});

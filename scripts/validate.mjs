@@ -41,6 +41,7 @@ import { marketClock, REENTRY_COOLDOWN_DAYS } from '../src/auto/engine.js';
 import { resolveLogFile } from './lib/logfile.mjs';
 import { resolveConfigFile } from './lib/load-env.mjs';
 import { analyzeJournal, analyzeEquityFreshness } from '../src/auto/integrity.js';
+import { isQuotaError } from './lib/alert.mjs';
 
 const execFileAsync = promisify(execFile);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -158,8 +159,14 @@ async function checkFirestore() {
     await db.collection('publicConfig').doc('automation').get();
     ok('reachable');
   } catch (e) {
-    bad(`unreachable: ${e.message.split('\n')[0]}`);
-    if (/quota|RESOURCE_EXHAUSTED/i.test(e.message)) info('free-tier daily reads exhausted — consider Blaze');
+    if (isQuotaError(e)) {
+      bad('QUOTA EXHAUSTED — the free-tier daily read allowance is spent');
+      info('Any runner firing before the reset (midnight Pacific) will abort: no reconciliation,');
+      info('no managed exits, no realized P&L, and the drawdown peak stops updating.');
+      info('Open positions keep their broker stops. Blaze plan removes this failure class.');
+    } else {
+      bad(`unreachable: ${e.message.split('\n')[0]}`);
+    }
     return null;
   }
 
@@ -253,9 +260,16 @@ async function checkAccounts(db, { dry, live: allowLive }) {
 // whether they AGREE with each other. The rules themselves are pure and unit
 // tested in tests/integrity.mjs — this function only fetches and prints.
 async function checkJournalIntegrity(db, uid, positions, { dry }) {
+  // Bounded: reading the whole journal on every /validate is an unbounded cost
+  // against a metered allowance, and every integrity rule only looks at open
+  // docs or recently-closed ones anyway.
   let docs;
+  const since = new Date(Date.now() - 45 * 86400_000);
   try {
-    const snap = await db.collection('users').doc(uid).collection('autoOrders').get();
+    const col = db.collection('users').doc(uid).collection('autoOrders');
+    let snap;
+    try { snap = await col.where('createdAt', '>=', since).get(); }
+    catch { snap = await col.get(); }   // composite index missing — fall back
     docs = snap.docs.map(d => d.data());
   } catch (e) { warn(`autoOrders unreadable: ${e.message.split('\n')[0]}`); return; }
   if (!docs.length) { info('journal empty — nothing has been placed yet'); return; }

@@ -114,10 +114,25 @@ async function exitFromFills({ client, order, log }) {
 // broker-side cause has been fixed (keys repointed at the right account, say)
 // and you want the docs re-examined without waiting for a version bump.
 //   REALIZE_RETRY=true npm run auto:maintenance
-export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavailable = false }) {
+export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavailable = false, lookbackDays = 45 }) {
   let realized = 0, unavailable = 0;
-  const snap = await db.collection('users').doc(uid).collection('autoOrders')
-    .where('status', 'in', ['position_closed', 'exit_submitted']).get();
+  // Bounded by time. This used to re-read every closed doc on every run, for
+  // the life of the account — an unbounded read against a metered daily
+  // allowance, growing with each trade. A trade that has not been realized
+  // within 45 days never will be: the exit price comes from the order (gone by
+  // then) or the fill history, both already tried on the earlier runs.
+  const since = new Date(Date.now() - lookbackDays * 86400_000);
+  let q = db.collection('users').doc(uid).collection('autoOrders')
+    .where('status', 'in', ['position_closed', 'exit_submitted']);
+  // createdAt is present on every doc the workers write; the composite index it
+  // needs may not exist, so fall back to the unbounded query rather than fail.
+  let snap;
+  try {
+    snap = await q.where('createdAt', '>=', since).get();
+  } catch (e) {
+    log(`realize: date-bounded query unavailable (${e.message.split('\n')[0]}) — scanning all closed orders`);
+    snap = await q.get();
+  }
 
   for (const d of snap.docs) {
     const o = d.data();

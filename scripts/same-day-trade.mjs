@@ -71,6 +71,7 @@ import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js
 import { configErrorHint } from '../src/config/configHint.js';
 import { manageExits } from './lib/exit-pass.mjs';
 import { attachFileLog } from './lib/logfile.mjs';
+import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS, MARKET_CONFIGS } from '../src/data/markets.js';
 import { regimeCheck } from '../src/strategy/engine.js';
@@ -598,4 +599,12 @@ async function main() {
   await recordRun(db, { startedAt, users: configs.length, placed, skipped, errors });
 }
 
-main().catch(e => { console.error('[sameday] fatal', e); process.exit(1); });
+main().catch(async (e) => {
+  console.error('[sameday] fatal', e);
+  try {
+    await alertOperator(isQuotaError(e)
+      ? quotaAlertText('The 15:38 ET entry run')
+      : `🔴 <b>Entry run failed</b>\n<i>${String(e.message || e).slice(0, 300)}</i>\n\nNo entries were placed this session.`);
+  } catch { /* never mask the original failure */ }
+  process.exit(1);
+});
