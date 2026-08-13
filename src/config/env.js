@@ -50,7 +50,8 @@ export const CONFIG_SPEC = [
     desc: 'Universe to scan. core = 51 curated names (~15s). broad = full S&P universe, 1503 names (~6-7 min). Use broad to match what refresh-signals scans.' },
   { key: 'STRATEGIES', type: L, default: [], scope: 'exec',
     desc: 'Comma list restricting which strategies run. Empty = every strategy the user has enabled.' },
-  { key: 'MARKETS', type: L, default: ['US', 'INDIA'], scope: 'exec', desc: 'Markets the refresh cron scans.' },
+  { key: 'MARKETS', type: L, default: ['US'], scope: 'exec',
+    desc: 'Markets this deployment runs — scanning AND trading. Intersected with each user\'s configured markets, so this is the single switch that turns one off everywhere. Scanning a market you do not trade is not free: it costs a full universe scan plus a re-settlement query per market, which is what exhausted the Firestore daily quota. Add INDIA back when you start trading NSE.' },
 
   // ---- Telegram control bot ----------------------------------------------
   { key: 'TELEGRAM_BOT_TOKEN', type: S, default: '', secret: true, scope: 'bot',

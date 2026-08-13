@@ -22,6 +22,28 @@ export {
   REENTRY_COOLDOWN_DAYS, PLACED_STOP_PCT,
 };
 
+// Which markets this DEPLOYMENT will actually trade, given the user's choice
+// and the box-level MARKETS setting.
+//
+// The per-user config says what someone WANTS enabled; MARKETS in swing.env says
+// what this deployment is willing to run. The intersection is what happens. That
+// separation matters on a metered backend: scanning a market you have no
+// intention of trading still costs a full universe scan and, worse, a
+// re-settlement query per market — which is what exhausted the daily Firestore
+// allowance and stopped the entry runner three sessions in a row.
+//
+// An empty deployment list means "no restriction", so the default behaviour is
+// unchanged for anyone who never sets it.
+export function allowedMarkets(userMarkets, deploymentMarkets) {
+  const wanted = (Array.isArray(userMarkets) && userMarkets.length) ? userMarkets : ['US'];
+  const allowed = (Array.isArray(deploymentMarkets) && deploymentMarkets.length) ? deploymentMarkets : null;
+  if (!allowed) return { markets: wanted, dropped: [] };
+  const up = allowed.map(m => String(m).toUpperCase());
+  const markets = wanted.filter(m => up.includes(String(m).toUpperCase()));
+  const dropped = wanted.filter(m => !up.includes(String(m).toUpperCase()));
+  return { markets, dropped };
+}
+
 // Deterministic client order id → idempotency key. Re-running the worker for the
 // same user+signal yields the same id, so the broker (and our journal) dedupe a
 // double-submit. Sanitized to the charset brokers accept for client_order_id.

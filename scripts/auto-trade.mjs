@@ -34,6 +34,7 @@ import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, regimeAllowsEntry,
   marketClock, inEntryWindow, placedStopPrice, inReentryCooldown, REENTRY_COOLDOWN_DAYS,
+  allowedMarkets,
 } from '../src/auto/engine.js';
 import { manageExits } from './lib/exit-pass.mjs';
 import { reconcileOrders } from './lib/reconcile.mjs';
@@ -236,7 +237,9 @@ async function processUser(db, uid, cfg) {
   const modeLabel = live ? 'live' : 'paper';
   log(`mode=${modeLabel} equity=${equity.toFixed(0)} open=${openCount} dayP/L=${dayRealizedPct.toFixed(2)}% dryRun=${DRY_RUN}`);
 
-  const markets = cfg.markets || ['US'];
+  const DEPLOYMENT_MARKETS = (process.env.MARKETS || 'US').split(',').map(x => x.trim()).filter(Boolean);
+  const { markets, dropped } = allowedMarkets(cfg.markets, DEPLOYMENT_MARKETS);
+  if (dropped.length) log(`skipping ${dropped.join(', ')} — not in MARKETS for this deployment`);
   const now = new Date();
 
   // Recent LOSING exits, for the re-entry cooldown — the same guard the same-day

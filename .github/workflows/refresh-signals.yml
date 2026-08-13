@@ -15,19 +15,21 @@ name: Refresh shared signals
 #   13:15 UTC  ~09:15 ET  pre-open refresh
 #   19:00 UTC  ~15:00 ET  late-session refresh
 #   21:00 UTC  ~17:00 ET  after the US close (settles the day)
-#   11:00 UTC             NSE EOD (~16:30 IST)
+#
+# The 11:00 UTC NSE pass is GONE: MARKETS defaults to US only, so an India run
+# would scan a universe nobody trades and pay for a second re-settlement query.
+# Restore that cron together with MARKETS=US,INDIA when NSE trading begins.
 on:
   schedule:
     - cron: "15 13 * * 1-5"
     - cron: "0 19 * * 1-5"
     - cron: "0 21 * * 1-5"
-    - cron: "0 11 * * 1-5"
   workflow_dispatch:
     inputs:
       markets:
         description: 'Comma-separated markets to refresh'
         required: false
-        default: 'US,INDIA'
+        default: 'US'
       watchlist_set:
         description: "Watchlist to scan: core | broad"
         required: false
@@ -57,7 +59,7 @@ jobs:
           FMP_KEY:                       ${{ secrets.FMP_KEY }}
           ALPACA_KEY:                    ${{ secrets.ALPACA_KEY }}
           ALPACA_SECRET:                 ${{ secrets.ALPACA_SECRET }}
-          MARKETS:                       ${{ github.event.inputs.markets || 'US,INDIA' }}
+          MARKETS:                       ${{ github.event.inputs.markets || vars.MARKETS || 'US' }}
           # Manual input wins; otherwise the AUTO_WATCHLIST_SET repo variable (default 'core').
           WATCHLIST_SET:                 ${{ github.event.inputs.watchlist_set || vars.AUTO_WATCHLIST_SET || 'core' }}
         run: node scripts/refresh-signals.mjs

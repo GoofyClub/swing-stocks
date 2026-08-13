@@ -49,6 +49,33 @@ These rules are pure and unit-tested (`tests/integrity.mjs`) — a false "all
 clear" would be worse than no check, since it is an explicit assurance that no
 unprotected position exists.
 
+## Turning a market off
+
+`MARKETS` in `swing-config/swing.env` is the single switch — it gates scanning
+**and** trading, intersected with each user's configured markets, so one setting
+turns a market off everywhere:
+
+```bash
+MARKETS=US            # default: NSE is not scanned or traded
+MARKETS=US,INDIA      # when you start trading NSE
+```
+
+This is not just tidiness. A market you do not trade still costs a full universe
+scan and — expensively — its own re-settlement query, per refresh run. That is
+what exhausted the Firestore daily allowance and stopped the entry runner.
+
+Two places to change when you add NSE back:
+
+1. `MARKETS=US,INDIA` in `swing.env` (the VM)
+2. the `MARKETS` repo variable, or the `refresh-signals` workflow default, plus
+   restoring its `0 11 * * 1-5` cron for the NSE end-of-day pass
+
+The runners log what they dropped, so a market silently missing is visible:
+
+```
+skipping INDIA — not in MARKETS for this deployment (US)
+```
+
 ## Daily checks
 
 ```bash

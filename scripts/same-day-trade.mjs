@@ -65,7 +65,7 @@ import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, buildBracketOrder, regimeAllowsEntry, drawdownHalted,
   marketClock, inCloseWindow, placedStopPrice, stopClearanceOk, inReentryCooldown,
-  REENTRY_COOLDOWN_DAYS, ORDER_DEADLINE_ET_MIN,
+  REENTRY_COOLDOWN_DAYS, ORDER_DEADLINE_ET_MIN, allowedMarkets,
 } from '../src/auto/engine.js';
 import { STRATEGIES, tierReasons, advUsdFor } from '../src/strategy/normalize.js';
 import { configErrorHint } from '../src/config/configHint.js';
@@ -85,6 +85,9 @@ const ENV_KILL = String(process.env.KILL_SWITCH ?? 'false').toLowerCase() === 't
 const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === 'true';
 const FORCE_WINDOW = String(process.env.FORCE_WINDOW ?? 'false').toLowerCase() === 'true';
 const ONLY_STRATEGIES = (process.env.STRATEGIES || '').split(',').map(s => s.trim()).filter(Boolean);
+// Markets this box runs at all. Defaults to US: scanning a market you do not
+// trade costs a full universe scan for nothing.
+const DEPLOYMENT_MARKETS = (process.env.MARKETS || 'US').split(',').map(s => s.trim()).filter(Boolean);
 
 // Everything this run prints also lands in the shared log file. Attach FIRST so
 // the in-memory capture below wraps it and both get every line.
@@ -405,7 +408,9 @@ async function processUser(db, uid, cfg, now) {
   const sessionDate = marketClock(now).date;
   log(`mode=${modeLabel} equity=${equity.toFixed(0)} open=${openCount} session=${sessionDate} dryRun=${DRY_RUN}`);
 
-  const markets = cfg.markets || ['US'];
+  const { markets, dropped } = allowedMarkets(cfg.markets, DEPLOYMENT_MARKETS);
+  if (dropped.length) log(`skipping ${dropped.join(', ')} — not in MARKETS for this deployment (${DEPLOYMENT_MARKETS.join(', ')})`);
+  if (!markets.length) { log(`no enabled market left after the MARKETS filter — nothing to scan`); return { placed: 0, skipped: 0 }; }
   const scanStarted = Date.now();
   // Regime is evaluated per market BEFORE scanning: when it says risk-off there
   // is no point fetching 1500 tickers we cannot act on.

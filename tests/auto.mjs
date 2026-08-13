@@ -10,7 +10,7 @@ import {
   clientOrderId, sizePosition, signalMatchesRules, passesPortfolioGuards,
   isTradeDayAllowed, slippageOk, stopClearanceOk, buildBracketOrder, brokerPrice, modelExitAction, regimeAllowsEntry, drawdownHalted,
   marketClock, inEntryWindow, entryLimitPrice, placedStopPrice, PLACED_STOP_PCT, inCloseWindow,
-  inReentryCooldown, REENTRY_COOLDOWN_DAYS,
+  inReentryCooldown, REENTRY_COOLDOWN_DAYS, allowedMarkets,
 } from '../src/auto/engine.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { INDEX_OPTIONS, indexOptionsForMarket, indexOptionsForMarkets, indexAllowed } from '../src/data/indexes.js';
@@ -326,6 +326,34 @@ console.log('\n--- buildBracketOrder ---');
   t('pending stop entry rounds to penny', subPenny.stopPrice === 45.06);
   t('sub-dollar prices keep 4 decimals', brokerPrice(0.12345) === 0.1235 && brokerPrice(0.1234) === 0.1234);
   t('at/above $1 rounds to pennies', brokerPrice(1.005) === 1.01 || brokerPrice(1.005) === 1.0); // fp-safe: must be a penny increment
+}
+
+console.log('\n--- allowedMarkets: one switch turns a market off everywhere ---');
+{
+  // Scanning a market you do not trade is not free — it costs a universe scan
+  // plus a re-settlement query per market, which is what exhausted the daily
+  // Firestore allowance and stopped the entry runner for three sessions.
+  const r = allowedMarkets(['US', 'INDIA'], ['US']);
+  t('drops the market the deployment does not run', r.markets.join() === 'US');
+  t('and names what it dropped', r.dropped.join() === 'INDIA');
+
+  t('both enabled passes both', allowedMarkets(['US', 'INDIA'], ['US', 'INDIA']).markets.length === 2);
+  t('case does not matter', allowedMarkets(['india'], ['INDIA']).markets.join() === 'india');
+
+  // An unset deployment list must NOT mean "nothing" — that would silently stop
+  // all trading for anyone who never sets the variable.
+  t('an empty deployment list means no restriction',
+    allowedMarkets(['US', 'INDIA'], []).markets.length === 2);
+  t('null deployment list means no restriction',
+    allowedMarkets(['US', 'INDIA'], null).markets.length === 2);
+
+  // A user with nothing configured defaults to US, as before.
+  t('no user markets defaults to US', allowedMarkets(null, ['US']).markets.join() === 'US');
+
+  // The fully-excluded case must be visible, not silent.
+  const none = allowedMarkets(['INDIA'], ['US']);
+  t('excluding everything yields an empty list', none.markets.length === 0);
+  t('and still reports what was dropped', none.dropped.join() === 'INDIA');
 }
 
 console.log('\n--- take-profit leg matches the settlement model ---');
