@@ -49,6 +49,7 @@ import { attachFileLog } from './lib/logfile.mjs';
 import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
 import { makeNotifier } from './lib/notify.mjs';
 import { formatDailySummary } from './lib/format-summary.mjs';
+import { installReadMeter, readCount, readSummary } from './lib/firestore-meter.mjs';
 
 attachFileLog('maint');
 
@@ -145,6 +146,7 @@ async function sendDailySummary({ db, uid, client, account, dd, notify, log, pos
     halted: !!dd?.halted,
     problems,
     dryRun: DRY_RUN,
+    footer: readSummary(),
   });
   const sent = await notify(text);
   log(`daily summary ${sent ? 'sent' : 'NOT sent (no Telegram target configured)'}`);
@@ -261,6 +263,7 @@ async function recordRun(db, { startedAt, users, totals, errors, error }) {
 
 async function main() {
   const db = initFirestore({ log: (m) => console.log(`[maint] ${m}`) });
+  installReadMeter(db);
   const startedAt = Date.now();
   console.log(`[maint] start dryRun=${DRY_RUN}${ONLY_UID ? ` onlyUid=${ONLY_UID}` : ''} ET=${marketClock().date} ${Math.floor(marketClock().minutes / 60)}:${String(marketClock().minutes % 60).padStart(2, '0')}`);
 
@@ -283,6 +286,7 @@ async function main() {
   }
   console.log(`[maint] complete — ${totals.refreshed} reconciled, ${totals.expired} expired, ${totals.closed} exits, `
     + `${totals.realized} realized${totals.unavailable ? `, ${totals.unavailable} unrecoverable` : ''}, ${errors} error(s)`);
+  console.log(`[maint] ${readSummary()}`);
   await recordRun(db, { startedAt, users: configs.length, totals, errors });
 }
 

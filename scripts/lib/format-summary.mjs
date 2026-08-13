@@ -34,6 +34,7 @@ export function formatDailySummary({
   halted = false,
   problems = [],
   dryRun = false,
+  footer = null,
 } = {}) {
   const out = [];
 
@@ -89,6 +90,14 @@ export function formatDailySummary({
     }
   } else {
     out.push(`${b('Held overnight')} — flat`);
+  }
+
+  // Read cost, when the caller supplies it. On the free tier this is the number
+  // that decides whether tomorrow's entry run happens at all, so it belongs in
+  // the message you actually read rather than only in a log file.
+  if (footer) {
+    out.push('');
+    out.push(i(footer));
   }
 
   return fit(out.join('\n'));

@@ -13,6 +13,7 @@
 import { makeNotifier, resetNotifyCache } from '../scripts/lib/notify.mjs';
 import { formatDailySummary } from '../scripts/lib/format-summary.mjs';
 import { TG_LIMIT } from '../scripts/lib/tg.mjs';
+import { installReadMeter, readCount, readSummary, resetReadMeter } from '../scripts/lib/firestore-meter.mjs';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -167,6 +168,47 @@ console.log('\n--- the daily summary ---');
   t('tags stay balanced after truncation', tags === 0);
   t('a hostile ticker cannot inject markup',
     !/<script>/.test(formatDailySummary({ ...base, held: [{ symbol: '<script>x</script>', qty: 1, unrealizedPl: 0 }] })));
+}
+
+console.log('\n--- the read meter ---');
+{
+  // Operating on the free tier means operating near a hard limit that silently
+  // stops trading. The counter is what makes that budgetable rather than a
+  // surprise, so it must count the way BILLING does: one read per document, and
+  // one for a query that matches nothing.
+  class Q { constructor(n) { this.n = n; } limit() { return this; } where() { return this; }
+    async get() { return { size: this.n, docs: new Array(this.n) }; } }
+  class D { async get() { return { exists: true }; } }
+  const q = new Q(7), empty = new Q(0), d = new D();
+  const db = { collection: () => ({ limit: () => q, doc: () => d, where: () => q }) };
+
+  resetReadMeter();
+  installReadMeter(db);
+  await db.collection('x').limit(1).get();
+  t('counts one read per document returned', readCount() === 7);
+  await db.collection('x').doc('y').get();
+  t('counts a document fetch as one', readCount() === 8);
+  await empty.get();
+  t('an empty query still bills one', readCount() === 9);
+
+  t('the summary names the ceiling', /50,000\/day/.test(readSummary()));
+  t('and the share used', /%/.test(readSummary()));
+
+  resetReadMeter();
+  t('reset clears it', readCount() === 0);
+
+  // Counting must never be able to break a run.
+  class Broken { async get() { return null; } }
+  const bad = new Broken();
+  const db2 = { collection: () => ({ limit: () => bad, doc: () => bad, where: () => bad }) };
+  installReadMeter(db2);
+  let threw = false;
+  try { await bad.get(); } catch { threw = true; }
+  t('a malformed result does not throw', threw === false);
+
+  // A result must pass through untouched — the meter observes, never alters.
+  const passthrough = await q.get();
+  t('the query result is returned unchanged', passthrough.size === 7);
 }
 
 console.log(`\n=============================================`);

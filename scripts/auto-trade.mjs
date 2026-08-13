@@ -249,8 +249,15 @@ async function processUser(db, uid, cfg) {
   if (REENTRY_COOLDOWN_DAYS > 0) {
     try {
       const since = new Date(now.getTime() - (REENTRY_COOLDOWN_DAYS + 1) * 86400_000);
-      const snap = await db.collection('users').doc(uid).collection('autoOrders')
-        .where('realizedWinLoss', '==', 'loss').get();
+      // Bound the query, not just the result. This used to read EVERY losing
+      // trade ever recorded and discard all but the last few days in memory —
+      // a read cost that grew with every loss taken, on a metered allowance,
+      // in the runner that places orders.
+      const col = db.collection('users').doc(uid).collection('autoOrders')
+        .where('realizedWinLoss', '==', 'loss');
+      let snap;
+      try { snap = await col.where('realizedAt', '>=', since).get(); }
+      catch { snap = await col.get(); }   // composite index missing — degrade cost, not correctness
       recentLosses = snap.docs.map(d => {
         const o = d.data();
         const at = o.realizedAt?.toDate ? o.realizedAt.toDate() : (o.realizedAt ? new Date(o.realizedAt) : null);

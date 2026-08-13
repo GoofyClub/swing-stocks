@@ -73,6 +73,7 @@ import { manageExits } from './lib/exit-pass.mjs';
 import { attachFileLog } from './lib/logfile.mjs';
 import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
 import { makeNotifier } from './lib/notify.mjs';
+import { installReadMeter, readSummary } from './lib/firestore-meter.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS, MARKET_CONFIGS } from '../src/data/markets.js';
 import { regimeCheck } from '../src/strategy/engine.js';
@@ -380,8 +381,15 @@ async function processUser(db, uid, cfg, now) {
   if (REENTRY_COOLDOWN_DAYS > 0) {
     try {
       const since = new Date(now.getTime() - (REENTRY_COOLDOWN_DAYS + 1) * 86400_000);
-      const snap = await db.collection('users').doc(uid).collection('autoOrders')
-        .where('realizedWinLoss', '==', 'loss').get();
+      // Bound the query, not just the result. This used to read EVERY losing
+      // trade ever recorded and discard all but the last few days in memory —
+      // a read cost that grew with every loss taken, on a metered allowance,
+      // in the runner that places orders.
+      const col = db.collection('users').doc(uid).collection('autoOrders')
+        .where('realizedWinLoss', '==', 'loss');
+      let snap;
+      try { snap = await col.where('realizedAt', '>=', since).get(); }
+      catch { snap = await col.get(); }   // composite index missing — degrade cost, not correctness
       recentLosses = snap.docs.map(d => {
         const o = d.data();
         const at = o.realizedAt?.toDate ? o.realizedAt.toDate() : (o.realizedAt ? new Date(o.realizedAt) : null);
@@ -568,6 +576,7 @@ async function recordRun(db, { startedAt, users, placed, skipped, errors, note, 
 
 async function main() {
   const db = initAdmin();
+  installReadMeter(db);
   const startedAt = Date.now();
   const now = new Date();
   const { minutes, date } = marketClock(now);
@@ -588,7 +597,8 @@ async function main() {
     try { const r = await processUser(db, uid, cfg, now); placed += r?.placed || 0; skipped += r?.skipped || 0; }
     catch (e) { errors++; console.error(`[sameday][${uid.slice(0, 6)}] fatal: ${e.message}`); }
   }
-  console.log('[sameday] complete');
+  console.log(`[sameday] complete — placed=${placed} skipped=${skipped} errors=${errors}`);
+  console.log(`[sameday] ${readSummary()}`);
   await recordRun(db, { startedAt, users: configs.length, placed, skipped, errors });
 }
 
