@@ -53,6 +53,10 @@ const RETENTION_DAYS = 800;
 // NOTE: bumping SETTLEMENT_VERSION now only re-grades signals inside this
 // window. Re-grading older history needs a one-off backfill with a wider value.
 const RESETTLE_DAYS = Number(process.env.RESETTLE_DAYS || 120);
+// Re-grade CLOSED signals as well as open ones. Needed only after a
+// SETTLEMENT_VERSION bump; it multiplies the read cost of a run by roughly the
+// ratio of closed to open signals, which is what exhausted the daily quota.
+const RESETTLE_ALL = String(process.env.RESETTLE_ALL ?? 'false').toLowerCase() === 'true';
 const MARKETS_TO_RUN = (process.env.MARKETS || 'US,INDIA').split(',').map(s => s.trim());
 // Which watchlist to scan: 'core' (curated blue-chips, default) | 'broad' (core
 // + a wider mid/large-cap growth set, better for the breakout strategies).
@@ -341,30 +345,47 @@ async function resettleRecentSignals(db, market, ctxIn) {
   const cutoff = daysAgo(RESETTLE_DAYS);
   console.log(`[resettle] market=${market} cutoff=${cutoff} (${RESETTLE_DAYS}d window) settlementVersion=${SETTLEMENT_VERSION}`);
 
-  // No status filter — we may need to re-grade closed signals too. The ideal
-  // query filters market server-side, but that needs a (market, signalTs)
-  // composite collection-group index. If that index isn't deployed Firestore
-  // throws FAILED_PRECONDITION — which previously killed the ENTIRE settlement
-  // pass (both shared-signal and per-user trade settlement), leaving everything
-  // stuck "open". So we fall back to the single-field signalTs query (which only
-  // needs the index the History view already relies on) and filter market in
-  // memory. Settlement then works with or without the composite index.
+  // COST. This query dominates the project's Firestore usage: it reads every
+  // signal in a 120-day window, per market, on every run. At 17 runs a day it
+  // exhausted the free-tier daily read quota by mid-afternoon and took the
+  // 15:38 ET entry run down with it — the system stopped trading for three
+  // sessions while re-grading signals nothing in the trading path reads.
+  //
+  // Routine passes therefore only re-read signals that are still OPEN, which is
+  // the only set whose verdict can actually change. Re-grading CLOSED signals
+  // matters solely after a SETTLEMENT_VERSION bump, which is a deliberate,
+  // occasional event — so it now happens on request (RESETTLE_ALL=true) rather
+  // than on every run, at a small fraction of the cost.
+  const openOnly = !RESETTLE_ALL;
+  if (openOnly) console.log('[resettle] open signals only (set RESETTLE_ALL=true to re-grade closed ones after a settlement-version bump)');
+
   let cg;
   try {
-    cg = await db.collectionGroup('signals')
+    let q = db.collectionGroup('signals')
       .where('market', '==', market)
-      .where('signalTs', '>=', cutoff + 'T00:00:00Z')
-      .get();
+      .where('signalTs', '>=', cutoff + 'T00:00:00Z');
+    if (openOnly) q = q.where('status', '==', 'open');
+    cg = await q.get();
   } catch (e) {
     if (e.code === 9 || /index/i.test(e.message || '')) {
       console.warn(`[resettle] composite (market, signalTs) index missing — falling back to signalTs-only query + in-memory market filter. Deploy firestore:indexes to make this efficient. (${e.message})`);
       // Pin the ordering to DESCENDING so this uses the single-field signalTs
       // collection-group index that the History view already relies on (proven
       // deployed) — the ASCENDING-only variant of `>=` may not be enabled.
-      cg = await db.collectionGroup('signals')
-        .where('signalTs', '>=', cutoff + 'T00:00:00Z')
-        .orderBy('signalTs', 'desc')
-        .get();
+      // The open-only filter needs its own composite index; if that is missing
+      // too, fall back to the proven signalTs-only index and filter in memory.
+      // Correctness is preserved either way — only the cost differs.
+      try {
+        let q = db.collectionGroup('signals').where('signalTs', '>=', cutoff + 'T00:00:00Z');
+        if (openOnly) q = q.where('status', '==', 'open');
+        cg = await q.orderBy('signalTs', 'desc').get();
+      } catch {
+        console.warn('[resettle] open-status index missing too — reading the full window. This is the expensive path; deploy firestore:indexes.');
+        cg = await db.collectionGroup('signals')
+          .where('signalTs', '>=', cutoff + 'T00:00:00Z')
+          .orderBy('signalTs', 'desc')
+          .get();
+      }
     } else {
       throw e;
     }

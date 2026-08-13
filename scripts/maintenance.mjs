@@ -41,13 +41,14 @@ import admin from 'firebase-admin';
 import { initFirestore } from '../src/config/firebaseAdmin.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { marketClock } from '../src/auto/engine.js';
-import { sendTelegram } from '../src/data/telegram.js';
 import { manageExits } from './lib/exit-pass.mjs';
 import { reconcileOrders } from './lib/reconcile.mjs';
 import { realizeOutcomes } from './lib/realize.mjs';
 import { snapshotEquity } from './lib/equity.mjs';
 import { attachFileLog } from './lib/logfile.mjs';
 import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
+import { makeNotifier } from './lib/notify.mjs';
+import { formatDailySummary } from './lib/format-summary.mjs';
 
 attachFileLog('maint');
 
@@ -57,6 +58,10 @@ const ALLOW_LIVE = String(process.env.ALLOW_LIVE ?? 'false').toLowerCase() === '
 // Re-examine trades previously written off as unrecoverable. One-off, for after
 // the broker-side cause has been fixed.
 const REALIZE_RETRY = String(process.env.REALIZE_RETRY ?? 'false').toLowerCase() === 'true';
+// Send the daily summary. Defaults to ON only for the after-close run — the
+// morning pass has nothing to summarise. SUMMARY=true forces it for testing.
+const SUMMARY = String(process.env.SUMMARY ?? '').toLowerCase() === 'true'
+  || (process.env.SUMMARY == null && marketClock().minutes >= 16 * 60);
 
 const RUN_LOG = [];
 {
@@ -90,12 +95,59 @@ async function loadEnabledConfigs(db) {
   return out;
 }
 
-async function notify(db, uid, text) {
+
+
+// Everything that closed or opened TODAY, from the journal, plus what is still
+// held. Bounded to today's docs so the summary costs a handful of reads rather
+// than a scan of the whole journal.
+async function sendDailySummary({ db, uid, client, account, dd, notify, log, positions }) {
+  const today = marketClock().date;
+  const startOfDay = new Date(`${today}T00:00:00Z`);
+  // Generous window: an ET date spans two UTC dates, so a day boundary in the
+  // wrong direction would silently drop the morning's trades.
+  const since = new Date(startOfDay.getTime() - 12 * 3600_000);
+
+  let docs = [];
   try {
-    const snap = await db.collection('users').doc(uid).collection('notifications').doc('config').get();
-    const n = snap.exists ? snap.data() : null;
-    if (n?.telegramToken && n?.telegramChatId) await sendTelegram(n.telegramToken, n.telegramChatId, text);
-  } catch (e) { console.warn(`[maint][${uid.slice(0, 6)}] telegram failed: ${e.message}`); }
+    const snap = await db.collection('users').doc(uid).collection('autoOrders')
+      .where('createdAt', '>=', since).get();
+    docs = snap.docs.map(d => d.data());
+  } catch (e) { log(`summary: journal read failed (${e.message.split('\n')[0]})`); }
+
+  // Closed today = realized today, whatever session it was opened in. The
+  // realizedAt stamp is what makes a trade "today's result".
+  let closedToday = [];
+  try {
+    const snap = await db.collection('users').doc(uid).collection('autoOrders')
+      .where('realizedAt', '>=', since).get();
+    closedToday = snap.docs.map(d => d.data());
+  } catch (e) { log(`summary: realized read failed (${e.message.split('\n')[0]})`); }
+
+  const opened = docs
+    .filter(o => ['submitted', 'filled', 'partially_filled'].includes(o.status))
+    .map(o => ({ ticker: o.ticker, qty: o.filledQty || o.qty, entry: o.filledAvgPrice ?? o.entry }));
+
+  const held = positions ?? await client.getPositions().catch(() => []);
+
+  const problems = [];
+  if (dd?.halted) problems.push('Drawdown halt is active — no new entries will be placed.');
+
+  const text = formatDailySummary({
+    label: process.env.BOT_LABEL || 'Swing',
+    date: today,
+    equity: account.equity,
+    dayPl: account.lastEquity > 0 ? account.equity - account.lastEquity : null,
+    dayPlPct: account.lastEquity > 0 ? ((account.equity - account.lastEquity) / account.lastEquity) * 100 : null,
+    opened,
+    closed: closedToday,
+    held,
+    drawdownPct: dd?.drawdownPct ?? null,
+    halted: !!dd?.halted,
+    problems,
+    dryRun: DRY_RUN,
+  });
+  const sent = await notify(text);
+  log(`daily summary ${sent ? 'sent' : 'NOT sent (no Telegram target configured)'}`);
 }
 
 // The session bucket an entry order is allowed to belong to. Anything older is
@@ -130,6 +182,7 @@ async function processUser(db, uid, cfg) {
     return null;
   }
   const client = createAlpacaClient({ baseUrl, apiKey: cfg.apiKey, apiSecret: cfg.apiSecret });
+  const notify = makeNotifier({ db, uid, log });
 
   let account;
   try { account = await client.getAccount(); }
@@ -143,12 +196,12 @@ async function processUser(db, uid, cfg) {
   const rec = await reconcileOrders({
     db, admin, uid, client, log,
     currentSession: DRY_RUN ? null : session,
-    notify: (t) => notify(db, uid, t),
+    notify,
   });
   if (rec.refreshed || rec.expired) log(`reconcile: ${rec.refreshed} refreshed, ${rec.filled} newly filled, ${rec.expired} stale entries cancelled`);
 
   // 2. Exits. Same shared pass the entry runners use.
-  const ex = await manageExits({ db, admin, uid, client, log, dryRun: DRY_RUN, notify: (t) => notify(db, uid, t) });
+  const ex = await manageExits({ db, admin, uid, client, log, dryRun: DRY_RUN, notify });
   if (ex.checked) log(`exits: ${ex.checked} checked, ${ex.closed} closed`);
 
   // 3. Realize outcomes for anything now closed. Runs in dry-run TOO, on
@@ -170,9 +223,17 @@ async function processUser(db, uid, cfg) {
     dd = await snapshotEquity({ db, admin, uid, equity: account.equity, cfg });
     if (dd.halted) {
       log(`DRAWDOWN HALT ACTIVE: -${dd.drawdownPct.toFixed(1)}% from peak $${dd.peak.toFixed(0)} (>= ${cfg.maxDrawdownHaltPct}%) — entries blocked`);
-      await notify(db, uid, `⛔ <b>DRAWDOWN HALT</b> -${dd.drawdownPct.toFixed(1)}% from peak ${dd.peak.toFixed(0)} — no new entries`);
+      await notify(`⛔ <b>DRAWDOWN HALT</b> -${dd.drawdownPct.toFixed(1)}% from peak ${dd.peak.toFixed(0)} — no new entries`);
     }
   } catch (e) { log(`equity snapshot failed: ${e.message}`); }
+
+  // 5. The daily summary — after the close only. Sent from the 16:15 ET run so
+  //    it reports a settled day, and skipped in the morning pass where "today"
+  //    has barely started.
+  if (SUMMARY) {
+    try { await sendDailySummary({ db, uid, client, account, dd, notify, log, positions: null }); }
+    catch (e) { log(`daily summary failed: ${e.message}`); }
+  }
 
   return { refreshed: rec.refreshed, expired: rec.expired, closed: ex.closed, realized, unavailable, halted: !!dd?.halted };
 }

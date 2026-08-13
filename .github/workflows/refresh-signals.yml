@@ -1,12 +1,25 @@
 name: Refresh shared signals
 
-# Cron schedule (UTC) — covers US market hours plus an end-of-day NSE pass.
-#   - Every 30 min between 13:30 and 21:00 UTC, Mon–Fri  (US market hours)
-#   - Daily 11:00 UTC                                   (NSE EOD ~16:30 IST)
-# Adjust as needed; this stays comfortably inside Firebase free quotas.
+# Cron schedule (UTC).
+#
+# This used to run every 30 minutes (17 times a day) and it exhausted the
+# Firestore free-tier daily read quota by mid-afternoon — which then killed the
+# 15:38 ET ENTRY run and the 16:15 ET maintenance run on three consecutive
+# sessions. The system silently stopped trading while the signal refresh, which
+# nothing in the trading path even reads, consumed the entire allowance.
+#
+# The trade-the-close runner scans in-process and never reads these documents.
+# Only the WEB APP does. Three refreshes a day is ample for a page you look at
+# occasionally, and it leaves the quota for the parts that place orders.
+#
+#   13:15 UTC  ~09:15 ET  pre-open refresh
+#   19:00 UTC  ~15:00 ET  late-session refresh
+#   21:00 UTC  ~17:00 ET  after the US close (settles the day)
+#   11:00 UTC             NSE EOD (~16:30 IST)
 on:
   schedule:
-    - cron: "*/30 13-20 * * 1-5"
+    - cron: "15 13 * * 1-5"
+    - cron: "0 19 * * 1-5"
     - cron: "0 21 * * 1-5"
     - cron: "0 11 * * 1-5"
   workflow_dispatch:

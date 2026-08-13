@@ -72,11 +72,11 @@ import { configErrorHint } from '../src/config/configHint.js';
 import { manageExits } from './lib/exit-pass.mjs';
 import { attachFileLog } from './lib/logfile.mjs';
 import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
+import { makeNotifier } from './lib/notify.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS, MARKET_CONFIGS } from '../src/data/markets.js';
 import { regimeCheck } from '../src/strategy/engine.js';
 import { fetchBars } from '../src/data/fetchers.js';
-import { sendTelegram } from '../src/data/telegram.js';
 
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true').toLowerCase() !== 'false';
 const ONLY_UID = process.env.ONLY_UID || null;
@@ -215,15 +215,7 @@ async function loadEnabledConfigs(db) {
   return out;
 }
 
-async function notify(db, uid, text) {
-  try {
-    const snap = await db.collection('users').doc(uid).collection('notifications').doc('config').get();
-    const n = snap.exists ? snap.data() : null;
-    if (n?.telegramEnabled && n.telegramBotToken && n.telegramChatId) {
-      await sendTelegram(n.telegramBotToken, n.telegramChatId, text);
-    }
-  } catch (e) { console.warn(`[sameday][${uid.slice(0, 6)}] telegram failed: ${e.message}`); }
-}
+
 
 // Scan one market's watchlist in-process and return signal-shaped rows matching
 // what the Firestore path produces, so every downstream filter behaves identically.
@@ -339,6 +331,7 @@ async function liveRegime(market, ctx, log) {
 
 async function processUser(db, uid, cfg, now) {
   const log = (msg) => console.log(`[sameday][${uid.slice(0, 6)}] ${msg}`);
+  const notify = makeNotifier({ db, uid, log });
 
   if (cfg.broker !== 'alpaca') { log(`broker '${cfg.broker}' not supported — skipping`); return; }
   if (!isTradeDayAllowed(cfg)) { log('not an allowed trade day — skipping'); return; }
@@ -522,7 +515,7 @@ async function processUser(db, uid, cfg, now) {
         journal.brokerOrderId = order?.id || null;
         await journalRef.set(journal);
         log(`PLACED ${intent.side} ${size.shares} ${sig.ticker} @ market (order ${order?.id})`);
-        await notify(db, uid, `🟢 <b>SAME-DAY ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ~${livePrice} · ${exitLabel(intent)} / SL ${placedSl} · ${modeLabel.toUpperCase()}`);
+        await notify(`🟢 <b>SAME-DAY ENTRY</b> ${intent.side.toUpperCase()} ${size.shares} <b>${sig.ticker}</b> @ ~${livePrice} · ${exitLabel(intent)} / SL ${placedSl} · ${modeLabel.toUpperCase()}`);
       } catch (e) {
         journal.status = 'error';
         journal.error = e.message;
@@ -545,7 +538,7 @@ async function processUser(db, uid, cfg, now) {
   // exit for trend positions — they carry no take-profit leg by design.
   const exits = await manageExits({
     db, admin, uid, client, log, dryRun: DRY_RUN,
-    notify: (text) => notify(db, uid, text),
+    notify,
   });
   if (exits.checked) log(`exit pass: ${exits.checked} position(s) checked, ${exits.closed} closed`);
 
