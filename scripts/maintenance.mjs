@@ -50,8 +50,11 @@ import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
 import { makeNotifier } from './lib/notify.mjs';
 import { formatDailySummary } from './lib/format-summary.mjs';
 import { installReadMeter, readCount, readSummary } from './lib/firestore-meter.mjs';
+import { beginRun, markStep, endRun, incompleteRunAlert } from './lib/run-marker.mjs';
 
 attachFileLog('maint');
+
+const JOB = 'maintenance';
 
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true').toLowerCase() !== 'false';
 const ONLY_UID = process.env.ONLY_UID || null;
@@ -262,6 +265,13 @@ async function recordRun(db, { startedAt, users, totals, errors, error }) {
 }
 
 async function main() {
+  const previous = beginRun(JOB);
+  if (previous) {
+    console.error(`[maint] previous run started ${previous.startedAt} never completed (last step: ${previous.lastStep || 'n/a'})`);
+    try { await alertOperator(incompleteRunAlert(JOB, previous, { unit: 'swing-maintenance' })); }
+    catch { /* best effort */ }
+  }
+
   const db = initFirestore({ log: (m) => console.log(`[maint] ${m}`) });
   installReadMeter(db);
   const startedAt = Date.now();
@@ -277,6 +287,7 @@ async function main() {
   let errors = 0;
   for (const { uid, cfg } of configs) {
     try {
+      markStep(JOB, `account ${uid.slice(0, 6)}`);
       const r = await processUser(db, uid, cfg);
       if (r) for (const k of Object.keys(totals)) totals[k] += r[k] || 0;
     } catch (e) {
@@ -295,14 +306,17 @@ async function main() {
 // a quiet, healthy day — which is how the most dangerous failure in this system
 // stays invisible. Alert through the env-configured Telegram credentials, which
 // need no Firestore and so survive the failure that is most likely to cause this.
-main().catch(async (e) => {
-  console.error('[maint] fatal', e);
-  try {
-    await alertOperator(isQuotaError(e)
-      ? quotaAlertText('The 09:45/16:15 ET maintenance run')
-      : `🔴 <b>Maintenance run failed</b>\n<i>${String(e.message || e).slice(0, 300)}</i>\n\n`
-        + 'Exits, reconciliation and the drawdown ratchet did not run this pass. '
-        + 'Open positions still have their broker stops.');
-  } catch { /* alerting must never mask the original failure */ }
-  process.exit(1);
-});
+main()
+  .then(() => endRun(JOB))
+  .catch(async (e) => {
+    endRun(JOB);
+    console.error('[maint] fatal', e);
+    try {
+      await alertOperator(isQuotaError(e)
+        ? quotaAlertText('The 09:45/16:15 ET maintenance run')
+        : `🔴 <b>Maintenance run failed</b>\n<i>${String(e.message || e).slice(0, 300)}</i>\n\n`
+          + 'Exits, reconciliation and the drawdown ratchet did not run this pass. '
+          + 'Open positions still have their broker stops.');
+    } catch { /* alerting must never mask the original failure */ }
+    process.exit(1);
+  });

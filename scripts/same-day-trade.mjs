@@ -74,6 +74,7 @@ import { attachFileLog } from './lib/logfile.mjs';
 import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
 import { makeNotifier } from './lib/notify.mjs';
 import { installReadMeter, readSummary } from './lib/firestore-meter.mjs';
+import { beginRun, markStep, endRun, incompleteRunAlert } from './lib/run-marker.mjs';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { STARTER_WATCHLIST, STARTER_WATCHLIST_INDIA, watchlistFor, DATA_SOURCE_ORDER, LARGE_CAP_TICKERS, NIFTY50_TICKERS, MARKET_CONFIGS } from '../src/data/markets.js';
 import { regimeCheck } from '../src/strategy/engine.js';
@@ -92,6 +93,8 @@ const DEPLOYMENT_MARKETS = (process.env.MARKETS || 'US').split(',').map(s => s.t
 // Everything this run prints also lands in the shared log file. Attach FIRST so
 // the in-memory capture below wraps it and both get every line.
 attachFileLog('sameday');
+
+const JOB = 'sameday';
 
 const RUN_LOG = [];
 {
@@ -184,7 +187,23 @@ function buildCtx(market) {
     market,
     enabledSources: new Set(DATA_SOURCE_ORDER),
     manualBars: null,
-    cache: new Map(),
+    // NO bar cache. fetchBars caches into ctx.cache when given one, which here
+    // retains every ticker's full history for the WHOLE scan: 1503 names x
+    // ~1255 daily bars is ~230 MB of live objects, on a 1 GB e2-micro shared
+    // with the bot, the dashboard and the OS. The process was being OOM-killed
+    // around 60% of the way through the universe — silently, since SIGKILL
+    // leaves nothing in the log — so no entry run completed for eighteen days.
+    //
+    // The cache also bought nothing: this scan fetches each ticker exactly once
+    // and passes the bars straight to every strategy. Without it each ticker's
+    // bars become garbage as soon as the loop moves on, and peak memory is one
+    // ticker rather than the whole universe.
+    //
+    // refresh-signals.mjs DOES pass a cache and should keep it: there one ctx is
+    // shared by three passes over the same names, so the cache is reused rather
+    // than merely retained, and it runs on a GitHub runner with 7 GB. Do not
+    // copy that line back into here.
+    cache: null,
     fetchImpl: globalThis.fetch,
   };
 }
@@ -245,7 +264,16 @@ async function scanForSignals(market, cfg, sessionDate, log) {
   // are not fatal — but a scan silently losing a third of its universe to
   // rate-limiting looks identical to a quiet day, so count them and report.
   let fetchFailed = 0, fetchOk = 0;
+  let scanned = 0;
   for (const item of watchlist) {
+    // Breadcrumb every 100 names, carrying resident memory. This is what turns
+    // "the run produced nothing" into "the run died at name 940 holding 900 MB":
+    // the previous OOM kill left the log ending mid-scan with no indication that
+    // anything was wrong, because a killed process cannot report its own death.
+    if (scanned % 100 === 0) {
+      markStep(JOB, `scan ${market} ${scanned}/${watchlist.length} rss=${Math.round(process.memoryUsage().rss / 1048576)}MB`);
+    }
+    scanned++;
     let bars;
     try { bars = await fetchBars(item.t, ctx); }
     catch (e) { fetchFailed++; if (fetchFailed <= 5) log(`bars unavailable for ${item.t}: ${e.message}`); continue; }
@@ -423,7 +451,8 @@ async function processUser(db, uid, cfg, now) {
   const tierRank = { 'A+': 0, 'Tier 1': 1, 'Tier 2': 2 };
   signals.sort((a, b) => (tierRank[a.tier] ?? 9) - (tierRank[b.tier] ?? 9));
   const scanSecs = Math.round((Date.now() - scanStarted) / 1000);
-  log(`scanned ${signals.length} candidate signal(s) in ${scanSecs}s (ET now ${marketClock(new Date()).minutes} min)`);
+  log(`scanned ${signals.length} candidate signal(s) in ${scanSecs}s (ET now ${marketClock(new Date()).minutes} min, `
+    + `peak rss ${Math.round(process.memoryUsage().rss / 1048576)}MB)`);
 
   let placed = 0, skipped = 0;
   for (const sig of signals) {
@@ -580,6 +609,16 @@ async function recordRun(db, { startedAt, users, placed, skipped, errors, note, 
 }
 
 async function main() {
+  // Before anything else, and before Firestore is even reachable: did the last
+  // run finish? An entry run that is killed outright reports nothing, so the
+  // only place that failure can be noticed is the start of the NEXT run.
+  const previous = beginRun(JOB);
+  if (previous) {
+    console.error(`[sameday] previous run started ${previous.startedAt} never completed (last step: ${previous.lastStep || 'n/a'})`);
+    try { await alertOperator(incompleteRunAlert(JOB, previous, { unit: 'swing-sameday' })); }
+    catch { /* the alert is the bonus; the run itself matters more */ }
+  }
+
   const db = initAdmin();
   installReadMeter(db);
   const startedAt = Date.now();
@@ -607,12 +646,20 @@ async function main() {
   await recordRun(db, { startedAt, users: configs.length, placed, skipped, errors });
 }
 
-main().catch(async (e) => {
-  console.error('[sameday] fatal', e);
-  try {
-    await alertOperator(isQuotaError(e)
-      ? quotaAlertText('The 15:38 ET entry run')
-      : `🔴 <b>Entry run failed</b>\n<i>${String(e.message || e).slice(0, 300)}</i>\n\nNo entries were placed this session.`);
-  } catch { /* never mask the original failure */ }
-  process.exit(1);
-});
+// endRun on BOTH paths, including the early returns inside main() — every one of
+// those is a legitimate outcome ("outside the close window", "kill switch"), and
+// leaving a marker behind for them would fire the alert every weekend until it
+// meant nothing. A crash clears it too: that failure has already been reported
+// here, and re-reporting it tomorrow as a silent death would be wrong.
+main()
+  .then(() => endRun(JOB))
+  .catch(async (e) => {
+    endRun(JOB);
+    console.error('[sameday] fatal', e);
+    try {
+      await alertOperator(isQuotaError(e)
+        ? quotaAlertText('The 15:38 ET entry run')
+        : `🔴 <b>Entry run failed</b>\n<i>${String(e.message || e).slice(0, 300)}</i>\n\nNo entries were placed this session.`);
+    } catch { /* never mask the original failure */ }
+    process.exit(1);
+  });

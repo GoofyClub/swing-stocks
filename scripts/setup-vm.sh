@@ -182,6 +182,10 @@ Type=oneshot
 User=$RUN_USER
 WorkingDirectory=$REPO_DIR
 EnvironmentFile=$ENV_FILE
+# Peak memory, retained after the run exits. The scan was OOM-killed mid-universe
+# for eighteen sessions and left no evidence of it anywhere; with this,
+# 'systemctl show swing-sameday -p MemoryPeak' answers the question directly.
+MemoryAccounting=yes
 ExecStart=$NODE_BIN scripts/same-day-trade.mjs
 EOF
 
@@ -233,6 +237,7 @@ Type=oneshot
 User=$RUN_USER
 WorkingDirectory=$REPO_DIR
 EnvironmentFile=$ENV_FILE
+MemoryAccounting=yes
 ExecStart=$NODE_BIN scripts/maintenance.mjs
 EOF
 

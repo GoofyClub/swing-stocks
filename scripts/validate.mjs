@@ -114,6 +114,10 @@ async function checkEnvironment() {
 // ---- 2. services ------------------------------------------------------------
 async function checkServices() {
   hdr('2. Services and timers');
+  // Before the systemd gate: neither of these needs systemd, and both describe
+  // the failure that actually stopped trading for eighteen days.
+  checkLastRunsCompleted();
+  await checkHeadroom();
   if (!(await sh('which', ['systemctl']))) { warn('systemctl unavailable — not a systemd host, skipping'); return; }
 
   for (const [unit, what] of [
@@ -148,6 +152,47 @@ async function checkServices() {
       bad(`${unit} reads ${file}, but the config is at ${cfgFile} — it will start with NO variables`);
     }
   }
+}
+
+// Did the last firing of each job actually reach the end? A run killed outright
+// — OOM being the usual cause on a 1 GB box — cannot report its own death, so
+// the only evidence is the marker it left behind. This is the check that would
+// have caught eighteen days of entry runs dying mid-scan.
+function checkLastRunsCompleted() {
+  const dir = process.env.SWING_RUN_STATE_DIR || path.join(REPO, 'logs');
+  for (const [job, unit] of [['sameday', 'swing-sameday'], ['maintenance', 'swing-maintenance']]) {
+    const file = path.join(dir, `.${job}.running`);
+    if (!fs.existsSync(file)) continue;
+    let raw;
+    try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
+    const age = (Date.now() - Date.parse(raw.startedAt)) / 3600_000;
+    // A run in flight right now also has a marker. Only an old one is a corpse:
+    // the entry scan takes minutes, so anything past an hour did not finish.
+    if (!(age > 1)) { info(`${job} is running now (started ${raw.startedAt})`); continue; }
+    bad(`${job} was killed mid-run ${age.toFixed(1)}h ago${raw.lastStep ? ` at "${raw.lastStep}"` : ''}`
+      + ` — no error was logged, so check: journalctl -u ${unit} -n 50`);
+  }
+}
+
+// The scan holds every bar it fetches for as long as the loop runs. On a
+// 1 GB e2-micro shared with the bot, the dashboard and the OS, that was enough
+// to get the process OOM-killed with no trace. Report the headroom before it
+// costs a session rather than after.
+async function checkHeadroom() {
+  let meminfo;
+  try { meminfo = fs.readFileSync('/proc/meminfo', 'utf8'); } catch { return; }
+  const kb = (key) => Number((meminfo.match(new RegExp(`^${key}:\\s+(\\d+) kB`, 'm')) || [])[1] || 0);
+  const totalMb = Math.round(kb('MemTotal') / 1024);
+  const availMb = Math.round(kb('MemAvailable') / 1024);
+  if (!totalMb) return;
+  const swapMb = Math.round(kb('SwapTotal') / 1024);
+  const detail = `${availMb} MB available of ${totalMb} MB, swap ${swapMb} MB`;
+  if (availMb < 250 && !swapMb) bad(`memory headroom is thin — ${detail}. The scan has been OOM-killed at this level`);
+  else if (availMb < 250) warn(`memory headroom is thin — ${detail}`);
+  else ok(`memory: ${detail}`);
+
+  const killed = await sh('sh', ['-c', 'dmesg -T 2>/dev/null | grep -ci "killed process" || true']);
+  if (Number(killed) > 0) warn(`the kernel OOM killer has fired ${killed} time(s) — dmesg -T | grep -i "killed process"`);
 }
 
 // ---- 3. Firestore -----------------------------------------------------------

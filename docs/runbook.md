@@ -339,6 +339,46 @@ The allow-list is mandatory — the bot refuses to start without it.
 | `DEADLINE: past 15:58 ET` | Scan outran the window. Fire earlier or use `WATCHLIST_SET=core`. |
 | `placed=0` with recognisable skips | Working as intended — nothing passed your filters. |
 | `tier null` / `index none` in skips | A bug. These should never occur. |
+| The log **stops mid-scan** — no error, no `scanned N candidate(s)`, no `complete` | The process was killed outright, almost always by the kernel OOM killer. SIGKILL cannot be caught, so there is no exception, no log line and no alert. See below. |
+
+---
+
+## A run that stops without saying anything
+
+Between 13 and 28 August 2026 the entry runner was OOM-killed part-way through
+the universe on **every** session. Nothing reported it: the `.catch()` alert, the
+`cronRuns` record and the Telegram error message all need code that never ran.
+Eighteen days of "no trades" were indistinguishable from a quiet market.
+
+The cause was `buildCtx` passing a bar cache. `fetchBars` fills it, so a
+1,503-name scan retained every ticker's full history — ~230 MB of live objects on
+a 1 GB e2-micro shared with the bot, the dashboard and the OS. The cache bought
+nothing, since the same-day scan fetches each ticker exactly once. It is gone;
+peak memory is now one ticker rather than the whole universe.
+
+Three things now make this visible rather than silent:
+
+- **Run markers.** A run writes `logs/.<job>.running` when it starts and deletes
+  it when it finishes. A marker still there when the next run begins means the
+  previous one died where no error handler could speak for it — that run alerts
+  on Telegram and names the last step reached. Deliberate early exits ("outside
+  the close window", weekends) delete the marker, so they never cry wolf.
+- **A memory breadcrumb.** The scan records `scan US 900/1503 rss=780MB` every
+  100 names, and logs peak RSS on completion. A run that dies at the same point
+  every day is a different problem from one that dies at random.
+- **`npm run validate`** reports a stale marker, available RAM, and whether the
+  kernel OOM killer has fired.
+
+Confirm a kill directly:
+
+```bash
+journalctl -u swing-sameday -n 50        # "code=killed, status=9/KILL"
+dmesg -T | grep -i "killed process"
+systemctl show swing-sameday -p MemoryPeak
+```
+
+If memory is still tight, `WATCHLIST_SET=core` (51 names) cuts the scan by ~97%
+and is the immediate fallback; adding a 1 GB swapfile is the other.
 
 ---
 
