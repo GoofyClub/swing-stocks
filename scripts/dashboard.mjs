@@ -48,6 +48,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import readline from 'node:readline';
+import zlib from 'node:zlib';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
 import { tailLog, resolveLogFile } from './lib/logfile.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -257,6 +261,16 @@ async function refresh() {
   }
 }
 
+// Keep the download links carrying whatever filter is on screen, so what you
+// download is what you are looking at.
+function syncDownloadLinks() {
+  const g = encodeURIComponent(grepEl.value || '');
+  document.getElementById('dl-today').href = '/download?scope=today' + (g ? '&grep=' + g : '');
+  document.getElementById('dl-all').href = '/download?scope=all' + (g ? '&grep=' + g : '');
+}
+grepEl.addEventListener('input', syncDownloadLinks);
+syncDownloadLinks();
+
 document.getElementById('go').onclick = refresh;
 grepEl.addEventListener('keydown', e => { if (e.key === 'Enter') refresh(); });
 linesEl.onchange = refresh;
@@ -305,6 +319,8 @@ function renderPage({ sys, stats, counts }) {
     <button id="go">Refresh</button>
     <label class="dim"><input type="checkbox" id="auto" checked> auto (${REFRESH_SEC}s)</label>
     <a class="btn" href="/log?n=5000" target="_blank">raw</a>
+    <a class="btn" id="dl-today" href="/download?scope=today">⬇ today</a>
+    <a class="btn" id="dl-all" href="/download?scope=all">⬇ full log</a>
     <span class="dim" id="stamp"></span>
   </div>
   <pre id="log">loading…</pre>
@@ -353,6 +369,70 @@ const handler = async (req, res) => {
       const text = redact(tailLog(n, { grep })) || '(no log yet)';
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(text);
+    }
+
+    // ---- download ---------------------------------------------------------
+    // Streamed line by line rather than read into memory: the log can reach
+    // 32 MB, and buffering that on a small VM to serve one request is how a
+    // convenience feature takes the dashboard down.
+    //
+    // Redaction runs PER LINE, which is safe here because the log writer emits
+    // one record per line — a secret cannot straddle a chunk boundary and slip
+    // through, which it could if this redacted fixed-size chunks instead.
+    if (url.pathname === '/download') {
+      const scope = url.searchParams.get('scope') || 'all';
+      const grepRaw = (url.searchParams.get('grep') || '').trim();
+      let grep = null;
+      if (grepRaw) {
+        if (grepRaw.length > 200) throw new Error('filter too long');
+        try { grep = new RegExp(grepRaw, 'i'); } catch { throw new Error(`invalid regex: ${grepRaw}`); }
+      }
+      // Log lines start with an ISO timestamp, so "today" is a prefix match.
+      const todayPrefix = new Date().toISOString().slice(0, 10);
+
+      if (!fs.existsSync(LOG_FILE)) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        return res.end('no log file yet\n');
+      }
+
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const name = `swing-${scope}-${stamp}.log`;
+      // gzip only when the client asked for it. Browsers decompress
+      // transparently and save the plain file, and a ~10:1 saving matters over
+      // a slow link; without the header we must send plain text or hand back
+      // something the client cannot read.
+      const wantsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${name}"`,
+        'Cache-Control': 'no-store',
+        ...(wantsGzip ? { 'Content-Encoding': 'gzip' } : {}),
+      });
+
+      const rl = readline.createInterface({
+        input: fs.createReadStream(LOG_FILE, { encoding: 'utf8' }),
+        crlfDelay: Infinity,
+      });
+      async function* lines() {
+        for await (const line of rl) {
+          if (scope === 'today' && !line.startsWith(todayPrefix)) continue;
+          if (grep && !grep.test(line)) continue;
+          yield redact(line) + '\n';
+        }
+      }
+      try {
+        const src = Readable.from(lines());
+        if (wantsGzip) await pipeline(src, zlib.createGzip(), res);
+        else await pipeline(src, res);
+      } catch (e) {
+        // A client that closes the tab mid-download is routine, not an error.
+        if (!/EPIPE|ERR_STREAM_PREMATURE_CLOSE|aborted/i.test(String(e.message))) {
+          console.error(`[dashboard] download failed: ${e.message}`);
+        }
+      } finally {
+        rl.close();
+      }
+      return;
     }
 
     if (url.pathname === '/') {

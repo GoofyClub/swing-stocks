@@ -47,7 +47,34 @@ regex filter, and cards for the timer, service state, and today's counts.
 ```
 http://<vm>:8444/           dashboard
 http://<vm>:8444/log        raw text (curl-friendly: /log?n=500&grep=EXIT)
+http://<vm>:8444/download   download the log as a file
 http://<vm>:8444/healthz    liveness, no auth
+```
+
+### Downloading
+
+Two buttons in the toolbar — **⬇ today** and **⬇ full log** — and both carry
+whatever filter is in the box, so what you download is what you are looking at.
+
+```
+/download?scope=today
+/download?scope=all
+/download?scope=all&grep=PLACED%7CEXIT
+```
+
+The file streams line by line rather than being read into memory: the log can
+reach 32 MB, and buffering that on a small VM to serve one request is how a
+convenience feature takes the dashboard down. It is gzipped when the client asks
+for it (every browser does), which is roughly a 10:1 saving over a slow link.
+
+Redaction runs **per line**, which is why it is safe here — the log writer emits
+one record per line, so a secret cannot straddle a chunk boundary and escape, as
+it could if fixed-size chunks were redacted instead.
+
+From the command line:
+
+```bash
+curl -u admin:PASSWORD --compressed -OJ 'https://<vm>:8444/download?scope=today'
 ```
 
 ### Why not port 8443
