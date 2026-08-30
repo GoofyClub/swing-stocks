@@ -59,6 +59,7 @@
 import './lib/load-env.mjs';
 import admin from 'firebase-admin';
 import { readFileSync } from 'node:fs';
+import v8 from 'node:v8';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
@@ -95,6 +96,23 @@ const DEPLOYMENT_MARKETS = (process.env.MARKETS || 'US').split(',').map(s => s.t
 attachFileLog('sameday');
 
 const JOB = 'sameday';
+
+// V8's heap ceiling is derived from the machine's total RAM (roughly half of it
+// below 2 GB), NOT from what is free. Exceeding it aborts the process with
+// SIGABRT from inside the C++ runtime, which is why nothing reached swing.log:
+// the fatal message goes straight to fd 2, past the console wrapper. Reading the
+// real numbers is the only way to stop guessing about this.
+const MB = 1048576;
+function heapUse() {
+  const s = v8.getHeapStatistics();
+  const m = process.memoryUsage();
+  return {
+    usedMb: Math.round(s.used_heap_size / MB),
+    limitMb: Math.round(s.heap_size_limit / MB),
+    rssMb: Math.round(m.rss / MB),
+    pct: s.used_heap_size / s.heap_size_limit,
+  };
+}
 
 const RUN_LOG = [];
 {
@@ -264,14 +282,29 @@ async function scanForSignals(market, cfg, sessionDate, log) {
   // are not fatal — but a scan silently losing a third of its universe to
   // rate-limiting looks identical to a quiet day, so count them and report.
   let fetchFailed = 0, fetchOk = 0;
-  let scanned = 0;
+  let scanned = 0, truncated = false;
   for (const item of watchlist) {
-    // Breadcrumb every 100 names, carrying resident memory. This is what turns
-    // "the run produced nothing" into "the run died at name 940 holding 900 MB":
-    // the previous OOM kill left the log ending mid-scan with no indication that
-    // anything was wrong, because a killed process cannot report its own death.
+    // Breadcrumb every 100 names, carrying memory. This is what turns "the run
+    // produced nothing" into "it died at name 940 with the heap at 96%": the
+    // abort left the log ending mid-scan with no indication anything was wrong,
+    // because V8's fatal handler writes to fd 2 directly and never reaches the
+    // console wrapper that feeds swing.log.
     if (scanned % 100 === 0) {
-      markStep(JOB, `scan ${market} ${scanned}/${watchlist.length} rss=${Math.round(process.memoryUsage().rss / 1048576)}MB`);
+      const heap = heapUse();
+      markStep(JOB, `scan ${market} ${scanned}/${watchlist.length} heap=${heap.usedMb}/${heap.limitMb}MB rss=${heap.rssMb}MB`);
+
+      // Bail out BEFORE V8 does. Past this line the process is minutes from
+      // "JavaScript heap out of memory", which aborts on the spot: no exception,
+      // no alert, no orders, and nothing in swing.log to say why. Stopping the
+      // scan early is strictly better — the names already scanned still produce
+      // signals, and a partial universe that trades beats a full one that dies.
+      if (heap.pct >= 0.85) {
+        log(`MEMORY: heap at ${Math.round(heap.pct * 100)}% of ${heap.limitMb}MB after ${scanned}/${watchlist.length} names `
+          + '— stopping the scan here rather than being killed mid-run. '
+          + 'Raise NODE_OPTIONS=--max-old-space-size, or set WATCHLIST_SET=core.');
+        truncated = true;
+        break;
+      }
     }
     scanned++;
     let bars;
@@ -327,6 +360,11 @@ async function scanForSignals(market, cfg, sessionDate, log) {
       ? ' — HIGH. Likely rate-limiting on the keyless endpoints; set ALPACA_KEY + ALPACA_SECRET.'
       : '';
     log(`${market} bars: ${fetchOk} ok, ${fetchFailed} failed (${pct}%)${warn}${fetchFailed > 5 ? ' [first 5 logged]' : ''}`);
+  }
+  if (truncated) {
+    log(`${market} scan TRUNCATED at ${scanned}/${watchlist.length} names under memory pressure — the rest of the universe was not evaluated`);
+    try { await alertOperator(`⚠️ <b>Scan truncated</b>\n<i>${market}: stopped at ${scanned}/${watchlist.length} names, heap at ${heapUse().usedMb}MB of ${heapUse().limitMb}MB</i>\n\nEntries were still placed from the names scanned. Set <code>WATCHLIST_SET=core</code> or raise the heap limit.`); }
+    catch { /* the trading run matters more than the warning about it */ }
   }
   return out;
 }
@@ -624,7 +662,15 @@ async function main() {
   const startedAt = Date.now();
   const now = new Date();
   const { minutes, date } = marketClock(now);
-  console.log(`[sameday] start dryRun=${DRY_RUN} etDate=${date} etMinutes=${minutes}`);
+  const h0 = heapUse();
+  console.log(`[sameday] start dryRun=${DRY_RUN} etDate=${date} etMinutes=${minutes} heapLimit=${h0.limitMb}MB`);
+  // Below ~300 MB there is not enough room for a broad scan, and the failure is
+  // an abort with no message rather than a graceful error — worth saying out
+  // loud at the top of every run rather than discovering it from the silence.
+  if (h0.limitMb < 300 && (process.env.WATCHLIST_SET || 'core') !== 'core') {
+    console.warn(`[sameday] heap limit is only ${h0.limitMb}MB for a broad scan — expect truncation. `
+      + 'Set NODE_OPTIONS=--max-old-space-size=512 (with swap) or WATCHLIST_SET=core.');
+  }
 
   if (ENV_KILL) { console.log('[sameday] KILL_SWITCH set — aborting.'); await recordRun(db, { startedAt, users: 0, note: 'kill switch' }); return; }
   if (await isGloballyPaused(db)) { console.log('[sameday] globally paused — aborting.'); await recordRun(db, { startedAt, users: 0, note: 'globally paused' }); return; }

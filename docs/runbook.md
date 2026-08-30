@@ -339,46 +339,68 @@ The allow-list is mandatory — the bot refuses to start without it.
 | `DEADLINE: past 15:58 ET` | Scan outran the window. Fire earlier or use `WATCHLIST_SET=core`. |
 | `placed=0` with recognisable skips | Working as intended — nothing passed your filters. |
 | `tier null` / `index none` in skips | A bug. These should never occur. |
-| The log **stops mid-scan** — no error, no `scanned N candidate(s)`, no `complete` | The process was killed outright, almost always by the kernel OOM killer. SIGKILL cannot be caught, so there is no exception, no log line and no alert. See below. |
+| The log **stops mid-scan** — no error, no `scanned N candidate(s)`, no `complete` | The process died of memory exhaustion. See below. |
 
 ---
 
 ## A run that stops without saying anything
 
-Between 13 and 28 August 2026 the entry runner was OOM-killed part-way through
-the universe on **every** session. Nothing reported it: the `.catch()` alert, the
-`cronRuns` record and the Telegram error message all need code that never ran.
-Eighteen days of "no trades" were indistinguishable from a quiet market.
+Between 13 and 28 August 2026 the entry runner died part-way through the universe
+on **every** session. Nothing reported it: the `.catch()` alert, the `cronRuns`
+record and the Telegram error message all need code that never ran. Eighteen days
+of "no trades" were indistinguishable from a quiet market.
 
 The cause was `buildCtx` passing a bar cache. `fetchBars` fills it, so a
-1,503-name scan retained every ticker's full history — ~230 MB of live objects on
-a 1 GB e2-micro shared with the bot, the dashboard and the OS. The cache bought
-nothing, since the same-day scan fetches each ticker exactly once. It is gone;
-peak memory is now one ticker rather than the whole universe.
+1,503-name scan retained every ticker's full history — hundreds of MB of live
+objects on a 1 GB e2-micro. The cache bought nothing, since the same-day scan
+fetches each ticker exactly once. It is gone; peak memory is now one ticker
+rather than the whole universe.
 
-Three things now make this visible rather than silent:
+### The two ways a Node run dies of memory
+
+They look identical from outside and have **different fixes**, so read the exit
+status before acting:
+
+| systemd says | Signal | What happened | What fixes it |
+|---|---|---|---|
+| `status=6/ABRT` | SIGABRT | V8 hit its own heap ceiling and called `abort()`. That ceiling comes from **total** RAM (~half of it, below 2 GB) and is unrelated to how much is free. | Use less memory, or raise `--max-old-space-size`. **Swap does not help.** |
+| `status=9/KILL` | SIGKILL | The kernel OOM killer chose this process because the machine was out of RAM. | Free RAM, add swap, or use a larger machine. |
+
+Neither can be caught, so neither writes to `swing.log`. Worse for ABRT: V8's
+`FATAL ERROR: ... JavaScript heap out of memory` goes straight to fd 2 from the
+C++ runtime, past the console wrapper `swing.log` is built on — so journald has
+it and the log file does not.
+
+```bash
+journalctl -u swing-sameday -n 80 | grep -iE 'kill|abort|heap|fatal'
+systemctl show swing-sameday -p MemoryPeak
+sudo dmesg -T | grep -i 'killed process'     # SIGKILL only, and needs sudo
+```
+
+### What now makes it visible
 
 - **Run markers.** A run writes `logs/.<job>.running` when it starts and deletes
   it when it finishes. A marker still there when the next run begins means the
-  previous one died where no error handler could speak for it — that run alerts
-  on Telegram and names the last step reached. Deliberate early exits ("outside
-  the close window", weekends) delete the marker, so they never cry wolf.
-- **A memory breadcrumb.** The scan records `scan US 900/1503 rss=780MB` every
-  100 names, and logs peak RSS on completion. A run that dies at the same point
-  every day is a different problem from one that dies at random.
+  previous one died where nothing could speak for it — that run alerts you on
+  Telegram with the last step reached. Deliberate early exits ("outside the
+  close window", weekends) delete the marker, so they never cry wolf.
+- **A heap breadcrumb.** Every 100 names the scan records
+  `scan US 900/1503 heap=412/512MB rss=470MB`, and each run logs its heap
+  ceiling at startup. Dying at the same point daily is a different problem from
+  dying at random.
+- **A pressure brake.** At 85% of the heap ceiling the scan stops *itself*, says
+  why, alerts, and trades the names it already has. A partial universe that
+  places orders beats a full one that aborts.
 - **`npm run validate`** reports a stale marker, available RAM, and whether the
-  kernel OOM killer has fired.
+  OOM killer has fired.
 
-Confirm a kill directly:
+### Levers, cheapest first
 
-```bash
-journalctl -u swing-sameday -n 50        # "code=killed, status=9/KILL"
-dmesg -T | grep -i "killed process"
-systemctl show swing-sameday -p MemoryPeak
-```
-
-If memory is still tight, `WATCHLIST_SET=core` (51 names) cuts the scan by ~97%
-and is the immediate fallback; adding a 1 GB swapfile is the other.
+1. `WATCHLIST_SET=core` — 51 names instead of 1,503. Free, instant.
+2. `NODE_OPTIONS=--max-old-space-size=512` in `swing.env` — raises V8's ceiling.
+   Only safe alongside swap, or the ABRT simply becomes a KILL.
+3. A 2 GB swapfile — protects against SIGKILL, does nothing for SIGABRT.
+4. A larger machine — leaves the free tier. Measure before paying.
 
 ---
 

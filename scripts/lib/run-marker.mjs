@@ -1,10 +1,13 @@
 // =============================================================================
 // Did the last run actually FINISH?
 //
-// The entry runner was OOM-killed mid-scan every session for eighteen days and
-// nobody found out. SIGKILL leaves no exception, no log line and no exit
-// handler — so every mechanism that reports failures reported nothing, and an
-// absence of messages is indistinguishable from a quiet market.
+// The entry runner died mid-scan every session for eighteen days and nobody
+// found out. It aborts (SIGABRT, from V8 exhausting its heap) or is killed
+// (SIGKILL, from the kernel OOM killer); either way there is no exception, no
+// exit handler, and nothing in swing.log — V8's fatal message goes straight to
+// fd 2, past the console wrapper the log file is built on. Every mechanism that
+// reports failures reported nothing, and an absence of messages is
+// indistinguishable from a quiet market.
 //
 // The fix is to record intent separately from outcome. A run writes a marker
 // when it starts and deletes it when it finishes. A marker still on disk when
@@ -74,10 +77,10 @@ export function incompleteRunAlert(job, previous, { unit = `swing-${job}` } = {}
     `🔴 <b>${job} did not finish</b>`,
     `<i>started ${previous.startedAt}, ${previous.ageHours.toFixed(1)}h ago</i>${where}`,
     '',
-    'It was killed without an error — the usual cause is the out-of-memory',
-    'killer, which leaves nothing in the log because SIGKILL cannot be caught.',
+    'It died without an error. The usual cause is memory: V8 aborting on a full',
+    'heap (status=6/ABRT) or the kernel OOM killer (status=9/KILL). Neither can',
+    'be caught, so nothing was written to the log.',
     '',
-    `Confirm with:  <code>journalctl -u ${unit} -n 50</code>`,
-    'or:            <code>dmesg -T | grep -i "killed process"</code>',
+    `Confirm with:  <code>journalctl -u ${unit} -n 80 | grep -iE "kill|abort|heap"</code>`,
   ].join('\n');
 }
