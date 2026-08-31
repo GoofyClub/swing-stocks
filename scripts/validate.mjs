@@ -42,6 +42,7 @@ import { resolveLogFile } from './lib/logfile.mjs';
 import { resolveConfigFile } from './lib/load-env.mjs';
 import { analyzeJournal, analyzeEquityFreshness } from '../src/auto/integrity.js';
 import { isQuotaError } from './lib/alert.mjs';
+import { describeFetchError } from './lib/net.mjs';
 
 const execFileAsync = promisify(execFile);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -361,7 +362,30 @@ async function checkMarketData() {
     const bars = await client.getDailyBars('AAPL', { start });
     if (bars.length >= 15) ok(`bars OK (AAPL, ${bars.length} daily bars, last ${bars[bars.length - 1].date})`);
     else bad(`only ${bars.length} bars for AAPL — the scan cannot compute indicators`);
-  } catch (e) { bad(`bar fetch failed: ${e.message.split('\n')[0]}`); }
+  } catch (e) { bad(`bar fetch failed: ${describeFetchError(e).text.split('\n')[0]}`); }
+
+  await checkTelegramReachable();
+}
+
+// The bot long-polls api.telegram.org forever; when that host is unreachable it
+// stops answering commands while still looking healthy to systemd. Reaching it
+// once here — and naming the actual failure rather than "fetch failed" — turns
+// a wall of identical log lines into one line saying what to fix.
+async function checkTelegramReachable() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) { warn('TELEGRAM_BOT_TOKEN unset — cannot verify the bot can reach Telegram'); return; }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(10000) });
+    const json = await res.json().catch(() => null);
+    if (json?.ok) ok(`Telegram reachable (@${json.result?.username})`);
+    else if (res.status === 401) bad('Telegram rejected the token (401) — TELEGRAM_BOT_TOKEN is wrong or revoked');
+    else bad(`Telegram answered ${res.status}: ${json?.description || 'no description'}`);
+  } catch (e) {
+    const { code, text } = describeFetchError(e);
+    bad(`Telegram unreachable — ${text}`);
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') info('DNS: check /etc/resolv.conf and `getent hosts api.telegram.org`');
+    else if (code.includes('TIMEOUT') || code === 'ETIMEDOUT') info('Egress: a firewall rule or a missing default route. Try `curl -sS https://api.telegram.org`');
+  }
 }
 
 // ---- 6. logging + dashboard -------------------------------------------------

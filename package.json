@@ -13,7 +13,7 @@
     "test:settle": "node tests/settle.mjs",
     "test:auto": "node tests/auto.mjs",
     "test:condor": "node tests/condor.mjs",
-    "test": "node tests/engine-parity.mjs && node tests/settle.mjs && node tests/auto.mjs && node tests/condor.mjs && node tests/perf.mjs && node tests/maintenance.mjs && node tests/integrity.mjs && node tests/format-validation.mjs && node tests/format-deploy.mjs && node tests/notify.mjs && node tests/run-marker.mjs",
+    "test": "node tests/engine-parity.mjs && node tests/settle.mjs && node tests/auto.mjs && node tests/condor.mjs && node tests/perf.mjs && node tests/maintenance.mjs && node tests/integrity.mjs && node tests/format-validation.mjs && node tests/format-deploy.mjs && node tests/notify.mjs && node tests/run-marker.mjs && node tests/net.mjs",
     "refresh:signals": "node scripts/refresh-signals.mjs",
     "refresh:universe": "node scripts/refresh-universe.mjs",
     "auto:trade": "node scripts/auto-trade.mjs",
@@ -35,7 +35,8 @@
     "test:format": "node tests/format-validation.mjs",
     "test:format:deploy": "node tests/format-deploy.mjs",
     "test:notify": "node tests/notify.mjs",
-    "test:marker": "node tests/run-marker.mjs"
+    "test:marker": "node tests/run-marker.mjs",
+    "test:net": "node tests/net.mjs"
   },
   "dependencies": {
     "chart.js": "^4.4.0",

@@ -37,6 +37,7 @@ import { loadConfig, describeConfig } from '../src/config/env.js';
 import { initFirestore, admin } from '../src/config/firebaseAdmin.js';
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { sendTelegram } from '../src/data/telegram.js';
+import { describeFetchError, backoffMs, shouldLogFailure } from './lib/net.mjs';
 import { attachFileLog, tailLog, resolveLogFile } from './lib/logfile.mjs';
 import { formatValidationMessage } from './lib/format-validation.mjs';
 import { dashboardUrl } from './lib/dashboard-url.mjs';
@@ -75,7 +76,11 @@ if (!ALLOWED.size) {
 const LABEL = cfg.BOT_LABEL || 'Swing';
 
 const db = initFirestore({ log: (m) => console.log(`[bot] ${m}`) });
-const send = (chatId, text) => sendTelegram(TOKEN, chatId, text).catch(e => console.error('[bot] send failed', e.message));
+// A reply that fails must say WHY. "send failed fetch failed" was true of a
+// network outage, an expired token and a message Telegram rejected for bad HTML
+// alike, and those need very different responses.
+const send = (chatId, text) => sendTelegram(TOKEN, chatId, text)
+  .catch(e => console.error(`[bot] send failed — ${describeFetchError(e).text}`));
 const fmtUsd = (n) => (n == null || !Number.isFinite(n)) ? '—' : (n >= 0 ? '$' : '-$') + Math.abs(n).toFixed(2);
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
@@ -504,21 +509,62 @@ async function handle(msg) {
 async function main() {
   console.log(`[bot] started · ${ALLOWED.size} authorized chat(s) · project ${cfg.FIREBASE_PROJECT_ID}`);
   let offset = 0;
+  // Outage bookkeeping. A long poll that fails is normally transient, so the
+  // loop must not restart or shout; but an outage that lasts must be visible,
+  // and it cannot announce itself over the very channel that is down — so the
+  // report is sent on RECOVERY, when there is finally something to send it on.
+  let fails = 0, lastCode = null, downSince = 0;
+
   // Never exits on error: this runs under systemd Restart=always, but a transient
   // network blip should be a retry, not a restart cycle.
   for (;;) {
     try {
       const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?timeout=${cfg.BOT_POLL_SECONDS}${offset ? `&offset=${offset}` : ''}`;
-      const res = await fetch(url);
+      // Telegram holds the connection for BOT_POLL_SECONDS and then answers, so
+      // anything past that plus a margin is a hung socket. Without this bound the
+      // request inherits undici's 300-second headers timeout: five minutes of
+      // looking alive while silently deaf to every command.
+      const res = await fetch(url, { signal: AbortSignal.timeout((cfg.BOT_POLL_SECONDS + 15) * 1000) });
+
+      // 429 carries the wait in the body. Ignoring it and retrying on our own
+      // schedule is what turns a brief rate-limit into a longer one.
+      if (res.status === 429) {
+        const body = await res.json().catch(() => null);
+        const waitSec = Number(body?.parameters?.retry_after) || 5;
+        console.warn(`[bot] rate limited by Telegram — waiting ${waitSec}s as instructed`);
+        await sleep(waitSec * 1000);
+        continue;
+      }
       const json = await res.json();
       if (!json.ok) { console.error('[bot] getUpdates error', json.description); await sleep(5000); continue; }
+
+      if (fails) {
+        const mins = ((Date.now() - downSince) / 60000).toFixed(1);
+        console.log(`[bot] polling recovered after ${fails} failure(s) over ${mins} min (${lastCode})`);
+        // Only worth reporting if commands could actually have been missed.
+        if (Date.now() - downSince > 5 * 60_000) {
+          for (const chatId of ALLOWED) {
+            await send(chatId, `⚠️ <b>Bot was offline ${mins} min</b>\n<i>${esc(lastCode)}</i>\n\nCommands sent during that window were not received. Trading runs are unaffected — they are separate timers.`);
+          }
+        }
+        fails = 0; lastCode = null; downSince = 0;
+      }
+
       for (const u of json.result || []) {
         offset = u.update_id + 1;
         if (u.message) await handle(u.message);
       }
     } catch (e) {
-      console.error('[bot] poll error', e.message);
-      await sleep(5000);
+      // `e.message` here is always the literal "fetch failed" — the actual cause
+      // (DNS, reset, timeout, TLS) is nested in e.cause, so log THAT.
+      const { code, text } = describeFetchError(e);
+      fails++;
+      if (!downSince) downSince = Date.now();
+      if (shouldLogFailure(fails, code, lastCode)) {
+        console.error(`[bot] poll error — ${text}${fails > 1 ? ` (${fails} consecutive)` : ''}`);
+      }
+      lastCode = code;
+      await sleep(backoffMs(fails));
     }
   }
 }
