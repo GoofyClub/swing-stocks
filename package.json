@@ -40,10 +40,10 @@
   },
   "dependencies": {
     "chart.js": "^4.4.0",
-    "firebase": "^10.12.0"
+    "firebase": "^10.12.0",
+    "firebase-admin": "^12.1.0"
   },
   "devDependencies": {
-    "firebase-admin": "^12.1.0",
     "vite": "^5.2.0"
   },
   "engines": {

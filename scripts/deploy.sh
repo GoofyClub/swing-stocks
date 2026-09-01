@@ -100,22 +100,37 @@ AFTER="$(git rev-parse HEAD)"
 CHANGED="$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null)"
 ok "HEAD $(git log -1 --pretty='%h %s')"
 
+# ---- 3. dependencies ---------------------------------------------------------
+#
+# BEFORE the up-to-date exit, deliberately. "Same commit as origin" and "this box
+# can run" are different claims, and conflating them let deploy report success on
+# a checkout whose node_modules was half-installed: git had nothing to do, so the
+# script exited at step 2 having never looked at whether anything worked.
+hdr "3. Dependencies"
+DEPS_MISSING="$(node scripts/lib/deps.mjs 2>&1)" && DEPS_OK=1 || DEPS_OK=0
+
+if [[ "$MODE" == "check" ]]; then
+  (( DEPS_OK )) && ok "$DEPS_MISSING" || bad "$DEPS_MISSING"
+elif grep -q '^package-lock\.json$\|^package\.json$' <<<"$CHANGED" || (( ! DEPS_OK )); then
+  (( DEPS_OK )) || warn "$DEPS_MISSING"
+  echo "  npm ci…"
+  # npm ci on a small box is itself a memory-hungry process, and being killed
+  # mid-install is what produces a half-populated node_modules in the first
+  # place. Verify the result rather than trusting the exit code alone.
+  npm ci --silent || fail "npm ci failed — dependencies are inconsistent, NOT restarting.
+If it was killed rather than erroring, the box ran out of memory: add swap, or
+run 'npm ci --omit=dev' (the VM does not need the frontend build chain)."
+  node scripts/lib/deps.mjs >/dev/null 2>&1 \
+    || fail "npm ci exited 0 but packages are still missing: $(node scripts/lib/deps.mjs 2>&1)"
+  ok "dependencies installed"
+else
+  ok "lockfile unchanged — $DEPS_MISSING"
+fi
+
 if [[ "$BEFORE" == "$AFTER" && "$MODE" == "deploy" ]]; then
   ok "already up to date — nothing to restart (use --force to bounce anyway)"
   logline "no changes at ${AFTER:0:8}; nothing restarted"
   exit 0
-fi
-
-# ---- 3. dependencies ---------------------------------------------------------
-hdr "3. Dependencies"
-if [[ "$MODE" == "check" ]]; then
-  [[ -d node_modules ]] && ok "node_modules present" || warn "node_modules missing"
-elif grep -q '^package-lock\.json$\|^package\.json$' <<<"$CHANGED" || [[ ! -d node_modules ]]; then
-  echo "  npm ci…"
-  npm ci --silent || fail "npm ci failed — dependencies are inconsistent, NOT restarting"
-  ok "dependencies installed"
-else
-  ok "lockfile unchanged — skipping npm ci"
 fi
 
 # ---- 4. verify BEFORE restarting --------------------------------------------

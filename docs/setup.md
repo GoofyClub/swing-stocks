@@ -108,7 +108,15 @@ cd ~/swing-stocks && npm ci
 
 # provision (idempotent — safe to re-run)
 ./scripts/setup-vm.sh
+
+# confirm the install is complete, not merely present
+node scripts/lib/deps.mjs
 ```
+
+On a 1 GB box `npm ci --omit=dev` uses noticeably less memory and skips `vite`,
+which the VM never runs — the frontend is built by GitHub Actions, not here.
+Everything the runners need is a runtime dependency. `deploy.sh` runs the test
+suite, which does not need vite either.
 
 The script checks prerequisites, creates `~/swing-stocks/swing-config/swing.env` from the
 generated template, verifies Firestore connectivity, and installs the systemd

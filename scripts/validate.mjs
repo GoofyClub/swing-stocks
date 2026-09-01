@@ -35,7 +35,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initFirestore } from '../src/config/firebaseAdmin.js';
+// NOT imported at the top: it is the one module here that pulls a third-party
+// package (firebase-admin), and a static import is evaluated before any of this
+// file's own code runs. With node_modules half-installed, validate died on
+// ERR_MODULE_NOT_FOUND without printing a line — the health check vanishing at
+// exactly the moment the box is unhealthy. It is imported inside checkFirestore
+// instead, where its absence is a finding rather than a stack trace.
 import { createAlpacaClient, resolveAlpacaBaseUrl, isLiveBaseUrl } from '../src/broker/alpaca.js';
 import { marketClock, REENTRY_COOLDOWN_DAYS } from '../src/auto/engine.js';
 import { resolveLogFile } from './lib/logfile.mjs';
@@ -43,6 +48,7 @@ import { resolveConfigFile } from './lib/load-env.mjs';
 import { analyzeJournal, analyzeEquityFreshness } from '../src/auto/integrity.js';
 import { isQuotaError } from './lib/alert.mjs';
 import { describeFetchError } from './lib/net.mjs';
+import { missingDependencies } from './lib/deps.mjs';
 
 const execFileAsync = promisify(execFile);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -88,6 +94,17 @@ async function checkEnvironment() {
   hdr('1. Environment');
   const major = Number(process.versions.node.split('.')[0]);
   major >= 18 ? ok(`node ${process.version}`) : bad(`node ${process.version} too old (need >= 18)`);
+
+  // Dependencies first. A half-installed node_modules makes every later check
+  // fail in a way that looks like a code fault: validate itself used to die on
+  // ERR_MODULE_NOT_FOUND before printing a single line, which is the least
+  // helpful moment for a health check to disappear.
+  const deps = missingDependencies();
+  if (deps.error) bad(`dependencies: ${deps.error} — run: npm ci`);
+  else if (deps.missing.length) {
+    bad(`${deps.missing.length} of ${deps.checked} dependencies missing (${deps.missing.slice(0, 6).join(', ')}${deps.missing.length > 6 ? '…' : ''}) — run: npm ci`);
+    info('A partial node_modules usually means npm ci was killed part-way; on a 1 GB box that is the OOM killer.');
+  } else ok(`${deps.checked} dependencies installed`);
 
   const cfgFile = resolveConfigFile();
   if (!cfgFile) bad('no swing.env found — every credential is missing');
@@ -201,10 +218,15 @@ async function checkFirestore() {
   hdr('3. Firestore');
   let db;
   try {
+    const { initFirestore } = await import('../src/config/firebaseAdmin.js');
     db = initFirestore({ log: () => {} });
     await db.collection('publicConfig').doc('automation').get();
     ok('reachable');
   } catch (e) {
+    if (e?.code === 'ERR_MODULE_NOT_FOUND') {
+      bad('firebase-admin is not installed — run: npm ci');
+      return null;
+    }
     if (isQuotaError(e)) {
       bad('QUOTA EXHAUSTED — the free-tier daily read allowance is spent');
       info('Any runner firing before the reset (midnight Pacific) will abort: no reconciliation,');
