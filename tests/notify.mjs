@@ -13,7 +13,8 @@
 import { makeNotifier, resetNotifyCache } from '../scripts/lib/notify.mjs';
 import { formatDailySummary } from '../scripts/lib/format-summary.mjs';
 import { TG_LIMIT } from '../scripts/lib/tg.mjs';
-import { installReadMeter, readCount, readSummary, resetReadMeter } from '../scripts/lib/firestore-meter.mjs';
+import { installReadMeter, readCount, writeCount, readSummary, resetReadMeter } from '../scripts/lib/firestore-meter.mjs';
+import { isQuotaError } from '../scripts/lib/alert.mjs';
 
 let pass = 0, fail = 0;
 function t(name, cond) {
@@ -194,8 +195,14 @@ console.log('\n--- the read meter ---');
   t('the summary names the ceiling', /50,000\/day/.test(readSummary()));
   t('and the share used', /%/.test(readSummary()));
 
+  // Writes have a SEPARATE and much lower ceiling, and it was a write that hit
+  // RESOURCE_EXHAUSTED in the broad refresh while the read budget looked fine.
+  // A summary reporting only reads sends you to audit the wrong thing.
+  t('the summary reports writes too', /write\(s\)/.test(readSummary()));
+  t('and names the write ceiling', /20,000\/day/.test(readSummary()));
+
   resetReadMeter();
-  t('reset clears it', readCount() === 0);
+  t('reset clears it', readCount() === 0 && writeCount() === 0);
 
   // Counting must never be able to break a run.
   class Broken { async get() { return null; } }
@@ -209,6 +216,21 @@ console.log('\n--- the read meter ---');
   // A result must pass through untouched — the meter observes, never alters.
   const passthrough = await q.get();
   t('the query result is returned unchanged', passthrough.size === 7);
+}
+
+console.log('\n--- recognising a quota kill ---');
+{
+  // The refresh runner stores a per-market failure as `e.message`, a STRING, so
+  // by the time the alert path sees it there is no `.message` to read. Testing
+  // only `e.message` reported a quota exhaustion as an ordinary error and sent
+  // the generic "something broke" alert instead of the one naming the cause.
+  const real = 'Total timeout of API google.firestore.v1.Firestore exceeded 600000 milliseconds '
+    + 'retrying error Error: 8 RESOURCE_EXHAUSTED: Quota exceeded. before any response was received.';
+  t('a quota failure carried as a bare string is recognised', isQuotaError(real));
+  t('as an Error object too', isQuotaError(new Error(real)));
+  t('and by gRPC status code alone', isQuotaError({ code: 8 }));
+  t('an ordinary failure is not mistaken for one', !isQuotaError(new Error('socket hang up')));
+  t('nothing at all is not a quota error', !isQuotaError(null) && !isQuotaError(undefined));
 }
 
 console.log(`\n=============================================`);

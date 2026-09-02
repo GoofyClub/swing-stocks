@@ -20,6 +20,7 @@
 
 let reads = 0;
 let queries = 0;
+let writes = 0;
 let installed = false;
 
 export function installReadMeter(db) {
@@ -29,6 +30,32 @@ export function installReadMeter(db) {
     const docRef = db.collection('__meter__').doc('x');
     const QueryProto = Object.getPrototypeOf(q);
     const DocProto = Object.getPrototypeOf(docRef);
+
+    // Writes have their own daily ceiling (20k, well under the 50k for reads),
+    // and it was a WRITE that hit RESOURCE_EXHAUSTED in the broad refresh —
+    // counting only reads meant looking for the problem in the wrong budget.
+    for (const m of ['set', 'update', 'create', 'delete']) {
+      if (typeof DocProto?.[m] !== 'function' || DocProto[`__swingMetered_${m}`]) continue;
+      const original = DocProto[m];
+      DocProto[m] = function meteredWrite(...args) {
+        try { writes++; } catch { /* never affect the caller */ }
+        return original.apply(this, args);
+      };
+      DocProto[`__swingMetered_${m}`] = true;
+    }
+    // Batched writes bill per document, and a batch is where the volume hides.
+    try {
+      const batchProto = Object.getPrototypeOf(db.batch());
+      for (const m of ['set', 'update', 'create', 'delete']) {
+        if (typeof batchProto?.[m] !== 'function' || batchProto[`__swingMetered_${m}`]) continue;
+        const original = batchProto[m];
+        batchProto[m] = function meteredBatchWrite(...args) {
+          try { writes++; } catch { /* ditto */ }
+          return original.apply(this, args);
+        };
+        batchProto[`__swingMetered_${m}`] = true;
+      }
+    } catch { /* batches are optional to meter */ }
 
     for (const [proto, isQuery] of [[QueryProto, true], [DocProto, false]]) {
       if (!proto || typeof proto.get !== 'function' || proto.__swingMetered) continue;
@@ -57,12 +84,16 @@ export function installReadMeter(db) {
 
 export const readCount = () => reads;
 export const queryCount = () => queries;
-export function resetReadMeter() { reads = 0; queries = 0; }
+export const writeCount = () => writes;
+export function resetReadMeter() { reads = 0; queries = 0; writes = 0; }
 
-// One line for the end of a run. Includes the daily free-tier ceiling because
-// the number is meaningless without it — 900 reads is fine, 9,000 four times a
-// day is not.
-export function readSummary({ limit = 50_000 } = {}) {
-  const pctOfDay = ((reads / limit) * 100).toFixed(1);
-  return `firestore: ${reads} document read(s) across ${queries} quer(y|ies) — ${pctOfDay}% of the ${limit.toLocaleString()}/day free tier`;
+// One line for the end of a run. Includes both daily free-tier ceilings because
+// the numbers are meaningless without them — 900 reads is fine, 9,000 four times
+// a day is not — and because the two budgets differ by more than 2x, so the one
+// you are about to exhaust is not always the one you were watching.
+export function readSummary({ readLimit = 50_000, writeLimit = 20_000 } = {}) {
+  const rPct = ((reads / readLimit) * 100).toFixed(1);
+  const wPct = ((writes / writeLimit) * 100).toFixed(1);
+  return `firestore: ${reads} read(s) across ${queries} quer(y|ies) — ${rPct}% of ${readLimit.toLocaleString()}/day`
+    + ` · ${writes} write(s) — ${wPct}% of ${writeLimit.toLocaleString()}/day`;
 }

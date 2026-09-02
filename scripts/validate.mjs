@@ -268,7 +268,18 @@ async function checkFirestore() {
       const affects = AFFECTS[job] || AFFECTS[Object.keys(AFFECTS).find(k => job.startsWith(k))] || null;
       if (r.ok === false) {
         bad(`${job}: last run ${stamp} FAILED`);
-        if (r.error) info(String(r.error).split('\n')[0].slice(0, 200));
+        // The reason may be top-level (a fatal) OR per-market (one market threw
+        // while others succeeded). Reading only the top-level field printed
+        // "FAILED" with no cause while the cause sat in the same document.
+        const reasons = [
+          r.error,
+          ...(Array.isArray(r.markets) ? r.markets.filter(m => m?.error).map(m => `${m.market}: ${m.error}`) : []),
+        ].filter(Boolean);
+        for (const reason of reasons.slice(0, 3)) info(String(reason).split('\n')[0].slice(0, 200));
+        if (reasons.some(isQuotaError)) {
+          info('Firestore free-tier allowance is spent (50k reads / 20k writes per day, resets midnight Pacific).');
+          info('The broad-universe refresh is the heaviest consumer and feeds the web app only.');
+        }
         if (affects) info(`affects: ${affects}`);
       } else if (age != null && age > 4) {
         warn(`${job}: last ${stamp} — ${age.toFixed(1)}d ago`);

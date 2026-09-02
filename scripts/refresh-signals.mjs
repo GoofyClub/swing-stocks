@@ -30,6 +30,8 @@ import { STRATEGIES, settleSignal, entryIndexFor, tierReasons, advUsdFor, SETTLE
 import { regimeCheck, sectorRank } from '../src/strategy/engine.js';
 import { MARKET_CONFIGS, watchlistFor, DATA_SOURCE_ORDER, companyName, LARGE_CAP_TICKERS, NIFTY50_TICKERS } from '../src/data/markets.js';
 import { sendTelegram } from '../src/data/telegram.js';
+import { alertOperator, isQuotaError, quotaAlertText } from './lib/alert.mjs';
+import { installReadMeter, readSummary } from './lib/firestore-meter.mjs';
 
 // Signals are retained (and re-gradable) for this many days. Drives both the
 // prune cutoff and the re-settle window, so it must cover the longest timeframe
@@ -689,6 +691,7 @@ async function recordRun(db, { startedAt, summary, error }) {
 
 async function main() {
   const db = initAdmin();
+  installReadMeter(db);
   const startedAt = Date.now();
   const summary = [];
   let fatal = null;
@@ -710,7 +713,26 @@ async function main() {
   }
   try { await pruneOldBuckets(db); } catch (e) { console.warn('[main] prune failed', e.message); }
   await recordRun(db, { startedAt, summary, error: fatal });
+  console.log(`[main] ${readSummary()}`);
   console.log('\n[main] DONE', JSON.stringify(summary));
+
+  // A market that failed outright must fail the JOB. Catching per-market errors
+  // so the other markets still run is right; exiting 0 afterwards is not — it
+  // told GitHub the run succeeded, so the Actions UI was green, no notification
+  // was sent, and the only trace of a totally failed US refresh was an `ok:false`
+  // field in a Firestore document. Which is written to the very database that
+  // had just refused writes.
+  const failed = summary.filter(s => s.error);
+  if (failed.length) {
+    console.error(`[main] ${failed.length} market(s) failed: ${failed.map(s => `${s.market}: ${s.error}`).join(' | ')}`);
+    try {
+      await alertOperator(isQuotaError(failed[0].error)
+        ? quotaAlertText('The shared-signal refresh')
+        : `🔴 <b>Signal refresh failed</b>\n<i>${failed.map(s => `${s.market}: ${String(s.error).slice(0, 200)}`).join('\n')}</i>\n\n`
+          + 'Live Signals in the web app are stale. Trading is unaffected — the same-day runner scans in-process.');
+    } catch { /* never mask the failure being reported */ }
+    process.exit(1);
+  }
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

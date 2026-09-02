@@ -36,7 +36,12 @@ export async function alertOperator(text, { env = process.env } = {}) {
 // error, because it does NOT clear on retry: the allowance resets at midnight
 // Pacific. Retrying within the same day just burns the run.
 export function isQuotaError(e) {
-  return e?.code === 8 || /RESOURCE_EXHAUSTED|Quota exceeded/i.test(String(e?.message || ''));
+  if (e?.code === 8) return true;
+  // Also accept a bare string: errors that cross a run-summary boundary are
+  // stored as `e.message`, and testing only `.message` on those looked at
+  // undefined and reported a quota kill as an ordinary failure.
+  const text = String(e?.message ?? e ?? '');
+  return /RESOURCE_EXHAUSTED|Quota exceeded/i.test(text);
 }
 
 // What a quota kill actually costs, stated plainly. The failure is dangerous
