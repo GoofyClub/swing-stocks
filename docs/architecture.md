@@ -17,7 +17,7 @@ runs on a timer in Actions.
 | Workflow | Schedule | Does |
 |---|---|---|
 | `refresh-signals.yml` | every 30 min, US hours | Scan the core watchlist, write signals to Firestore |
-| `refresh-broad.yml` | 17:30 ET | Scan the 1503-name universe after the close |
+| `refresh-broad.yml` | Sun 17:30 ET | Scan the 1503-name universe for the web app's Live Signals. Weekly, not daily: it feeds no trading decision (the VM scans the same universe in-process at 15:38 ET) and daily runs exhausted the Firestore write allowance |
 | `refresh-universe.yml` | Sat 08:00 UTC | Rebuild S&P 500/400/600 membership |
 | `deploy.yml` | on push to main | Publish the SPA to Pages |
 | `auto-trade.yml` | **manual only** | Legacy morning-entry path. Escape hatch when the VM is down. |

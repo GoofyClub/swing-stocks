@@ -1,12 +1,24 @@
 name: Refresh broad universe (S&P 1500)
 
-# Scans the full US S&P universe (500 large + 400 mid + 600 small) ONCE daily
-# after the close — the strategies are EOD-based, so intraday re-scans add
-# nothing. Heavy (~1500 names): keep it to once/day and use the Alpaca data
-# source (ALPACA_KEY/SECRET) so it doesn't hit free-tier rate limits.
+# Scans the full US S&P universe (500 large + 400 mid + 600 small) and writes the
+# signal documents the WEB APP displays. It does not feed trading: the VM's
+# same-day runner evaluates the same universe in-process at 15:38 ET and never
+# reads these documents, so this workflow's schedule has no effect on which names
+# are traded or how often.
+#
+# WEEKLY, not daily. Run daily it was the largest consumer of the Firestore free
+# tier by a wide margin — ~1,500 names of signal writes against a 20k/day write
+# ceiling — and on 2026-09-02 it exhausted the allowance and died with
+# `8 RESOURCE_EXHAUSTED` after retrying for its full 600s timeout. Spending the
+# scarcest resource in the system on a display, to duplicate a scan the VM had
+# already done an hour earlier, was the wrong trade. Sunday evening leaves the
+# weekday budget for the runners that place and manage orders.
+#
+# Use the Alpaca data source (ALPACA_KEY/SECRET) so ~1,500 fetches don't hit the
+# keyless rate limits.
 on:
   schedule:
-    - cron: "30 21 * * 1-5"   # ~17:30 ET, after the US close
+    - cron: "30 21 * * 0"   # Sunday ~17:30 ET
   workflow_dispatch:
 
 jobs:
