@@ -8,8 +8,9 @@
 // which names are cooling off (`realizedWinLoss === 'loss'` + `realizedAt`).
 //
 // Exit price, in order of trust:
-//   1. exitModelPrice — the exit pass already closed it (native/time/trail)
+//   1. the fully filled managed exit order
 //   2. the filled sell leg of the retained parent order (target or stop)
+// Model prices are diagnostics only; they never establish realized P&L.
 //
 // Alpaca keeps the parent order around after the position is gone, so this
 // backfills historical trades too. An order whose exit can't be recovered (a
@@ -136,7 +137,10 @@ export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavai
 
   for (const d of snap.docs) {
     const o = d.data();
-    if (o.realizedWinLoss) continue;                     // already realized
+    // Older versions booked model prices as fills. Reconcile those once with
+    // broker evidence, preserving their original realization date.
+    const modelBooked = o.exitModelPrice != null && o.realizedSource == null;
+    if (o.realizedWinLoss && !modelBooked) continue;
     // Written off by THIS version of the recovery logic — genuinely nothing
     // more to try. An older stamp falls through and gets one more attempt.
     if (!retryUnavailable && o.realizeUnavailable
@@ -146,16 +150,29 @@ export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavai
     const qty = o.filledQty || o.qty;
     if (entry == null || !qty) continue;
 
-    let exit = null, reason = o.exitReason || null;
-    if (o.exitModelPrice != null) {
-      exit = Number(o.exitModelPrice);
-    } else if (o.brokerOrderId) {
+    let exit = null, reason = o.exitReason || null, source = null;
+    if (o.exitOrderId) {
+      try {
+        const fill = await client.getOrder(o.exitOrderId);
+        if (fill.status === 'filled' && Number(fill.filled_qty) >= qty && fill.filled_avg_price != null) {
+          exit = Number(fill.filled_avg_price);
+          source = 'exit_order';
+        } else if (o.status !== 'position_closed') continue;
+      } catch (e) {
+        if (e.status !== 404) { log(`realize ${o.ticker}: exit fetch failed ${e.message}`); continue; }
+      }
+    }
+    // Partial/canceled exits require closed-position fill history; never book
+    // a full position from only the last partial liquidation's average price.
+    if (exit == null && o.status !== 'position_closed') continue;
+    if (exit == null && o.brokerOrderId) {
       try {
         const parent = await client.getOrder(o.brokerOrderId, { nested: true });
         const leg = (parent?.legs || []).find(l =>
           (l.side === 'sell') && l.status === 'filled' && l.filled_avg_price != null);
         if (leg) {
           exit = Number(leg.filled_avg_price);
+          source = 'bracket_fill';
           reason = /stop/i.test(leg.type || '') ? 'stop' : 'target';
         }
       } catch (e) {
@@ -174,6 +191,7 @@ export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavai
         if (rt) {
           exit = rt.exitPrice;
           reason = 'fill_history';
+          source = 'fill_history';
           log(`realize ${o.ticker}: order gone, recovered exit ${exit} from fill history`);
         } else {
           await d.ref.update({
@@ -187,6 +205,12 @@ export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavai
         }
       }
     }
+    // Legacy managed exits have no retained liquidation id. A closed round trip
+    // can still recover their actual price even when the parent still exists.
+    if (exit == null && o.status === 'position_closed') {
+      const rt = await exitFromFills({ client, order: o, log });
+      if (rt) { exit = rt.exitPrice; source = 'fill_history'; }
+    }
     // Not recoverable yet — leave it for the next run rather than inventing one.
     if (exit == null || !Number.isFinite(exit)) continue;
 
@@ -196,12 +220,13 @@ export async function realizeOutcomes({ db, admin, uid, client, log, retryUnavai
       // A doc rescued on retry must not keep the write-off flag.
       realizeUnavailable: false,
       realizedExit: exit,
+      realizedSource: source,
       realizedPct: pct,
       realizedR: slPct ? pct / slPct : null,
       realizedPnl: qty * (exit - entry),
       realizedWinLoss: pct >= 0 ? 'win' : 'loss',
       realizedExitReason: reason,
-      realizedAt: admin.firestore.FieldValue.serverTimestamp(),
+      realizedAt: o.realizedAt ?? admin.firestore.FieldValue.serverTimestamp(),
     });
     realized++;
     log(`REALIZED ${o.ticker}: ${pct >= 0 ? 'win' : 'loss'} ${pct.toFixed(2)}%${slPct ? ` ${(pct / slPct).toFixed(2)}R` : ''} exit ${exit} (${reason || 'exit'})`);

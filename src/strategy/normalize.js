@@ -557,9 +557,11 @@ export function settleSignal(envelope, postSignalBars, opts = {}) {
 
     const hitTp = bar.high >= tp;
     const hitSl = bar.low  <= sl;
-    if (hitTp && hitSl) return done('loss', bar.date, sl, 'sl'); // pessimistic tie
-    if (hitTp) return done('win',  bar.date, tp, 'tp');
-    if (hitSl) return done('loss', bar.date, sl, 'sl');
+    // Live holdings prove a modeled TP/SL touch did not flatten this trade.
+    // Keep evaluating native/time exits; settlement history still uses barriers.
+    if (!opts.ignoreBrokerExits && hitTp && hitSl) return done('loss', bar.date, sl, 'sl'); // pessimistic tie
+    if (!opts.ignoreBrokerExits && hitTp) return done('win',  bar.date, tp, 'tp');
+    if (!opts.ignoreBrokerExits && hitSl) return done('loss', bar.date, sl, 'sl');
 
     // Native discretionary exit — exit at this bar's close.
     if (nativeExit && Number.isFinite(bar.close)) {

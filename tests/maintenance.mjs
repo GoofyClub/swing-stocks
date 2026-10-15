@@ -11,6 +11,8 @@
 // Run with:  node tests/maintenance.mjs
 // =============================================================================
 
+import { manageExits } from '../scripts/lib/exit-pass.mjs';
+import { createAlpacaClient } from '../src/broker/alpaca.js';
 import { reconcileOrders } from '../scripts/lib/reconcile.mjs';
 import { realizeOutcomes } from '../scripts/lib/realize.mjs';
 import { snapshotEquity } from '../scripts/lib/equity.mjs';
@@ -148,13 +150,13 @@ console.log('\n--- reconcileOrders: stale-entry sweep ---');
 
 console.log('\n--- realizeOutcomes ---');
 {
-  // Model exit (native / time_stop / trail): the price is already journaled.
+  // Managed exits use actual broker fills, even when the model price differs.
   const rows = [{
     ticker: 'WIN', side: 'buy', status: 'exit_submitted', qty: 10, filledQty: 10,
-    filledAvgPrice: 100, sl: 95, exitModelPrice: 106, exitReason: 'native',
+    filledAvgPrice: 100, sl: 95, exitModelPrice: 112, exitReason: 'native', exitOrderId: 'exit1',
   }];
   const db = fakeDb({ 'users/u1/autoOrders': rows });
-  const r = await realizeOutcomes({ db, admin, uid: 'u1', client: {}, log });
+  const r = await realizeOutcomes({ db, admin, uid: 'u1', client: { getOrder: async () => ({status: 'filled', filled_qty: '10', filled_avg_price: '106'}) }, log });
   const p = patchFor(db, /autoOrders/)[0];
   t('books a win', p.realizedWinLoss === 'win');
   t('realized % is exit vs FILL price', Math.abs(p.realizedPct - 6) < 1e-9);
@@ -196,10 +198,10 @@ console.log('\n--- realizeOutcomes ---');
 }
 {
   // A trailing-strategy exit has NO take-profit leg. Realization must still
-  // work from the model price — this is the common case now.
-  const rows = [{ ticker: 'TREND', side: 'buy', status: 'exit_submitted', qty: 4, filledQty: 4, filledAvgPrice: 50, sl: 45, exitModelPrice: 68, exitReason: 'trail' }];
+  // work from its actual liquidation fill.
+  const rows = [{ ticker: 'TREND', side: 'buy', status: 'exit_submitted', qty: 4, filledQty: 4, filledAvgPrice: 50, sl: 45, exitModelPrice: 75, exitReason: 'trail', exitOrderId: 'exit2' }];
   const db = fakeDb({ 'users/u1/autoOrders': rows });
-  const p = (await realizeOutcomes({ db, admin, uid: 'u1', client: {}, log }), patchFor(db, /autoOrders/)[0]);
+  const p = (await realizeOutcomes({ db, admin, uid: 'u1', client: { getOrder: async () => ({status: 'filled', filled_qty: '4', filled_avg_price: '68'}) }, log }), patchFor(db, /autoOrders/)[0]);
   t('trailing exit realizes without a TP leg', p.realizedWinLoss === 'win' && p.realizedPnl === 72);
   t('trailing exit reason is preserved', p.realizedExitReason === 'trail');
 }
@@ -438,6 +440,93 @@ console.log('\n--- loadEnvFile: manual runs must see the same config as systemd 
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+
+console.log('\n--- broker liquidation: release reservations first ---');
+{
+  const calls = [];
+  let lists = 0;
+  const client = createAlpacaClient({ baseUrl: 'https://paper-api.alpaca.markets', apiKey: 'test', apiSecret: 'test',
+    fetchImpl: async (url, opts) => {
+      calls.push(`${opts.method} ${new URL(url).pathname}`);
+      let body = {};
+      if (opts.method === 'GET') body = ++lists === 1 ? [{id: 'stop', symbol: 'AAA', status: 'new', legs: [{id:'tp',symbol:'AAA',status:'new'}]}] : [];
+      if (url.includes('/positions/')) body = { id: 'exit' };
+      return {ok:true, text:async()=>JSON.stringify(body)};
+    } });
+  await client.closePosition('AAA');
+  t('explicitly cancels both protective legs before closing', calls.join('|') === 'GET /v2/orders|DELETE /v2/orders/stop|DELETE /v2/orders/tp|GET /v2/orders|DELETE /v2/positions/AAA');
+}
+{
+  let sold = false;
+  const client = createAlpacaClient({ baseUrl:'https://paper-api.alpaca.markets',apiKey:'test',apiSecret:'test',
+    fetchImpl:async(url,opts)=>{
+      if(url.includes('/positions/')) sold=true;
+      return {ok:true,text:async()=>JSON.stringify([{id:'stop',symbol:'AAA',status:'pending_cancel'}])};
+    }});
+  let failed=false;
+  try {await client.closePosition('AAA');} catch {failed=true;}
+  t('pending cancellations block liquidation instead of assuming shares are free',failed && !sold);
+}
+
+console.log('\n--- managed exits: broker state and actual fills ---');
+const daily = Array.from({length:13},(_,i)=>({date:`2026-09-${String(i+1).padStart(2,'0')}`,open:99,high:101,low:i===6?94:96,close:99,volume:100}));
+const heldRow = (over={}) => ({ticker:'AAA',strategyKey:'rsi2',side:'buy',status:'filled',qty:10,filledQty:10,entry:100,sl:95,tp:102,sessionDate:'2026-09-05',...over});
+{
+  const rows=[heldRow()]; const db=fakeDb({'users/u1/autoOrders':rows});let sells=0;
+  const client={getPositions:async()=>[{symbol:'AAA',qty:10}],getDailyBars:async()=>daily,closePosition:async()=>{sells++;return {id:'close1'};}};
+  await manageExits({db,admin,uid:'u1',client,log});
+  t('historical stop touch cannot suppress the seven-session time exit',sells===1 && rows[0].exitReason==='time_stop');
+  t('stores liquidation id for reconciliation',rows[0].exitOrderId==='close1');
+}
+{
+  const rows=[heldRow({status:'exit_submitted',exitOrderId:'old'})]; const db=fakeDb({'users/u1/autoOrders':rows});let sells=0;
+  const client={getPositions:async()=>[{symbol:'AAA',qty:4}],getOrder:async()=>({status:'canceled'}),getDailyBars:async()=>daily,closePosition:async()=>{sells++;return {id:'retry'};}};
+  await manageExits({db,admin,uid:'u1',client,log});
+  t('canceled exit with remaining shares is retried',sells===1 && rows[0].exitOrderId==='retry');
+}
+{
+  const rows=[heldRow({status:'exit_submitted',exitOrderId:'working'})]; const db=fakeDb({'users/u1/autoOrders':rows});
+  const client={getPositions:async()=>[{symbol:'AAA',qty:4}],getOrder:async()=>({status:'partially_filled'})};
+  await manageExits({db,admin,uid:'u1',client,log});
+  t('a working partial exit is not duplicated',db.writes.length===0);
+}
+{
+  const rows=[heldRow({status:'exit_submitted',exitOrderId:'working',exitModelPrice:110})]; const db=fakeDb({'users/u1/autoOrders':rows});
+  await realizeOutcomes({db,admin,uid:'u1',client:{getOrder:async()=>({status:'partially_filled',filled_qty:'4',filled_avg_price:'105'})},log});
+  t('model price and partial fill cannot book full realized profit',db.writes.length===0);
+}
+{
+  const rows=[heldRow({status:'exit_submitted',exitModelPrice:110})]; const db=fakeDb({'users/u1/autoOrders':rows});
+  await realizeOutcomes({db,admin,uid:'u1',client:{},log});
+  t('legacy submitted exit is not treated as a completed sale',db.writes.length===0);
+}
+
+{
+  const rows=[heldRow()]; const db=fakeDb({'users/u1/autoOrders':rows});let sells=0;
+  const client={getPositions:async()=>[{symbol:'AAA',qty:10}],getDailyBars:async()=>daily,closePosition:async()=>{sells++;}};
+  await manageExits({db,admin,uid:'u1',client,log,dryRun:true});
+  t('dry-run changes neither orders nor exit journal',sells===0 && db.writes.length===0);
+}
+{
+  const rows=[heldRow({status:'position_closed',exitModelPrice:110,realizedWinLoss:'win',realizedAt:'original',brokerOrderId:'parent'})];
+  const db=fakeDb({'users/u1/autoOrders':rows});
+  const client={getOrder:async()=>({legs:[]}),getActivities:async()=>[
+    {symbol:'AAA',side:'buy',qty:'10',price:'100',transaction_time:'2026-09-05T19:45:00Z'},
+    {symbol:'AAA',side:'sell',qty:'10',price:'98',transaction_time:'2026-09-08T14:00:00Z'},
+  ]};
+  await realizeOutcomes({db,admin,uid:'u1',client,log});
+  t('legacy model win is corrected from actual fill history',rows[0].realizedWinLoss==='loss' && rows[0].realizedPnl===-20);
+  t('historical correction preserves cooldown date and records source',rows[0].realizedAt==='original' && rows[0].realizedSource==='fill_history');
+}
+{
+  let canceled=false,sold=false;
+  const client=createAlpacaClient({baseUrl:'https://paper-api.alpaca.markets',apiKey:'test',apiSecret:'test',fetchImpl:async(url,opts)=>{
+    if(opts.method==='DELETE') {canceled=true;if(url.includes('/positions/'))sold=true;}
+    return {ok:true,text:async()=>JSON.stringify([{id:'exit',symbol:'AAA',status:'accepted',side:'sell',type:'market'}])};
+  }});
+  try {await client.closePosition('AAA');} catch {}
+  t('existing market exit is neither canceled nor duplicated',!canceled && !sold);
+}
 console.log(`\n=============================================`);
 console.log(`PASS ${pass} · FAIL ${fail}`);
 console.log(`=============================================`);

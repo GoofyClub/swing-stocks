@@ -203,11 +203,37 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
       }));
     },
 
-    // Liquidate a position (market order). cancelOrders=true also cancels the
-    // symbol's open orders (the resting bracket legs) — required, since Alpaca
-    // rejects a close while the bracket still holds the shares.
+    // The single-position endpoint does NOT support cancel_orders. Release
+    // this symbol's reservations explicitly and wait for cancellation to finish.
+    // Never cancel another symbol's protection or sell while a cancel is pending.
     async closePosition(symbol, { cancelOrders = true } = {}) {
-      return req('DELETE', `/v2/positions/${encodeURIComponent(symbol)}?cancel_orders=${cancelOrders ? 'true' : 'false'}`);
+      const encoded = encodeURIComponent(symbol);
+      if (cancelOrders) {
+        const q = new URLSearchParams({ status: 'open', symbols: symbol, nested: 'true', limit: '500' });
+        const flatten = orders => orders.flatMap(o => [o, ...flatten(o.legs || [])]);
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const listed = await req('GET', `/v2/orders?${q}`);
+          if (!Array.isArray(listed) || listed.length >= 500) throw new Error(`Alpaca ${symbol}: incomplete open-order list`);
+          const orders = flatten(listed)
+            .filter(o => o.symbol === symbol && !['filled', 'canceled', 'expired', 'rejected', 'replaced'].includes(o.status));
+          if (!orders.length) return req('DELETE', `/v2/positions/${encoded}`);
+          if (orders.some(o => o.side === 'sell' && o.type === 'market')) {
+            throw new Error(`Alpaca ${symbol}: market sell already working; awaiting fill`);
+          }
+          for (const o of orders) {
+            if (o.status === 'pending_cancel') continue;
+            try { await req('DELETE', `/v2/orders/${encodeURIComponent(o.id)}`); }
+            catch (e) {
+              // An OCO sibling can fill/cancel as its peer is being canceled.
+              // Re-read the list rather than assuming its reservation is gone.
+              if (![404, 422].includes(e.status)) throw e;
+            }
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        throw new Error(`Alpaca ${symbol}: orders still open after cancellation; exit must be retried`);
+      }
+      return req('DELETE', `/v2/positions/${encoded}`);
     },
 
     // Latest trade price from the market-data API (separate host). Used for the

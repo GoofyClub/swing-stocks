@@ -21,7 +21,7 @@
 // that exist are the hard stop and this pass. A position opened by the same-day
 // runner on a box whose morning worker never fires would otherwise ride with no
 // managed exit at all — so both runners call this, and running it twice a day is
-// harmless (it is idempotent: `exit_submitted` short-circuits).
+// harmless: working exit orders are reconciled before another exit is sent.
 // =============================================================================
 
 import { settleSignal, entryIndexFor } from '../../src/strategy/normalize.js';
@@ -51,7 +51,24 @@ export async function manageExits({ db, admin, uid, client, log, dryRun = false,
         if (!dryRun) await d.ref.update({ status: 'position_closed', positionClosedAt: admin.firestore.FieldValue.serverTimestamp() });
         continue;
       }
-      if (data.status === 'exit_submitted') continue; // liquidation working — wait
+      if (data.status === 'exit_submitted') {
+        try {
+          if (data.exitOrderId) {
+            const exit = await client.getOrder(data.exitOrderId);
+            if (!['canceled', 'expired', 'rejected', 'filled'].includes(exit.status)) continue;
+          }
+          // Legacy docs lack an exit id. Refuse to duplicate a potentially
+          // working liquidation; surface the recovery requirement to the operator.
+          else {
+            log(`exit-check ${data.ticker}: legacy exit has no broker order id; inspect open orders before retrying`);
+            continue;
+          }
+          log(`exit-check ${data.ticker}: previous exit terminal but shares remain; retrying`);
+        } catch (e) {
+          log(`exit-check ${data.ticker}: cannot reconcile exit order: ${e.message}`);
+          continue;
+        }
+      }
       if (!data.sessionDate || !data.sl) continue;    // pre-v0.25 docs lack the bucket
       checked++;
       try {
@@ -61,13 +78,12 @@ export async function manageExits({ db, admin, uid, client, log, dryRun = false,
         const entryIdx = entryIndexFor(bars, null, data.sessionDate);
         const postBars = entryIdx >= 0 ? bars.slice(entryIdx + 1) : [];
         if (!postBars.length) continue;
-        // tp:Infinity when the doc has none — that is the normal case for the
-        // trailing strategies, and settleTrailing ignores tp entirely anyway.
-        // For target strategies it disables only the TP rule, leaving the
-        // native/time-stop checks intact.
+        // Actual holdings take precedence over simulated protective fills.
+        // For target strategies, historical TP/SL touches must not suppress
+        // later native/time exits. The broker still owns the resting legs.
         const verdict = settleSignal(
           { entry: data.filledAvgPrice || data.entry, tp: data.tp ?? Infinity, sl: data.sl, pendingEntry: false, strategyKey: data.strategyKey },
-          postBars, { bars, entryIdx },
+          postBars, { bars, entryIdx, ignoreBrokerExits: true },
         );
         if (!modelExitAction(verdict)) continue; // still open, or tp/sl (broker's job)
         if (dryRun) {
@@ -76,14 +92,15 @@ export async function manageExits({ db, admin, uid, client, log, dryRun = false,
         }
         // NOTE: Alpaca positions are per-symbol — if two strategies hold the same
         // ticker this liquidates both; acceptable given the per-sector/position caps.
-        await client.closePosition(data.ticker, { cancelOrders: true });
+        const exit = await client.closePosition(data.ticker, { cancelOrders: true });
+        if (!exit?.id) throw new Error('close returned no broker order id; inspect broker before retrying');
         await d.ref.update({
-          status: 'exit_submitted', exitReason: verdict.exitReason,
+          status: 'exit_submitted', exitOrderId: exit.id, exitReason: verdict.exitReason,
           exitModelWinLoss: verdict.winLoss, exitModelPrice: verdict.hitPrice ?? null,
           exitRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         closed++;
-        log(`EXIT ${data.ticker}: ${verdict.exitReason} (model ${verdict.winLoss} @ ${verdict.hitPrice}) — position closed, resting legs cancelled`);
+        log(`EXIT ${data.ticker}: ${verdict.exitReason} (model ${verdict.winLoss} @ ${verdict.hitPrice}) — exit order submitted; awaiting broker fill`);
         if (notify) {
           await notify(`🔴 <b>EXIT</b> ${data.ticker} × ${pos.qty} — ${REASON_TEXT[verdict.exitReason] || verdict.exitReason} · model ${verdict.winLoss?.toUpperCase()} @ ~${verdict.hitPrice}`);
         }
