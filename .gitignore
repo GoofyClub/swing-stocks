@@ -14,3 +14,9 @@ logs/
 Thumbs.db
 .vite/
 .cache/
+
+# Local single-account bot state
+/data/
+
+__pycache__/
+*.pyc

@@ -1,0 +1,20 @@
+name: Local RSI2 bot
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build
+      - run: docker compose config --quiet
+      - name: Test without network access or npm dependencies
+        run: docker run --rm --network=none -v "$PWD:/app:ro" swing-stocks-local:latest node --test tests/local-runtime.mjs
+      - run: python3 -m unittest discover -s tests -p 'test_local_runtime.py' -v
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: powershell
+        run: .\tests\test-windows-installer.ps1

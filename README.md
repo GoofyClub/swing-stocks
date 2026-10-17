@@ -1,3 +1,7 @@
+# Run RSI2 locally on your PC
+
+For the single-account bot without Firebase or Google Cloud, use [the beginner PC installation guide](PC-INSTALL.md) and double-click `Install-Swing.cmd`. The cloud web app below is a separate legacy workflow.
+
 # Swing Terminal (StockView)
 
 Cloud-backed, multi-strategy swing-trading console. Static SPA (Vite) on GitHub

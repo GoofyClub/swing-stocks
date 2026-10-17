@@ -1,0 +1,47 @@
+name: swing-stocks
+services:
+  swing:
+    build: .
+    image: swing-stocks-local:latest
+    user: "${SWING_UID:-1000}:${SWING_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 1250s
+    env_file:
+      - path: swing-config/swing.env
+        required: false
+    environment:
+      SWING_CONTAINER: "1"
+      SWING_DATA_DIR: /data
+      SWING_CONFIG_DIR: /app/swing-config
+      HOME: /data/home
+      DASHBOARD_BIND: 0.0.0.0
+      DASHBOARD_PORT: "8444"
+      DASHBOARD_CERT_FILE: ""
+      DASHBOARD_KEY_FILE: ""
+      SWING_LOG_FILE: /data/logs/swing.log
+      ALLOW_LIVE: "false"
+      GIT_TERMINAL_PROMPT: "0"
+      GIT_ASKPASS: /app/packaging/git-askpass.py
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /app
+    ports: ["127.0.0.1:8444:8444"]
+    volumes:
+      - .:/app
+      - ./data:/data
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=128m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1536m
+    cpus: 2
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "3"}
+    healthcheck:
+      test: [CMD, python3, packaging/runtime.py, health]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3

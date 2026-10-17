@@ -189,8 +189,9 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
     // engine's bars ({date, open, high, low, close, volume}) so settleSignal can
     // run directly on them. Used by the exit-management pass. split-adjusted so
     // indicator math (5-SMA etc.) stays continuous across splits.
-    async getDailyBars(symbol, { start, end = null, limit = 300 } = {}) {
+    async getDailyBars(symbol, { start, end = null, limit = 300, feed = null } = {}) {
       const q = new URLSearchParams({ timeframe: '1Day', adjustment: 'split', limit: String(limit) });
+      if (feed) q.set('feed', feed);
       if (start) q.set('start', `${start}T00:00:00Z`);
       if (end)   q.set('end', `${end}T23:59:59Z`);
       const res = await fetchImpl(`${dataRoot}/v2/stocks/${encodeURIComponent(symbol)}/bars?${q}`, { headers });
