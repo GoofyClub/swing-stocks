@@ -61,3 +61,12 @@ test('valid RSI2 entry is protected and repeated passes cannot duplicate it',asy
  await worker('entry',{client:{...client,getPositions:async()=>[{symbol:Object.values(read('journal.json').orders)[0].ticker,qty:1}]},now,wallClock:()=>now});
  assert.equal(submissions,1);process.env.DRY_RUN='true';
 });
+test('uncertain submission stops this scan and blocks the next until reconciled',async()=>{
+ process.env.DRY_RUN='false';write('config.json',{respectRegime:false,tiers:[]});write('control.json',{paused:false});write('journal.json',{orders:{},peakEquity:0});
+ const now=new Date('2026-10-15T19:42:00Z');
+ const bars=Array.from({length:250},(_,i)=>{const close=i<245?100+i*.25:161-(i-244)*1.1;return {date:new Date(now.getTime()-(249-i)*86400000).toISOString().slice(0,10),open:close+.1,close,high:close+.4,low:close-.4,volume:3000000};});
+ let attempts=0;
+ const client={...fake(),getDailyBars:async()=>bars,getLatestPrice:async()=>155.5,submitBracketOrder:async()=>{attempts++;throw Error('network timeout after send');}};
+ await worker('entry',{client,now,wallClock:()=>now});assert.equal(attempts,1);assert.equal(Object.values(read('journal.json').orders)[0].status,'pending_submit');
+ await worker('entry',{client,now,wallClock:()=>now});assert.equal(attempts,1);process.env.DRY_RUN='true';
+});

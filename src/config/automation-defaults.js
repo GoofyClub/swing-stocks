@@ -41,4 +41,3 @@ export const DEFAULT_AUTOMATION = {
 
   updatedAt: null,
 };
-

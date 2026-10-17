@@ -1,3 +1,4 @@
+# Legacy cloud workflow: manual-only. The local RSI2 bot needs no Firebase jobs.
 name: Refresh broad universe (S&P 1500)
 
 # Scans the full US S&P universe (500 large + 400 mid + 600 small) and writes the
@@ -17,8 +18,6 @@ name: Refresh broad universe (S&P 1500)
 # Use the Alpaca data source (ALPACA_KEY/SECRET) so ~1,500 fetches don't hit the
 # keyless rate limits.
 on:
-  schedule:
-    - cron: "30 21 * * 0"   # Sunday ~17:30 ET
   workflow_dispatch:
 
 jobs:

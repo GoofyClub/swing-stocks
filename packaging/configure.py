@@ -7,9 +7,8 @@ import re
 from pathlib import Path
 
 
-def main():
+def main(root=Path('/app'), data=Path('/data')):
     os.umask(0o077)
-    root, data = Path('/app'), Path('/data')
     (data / 'home').mkdir(parents=True, exist_ok=True)
     compose_env = root / '.env'
     if not compose_env.exists():

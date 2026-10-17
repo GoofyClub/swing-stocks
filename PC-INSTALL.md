@@ -5,7 +5,8 @@ This is the **Swing RSI2 bot**, separate from ORB. It runs one US-stock Alpaca
 website login, or cloud database is required. Your PC runs the schedule,
 Telegram bot and dashboard; its `data` folder holds the trade journal and controls.
 Alpaca and Telegram still need Internet access. The original multi-user web app
-is legacy code and is not started or installed by this package.
+is legacy code and is not started or installed by this package. Its Firebase
+refresh jobs and GitHub Pages deployment are now manual-only.
 
 ## Before you start
 

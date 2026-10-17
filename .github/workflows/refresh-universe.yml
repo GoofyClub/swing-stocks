@@ -1,11 +1,10 @@
+# Legacy cloud workflow: manual-only. The local RSI2 bot needs no Firebase jobs.
 name: Refresh S&P universe
 
 # Weekly: refresh S&P 500 from the live list, validate the whole 500/400/600
 # universe against Alpaca's tradable assets, and publish to Firestore so the
 # daily broad scan always uses a current, tradable list.
 on:
-  schedule:
-    - cron: "0 8 * * 6"   # Saturdays 08:00 UTC
   workflow_dispatch:
 
 jobs:

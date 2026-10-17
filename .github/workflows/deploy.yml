@@ -1,8 +1,7 @@
+# Legacy cloud workflow: manual-only. The local RSI2 bot needs no Firebase jobs.
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

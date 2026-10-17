@@ -67,6 +67,7 @@ export async function worker(mode='maintenance',{client=broker(),now=new Date(),
   let placed=0,scanned=0,failed=0;
   for(const item of list){
     if(!inCloseWindow(wallClock())||read('control.json',{paused:true}).paused){log('Entry window ended; remaining scan deferred');break;}
+    if(held.size>=cfg.maxConcurrentPositions)break;
     scanned++;
     if(held.has(item.t)||cfg.excludeTickers.includes(item.t))continue;
     let bars;
@@ -98,7 +99,7 @@ export async function worker(mode='maintenance',{client=broker(),now=new Date(),
       state.orders[id]={...row,brokerOrderId:order.id,clientOrderId:id};save();
       placed++;held.add(item.t);positions.push({symbol:item.t});buyingPower-=size.notional;
       log(`PLACED ${item.t} x${size.shares}`);
-    }catch(error){state.orders[id].error=String(error.message);save();log(`Submission uncertain for ${item.t}; deterministic ID retained for reconciliation`);}
+    }catch(error){state.orders[id].error=String(error.message);save();log(`Submission uncertain for ${item.t}; deterministic ID retained for reconciliation`);break;}
   }
   log(`Scan complete: ${scanned} examined, ${failed} data failures, ${placed} orders submitted`);
 }

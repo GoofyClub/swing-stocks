@@ -1,3 +1,4 @@
+# Legacy cloud workflow: manual-only. The local RSI2 bot needs no Firebase jobs.
 name: Refresh shared signals
 
 # Cron schedule (UTC).
@@ -20,10 +21,6 @@ name: Refresh shared signals
 # would scan a universe nobody trades and pay for a second re-settlement query.
 # Restore that cron together with MARKETS=US,INDIA when NSE trading begins.
 on:
-  schedule:
-    - cron: "15 13 * * 1-5"
-    - cron: "0 19 * * 1-5"
-    - cron: "0 21 * * 1-5"
   workflow_dispatch:
     inputs:
       markets:
