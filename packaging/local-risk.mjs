@@ -3,7 +3,7 @@ export const LOCAL_DEFAULTS = {
   riskPerTradePct: 0.25, maxConcurrentPositions: 5, maxPortfolioHeatPct: 2,
   maxGrossExposurePct: 100, maxPositionEquityPct: 20,
   maxCorrelatedExposurePct: 40, correlationThreshold: 0.7,
-  correlationMinObservations: 40, requireEventCoverage: true,
+  correlationMinObservations: 40, requireEventCoverage: false,
   eventWindowDays: 14, eventCalendarFreshDays: 7,
 };
 export const dateET = date => new Intl.DateTimeFormat('en-CA', {timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);

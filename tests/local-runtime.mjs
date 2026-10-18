@@ -42,13 +42,13 @@ test('dashboard requires authentication and returns broker data without cloud ac
  const app=server({client:fake()});await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
  try{const url=`http://127.0.0.1:${app.address().port}`;assert.equal((await fetch(url)).status,401);
  const r=await fetch(url+'/api/summary',{headers:{Authorization:'Basic '+Buffer.from('tester:long-fixture-password').toString('base64')}});
- assert.equal(r.status,200);const data=await r.json();assert.equal(data.account.equity,10000);assert.equal(data.dryRun,true);assert.equal(data.settings.maxGrossExposurePct,100);assert.equal(data.eventCoverage.required,true);
+ assert.equal(r.status,200);const data=await r.json();assert.equal(data.account.equity,10000);assert.equal(data.dryRun,true);assert.equal(data.settings.maxGrossExposurePct,100);assert.equal(data.eventCoverage.required,false);
  }finally{await new Promise(resolve=>app.close(resolve));}
 });
 test('valid RSI2 entry is protected and repeated passes cannot duplicate it',async()=>{
  process.env.DRY_RUN='false';process.env.WATCHLIST_SET='core';
  write('journal.json',{orders:{},peakEquity:0});write('control.json',{paused:false});
- write('config.json',{respectRegime:false,tiers:[],requireEventCoverage:false,maxConcurrentPositions:1});
+ write('config.json',{respectRegime:false,tiers:[],maxConcurrentPositions:1});
  const now=new Date('2026-10-15T19:42:00Z');
  const bars=Array.from({length:250},(_,i)=>{const close=i<245?100+i*.25:161-(i-244)*1.1;return {date:new Date(now.getTime()-(249-i)*86400000).toISOString().slice(0,10),open:close+.1,close,high:close+.4,low:close-.4,volume:3000000};});
  let submissions=0,intent;
@@ -109,11 +109,17 @@ test('entry scan reserves pending buys and caps a cross-sector correlated group'
  assert.ok(open.reduce((n,o)=>n+Number(o.qty)*155.5*1.01,0)<=4000);
  process.env.DRY_RUN='true';
 });
-test('missing earnings coverage blocks entry without sending orders',async()=>{
- process.env.DRY_RUN='false';write('config.json',{respectRegime:false,tiers:[]});write('control.json',{paused:false});write('journal.json',{orders:{},peakEquity:0});write('exits.json',{});write('events.json',{});
+test('opt-in verified earnings coverage blocks entry without sending orders',async()=>{
+ process.env.DRY_RUN='false';write('config.json',{respectRegime:false,tiers:[],requireEventCoverage:true});write('control.json',{paused:false});write('journal.json',{orders:{},peakEquity:0});write('exits.json',{});write('events.json',{});
  const now=new Date('2026-10-15T19:42:00Z');
  await worker('entry',{client:{...fake(),getDailyBars:async()=>[],submitBracketOrder:()=>assert.fail('No coverage must not trade')},now,wallClock:()=>now});
  assert.ok(Object.keys(read('safety.json').entryBlocks).some(k=>k.includes('Earnings coverage')));
  assert.match(await command('/earnings AAPL none'),/coverage saved/);assert.ok(read('events.json').symbols.AAPL.checkedAt);
  assert.match(await command('/eventblock 2026-02-30'),/Usage/);process.env.DRY_RUN='true';
+});
+test('Telegram can opt out of mandatory coverage without disabling exposure or exit controls',async()=>{
+ await command('/earningsfilter off');assert.equal(read('config.json').requireEventCoverage,false);
+ const {config}=await import('../packaging/local-store.mjs');assert.equal(config().maxGrossExposurePct,100);assert.equal(config().maxPositionEquityPct,20);
+ await command('/earningsfilter on');assert.equal(read('config.json').requireEventCoverage,true);
+ assert.match(await command('/earningsfilter invalid'),/Usage/);
 });

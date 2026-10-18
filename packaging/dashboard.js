@@ -28,7 +28,7 @@
     issues.forEach(function(issue){var line=document.createElement('p');line.className='note warn';line.textContent=issue;el('safetyissues').append(line);});
     SwingPerformance.render(d);renderJournal();
     var c=d.settings||{},pct=function(v){return v==null?'—':v+'%';};
-    stats('config',[['Sizing',c.sizingMode||'—'],['Risk / trade',pct(c.riskPerTradePct)],['Max positions',c.maxConcurrentPositions??'—'],['Max / sector',c.maxPositionsPerSector??'—'],['Portfolio heat',pct(c.maxPortfolioHeatPct)],['Daily halt',pct(c.dailyLossHaltPct)],['Drawdown halt',pct(c.maxDrawdownHaltPct)],['Regime filter',c.respectRegime?'On':'Off'],['Slippage budget',pct(c.slippageBudgetPct)],['Gross cap',pct(c.maxGrossExposurePct)],['Stock cap',pct(c.maxPositionEquityPct)],['Correlated cap',pct(c.maxCorrelatedExposurePct)],['Earnings review',c.requireEventCoverage?'Required':'Disabled']]);
+    stats('config',[['Sizing',c.sizingMode||'—'],['Risk / trade',pct(c.riskPerTradePct)],['Max positions',c.maxConcurrentPositions??'—'],['Max / sector',c.maxPositionsPerSector??'—'],['Portfolio heat',pct(c.maxPortfolioHeatPct)],['Daily halt',pct(c.dailyLossHaltPct)],['Drawdown halt',pct(c.maxDrawdownHaltPct)],['Regime filter',c.respectRegime?'On':'Off'],['Slippage budget',pct(c.slippageBudgetPct)],['Gross cap',pct(c.maxGrossExposurePct)],['Stock cap',pct(c.maxPositionEquityPct)],['Correlated cap',pct(c.maxCorrelatedExposurePct)],['Earnings review',c.requireEventCoverage?'Required':'Optional']]);
     el('logs').textContent=d.logs||'No logs yet';
   }
   function renderJournal(){

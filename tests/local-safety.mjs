@@ -92,7 +92,7 @@ test('correlations use aligned historical returns and missing samples do not pas
  assert.ok(correlation(bars,bars.map(b=>({...b,close:b.close*2})))>.99);assert.equal(correlation(bars,bars.slice(0,20)),null);
 });
 test('earnings filter rejects unknown, stale, near-event and market-blocked dates',()=>{
- const cfg=LOCAL_DEFAULTS,today='2026-10-15',item={checkedAt:today,coveredThrough:'2026-10-29',dates:[]};
+ const cfg={...LOCAL_DEFAULTS,requireEventCoverage:true},today='2026-10-15',item={checkedAt:today,coveredThrough:'2026-10-29',dates:[]};
  assert.equal(eventGate('AAA',{},cfg,now).ok,false);
  assert.equal(eventGate('AAA',{symbols:{AAA:item}},cfg,now).ok,true);
  assert.equal(eventGate('AAA',{symbols:{AAA:{...item,checkedAt:'2026-10-01'}}},cfg,now).ok,false);
@@ -133,4 +133,11 @@ test('dollar-based broker buys reserve capital and missing IDs cannot hide local
  assert.equal(exposure.gross,707);assert.equal(exposure.bySymbol.AAA,202);
  const unknown=portfolioExposure([],[{id:'external',symbol:'EXT',side:'buy',status:'new',qty:'10'}],{a:{ticker:'AAA',status:'pending_submit',qty:2,entry:100}});
  assert.ok(unknown.issues.length);
+});
+
+test('default event policy allows unknown earnings but respects known dates and explicit blocks',()=>{
+ assert.equal(LOCAL_DEFAULTS.requireEventCoverage,false);
+ assert.equal(eventGate('AAA',{},LOCAL_DEFAULTS,now).ok,true);
+ assert.equal(eventGate('AAA',{symbols:{AAA:{dates:['2026-10-22']}}},LOCAL_DEFAULTS,now).ok,false);
+ assert.equal(eventGate('AAA',{blockedDates:['2026-10-15']},LOCAL_DEFAULTS,now).ok,false);
 });

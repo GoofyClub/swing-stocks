@@ -49,9 +49,8 @@ all edits and commands below. Re-running preserves your credentials and journal.
 2. Visit `http://127.0.0.1:8444` on the PC. Log in with your dashboard credentials.
    On your phone, connect Tailscale and open the printed HTTPS address.
 3. New installations are **PAUSED** and **DRY_RUN=true**. Review `/config`: these
-   are fresh local defaults, not your old Firebase settings. Safety filters also
-   require verified earnings coverage; see **Earnings and market-event review**
-   below before enabling entries. `/set riskPerTradePct
+   are fresh local defaults, not your old Firebase settings. Earnings dates are
+   optional; you do not need to enter dates for every stock to trade. `/set riskPerTradePct
    0.25` is an example of a supported numeric setting. Other settings can be
    placed in `data/config.json`; use the names shown by `/config` and valid JSON.
 4. When ready, open `swing-config\swing.env` in Notepad in the active folder.
@@ -298,11 +297,13 @@ A gross percentage above 100 or an invalid limit blocks entries.
 ### Earnings and market-event review
 
 Alpaca's price feed is **not an earnings calendar**. No automatic external
-calendar has been added or assumed. The default event policy therefore requires
-verified dates before a symbol can be entered. After updating, **symbols without
-coverage are skipped**; the dashboard and `/safety` explain this.
+calendar has been added or assumed. **Manual earnings coverage is optional by
+default: the bot can trade without entering dates for each stock.** Unknown
+earnings dates are not screened automatically. Known upcoming earnings dates
+and explicit market-event blocks still apply. Exit recovery and exposure limits
+remain enabled regardless of this setting.
 
-Review the stock's upcoming **21 calendar days** in your broker or another
+If you want to supply dates, review the stock's upcoming **21 calendar days** in your broker or another
 reliable calendar, then tell the bot in Telegram:
 
 ```text
@@ -311,9 +312,9 @@ reliable calendar, then tell the bot in Telegram:
 ```
 
 Use `none` only after verifying no earnings in that reviewed period. A symbol
-with earnings within 14 calendar days of entry is skipped. Coverage expires
-after seven days or when it no longer covers the full forward window. Review
-again at least weekly. These commands do not fetch or verify the source for you.
+with earnings within 14 calendar days of entry is skipped. If you opt into mandatory coverage with `/earningsfilter on`, coverage expires
+after seven days or when it no longer covers the full forward window; review
+again at least weekly in that mode. These commands do not fetch or verify the source for you.
 Do not mark every symbol `none` just to unblock trading.
 
 You can maintain multiple symbols in ignored `data/events.json` instead:
@@ -333,10 +334,11 @@ You can maintain multiple symbols in ignored `data/events.json` instead:
 
 Replace example dates with your actual review and calendar dates. `/eventblock
 YYYY-MM-DD` blocks all new entries on a date you identify as a market event.
-It does not close existing holdings or forecast events. Advanced users can
-explicitly set `requireEventCoverage` to false in `data/config.json`; this disables
-the coverage requirement and leaves unknown earnings unfiltered. Known dates
-and explicit blocked dates still apply. The safe default is true.
+It does not close existing holdings or forecast events. `/earningsfilter on`
+opts into mandatory verified coverage; `/earningsfilter off` restores automatic
+trading without manual coverage. This controls `requireEventCoverage` in
+`data/config.json` (default false). An explicit saved true value is preserved
+across updates; use `/earningsfilter off` if you previously enabled it.
 
 ### Update and verify
 
@@ -344,8 +346,9 @@ and explicit blocked dates still apply. The safe default is true.
 2. In its active Git checkout, run `git pull --ff-only origin main`.
 3. Run `.\Control-Swing.cmd Restart`, then `/healthcheck`, `/config`, `/safety`
    and `/positions` in Telegram. No image rebuild is needed for this source update.
-4. Review explicit old risk settings and add valid earnings coverage for symbols
-   you intend to trade. Resolve any untracked holdings or safety alerts.
+4. Review explicit old risk settings. Earnings coverage is optional by default;
+   use `/earningsfilter off` if an earlier explicit setting requires it. Resolve
+   any untracked holdings or safety alerts.
 5. Send `/resume` when ready. Resume cannot clear safety blocks or disable dry-run.
 
 No test broker orders are needed. An update does not establish that the strategy

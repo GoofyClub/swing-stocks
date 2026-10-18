@@ -12,7 +12,7 @@ export function authorized(id){return (process.env.TELEGRAM_ALLOWED_CHAT_IDS||''
 export async function command(text,{client=broker(),run=exec}={}){
   const [name,arg,...extra]=text.trim().split(/\s+/);
   switch(name.split('@')[0].toLowerCase()){
-    case '/start':case '/help':return '/status /healthcheck /positions /pnl /config /safety /earnings /eventblock /pause /resume /set <key> <value> /deploycheck /deploy CONFIRM /flatten CONFIRM';
+    case '/start':case '/help':return '/status /healthcheck /positions /pnl /config /safety /earnings /earningsfilter /eventblock /pause /resume /set <key> <value> /deploycheck /deploy CONFIRM /flatten CONFIRM';
     case '/status':return `Safety ${read('safety.json',{}).blocked?'BLOCKED':'see /safety'}. RSI2 PAPER. Entries ${read('control.json',{paused:true}).paused?'PAUSED':'enabled'}. DRY_RUN=${dryRun()}. Pause blocks new entries; managed exits continue.`;
     case '/health':case '/healthcheck':return (await run('python3',['packaging/runtime.py','health'],{timeout:15000})).stdout;
     case '/safety':{const state=read('safety.json',null);return state?JSON.stringify(state,null,2):'Safety audit has not run yet; keep entries paused.';}
@@ -25,6 +25,11 @@ export async function command(text,{client=broker(),run=exec}={}){
       const now=new Date(),day=dateET(now),events=read('events.json',{}),coveredThrough=new Date(Date.parse(day+'T12:00:00Z')+21*86400000).toISOString().slice(0,10);
       events.symbols={...events.symbols,[symbol]:{checkedAt:day,coveredThrough,dates}};write('events.json',events);
       return `${symbol}: earnings coverage saved through ${coveredThrough}; dates ${dates.join(', ')||'none reported'}. Recheck within 7 days. No entry is guaranteed.`;
+    }
+    case '/earningsfilter':{
+      if(!['on','off'].includes(arg))return 'Usage: /earningsfilter on|off. Default off: unknown earnings do not block entries. Known dates and explicit market-event blocks still apply.';
+      write('config.json',{...read('config.json',{}),requireEventCoverage:arg==='on'});
+      return arg==='on'?'Verified earnings coverage is now required for entries.':'Manual earnings coverage is optional. Unknown dates do not block entries; known earnings and market-event blocks still apply. Exit and exposure controls remain enabled.';
     }
     case '/eventblock':{
       if(!arg||!/^\d{4}-\d{2}-\d{2}$/.test(arg)||!Number.isFinite(Date.parse(arg))||new Date(arg).toISOString().slice(0,10)!==arg)return 'Usage: /eventblock YYYY-MM-DD (blocks new entries for a market event)';
