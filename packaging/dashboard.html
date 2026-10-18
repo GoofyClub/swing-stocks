@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RSI2 Dashboard</title>
+<link rel="stylesheet" href="/assets/dashboard.css">
+<script>try{if(localStorage.getItem('swing-theme')==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
+<script defer src="/assets/performance.js"></script>
+<script defer src="/assets/dashboard.js"></script>
+</head><body>
+<header class="head"><h1>RSI2 Dashboard</h1><div class="row"><span class="sub" id="clock">Loading…</span><button id="refresh" type="button">Refresh</button><button id="themebtn" type="button">Dark</button></div></header>
+<div id="notice" class="notice" role="status" aria-live="polite"></div>
+<section class="card"><h2>Status</h2><div class="row" id="pills"></div><div class="grid" id="health"></div><p class="note">Pause blocks new entries; managed exits continue when paper execution is enabled.</p></section>
+<section class="card"><h2>Account</h2><div class="grid" id="account"></div><p class="note">Alpaca paper account. Day change includes open positions and cash flows.</p></section>
+<section class="card"><h2>Account balance / equity</h2><div class="row" id="balancerange"></div><div id="balancechart"></div><p class="note">Daily Alpaca account equity, up to three months. Includes cash and open positions; deposits, withdrawals and account resets affect this line.</p></section>
+<section class="card"><h2>P&amp;L calendar</h2><div id="pnlcalendar"></div><div id="caldetail"></div><p class="note">Broker-confirmed local journal results, before fees, grouped by the date the result was recorded. Earlier Firebase history is not imported.</p></section>
+<section class="card"><h2>Open positions</h2><div id="positions"></div></section>
+<section class="card"><h2>Trade history</h2><div class="row" id="historyrange"><button data-days="7">7 days</button><button data-days="30">30 days</button><button data-days="90">90 days</button></div><div class="grid" id="tradetotals"></div><div id="journal"></div><p class="note">Latest 200 local journal entries, filtered by entry session. Pending results are excluded from realized totals and win rate. R uses the entry-to-stop risk.</p></section>
+<section class="card"><h2>Active configuration</h2><div class="grid" id="config"></div><p class="note">Change settings using /config and /set in Telegram. New entries run near 15:38 ET for the broad watchlist or 15:42 ET for core; maintenance runs at 09:45 and 16:15 ET.</p></section>
+<section class="card"><h2>Log</h2><pre id="logs">Loading…</pre></section>
+<footer class="note">Read-only dashboard. Use Telegram or Control-Swing.cmd for pause, resume and restart.</footer>
+</body></html>

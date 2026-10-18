@@ -155,9 +155,11 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
     // Account equity / P&L time series — Alpaca's own numbers, so the dashboard
     // headline agrees with the broker rather than re-deriving it from fills.
     // period: 1D|1W|1M|3M|1A|all   timeframe: 1Min|5Min|15Min|1H|1D
-    async getPortfolioHistory({ period = '1M', timeframe = '1D', extendedHours = false } = {}) {
+    async getPortfolioHistory({ period = '1M', timeframe = '1D', extendedHours = false, raw = false } = {}) {
       const qs = new URLSearchParams({ period, timeframe, extended_hours: String(extendedHours) });
       const h = await req('GET', `/v2/account/portfolio/history?${qs}`);
+      // Local dashboard keeps missing observations distinct from a zero balance.
+      if (raw) return h;
       const ts = h?.timestamp || [];
       return {
         baseValue: Number(h?.base_value ?? 0),

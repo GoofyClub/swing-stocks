@@ -70,3 +70,31 @@ test('uncertain submission stops this scan and blocks the next until reconciled'
  await worker('entry',{client,now,wallClock:()=>now});assert.equal(attempts,1);assert.equal(Object.values(read('journal.json').orders)[0].status,'pending_submit');
  await worker('entry',{client,now,wallClock:()=>now});assert.equal(attempts,1);process.env.DRY_RUN='true';
 });
+test('dashboard calendar counts only confirmed outcomes on New York recording date',async()=>{
+ const {performanceHistory,equityHistory}=await import('../packaging/local-dashboard.mjs');
+ const now=new Date('2026-10-18T01:00:00Z');
+ const rows=[{ticker:'AAPL',realizedAt:'2026-10-17T01:00:00Z',realizedPnl:25,realizedSource:'bracket_fill',realizedExit:105,filledQty:5,filledAvgPrice:100},{ticker:'MSFT',realizedAt:'2026-10-16T20:00:00Z',realizedPnl:-10,realizedSource:'managed_exit_fill'},{ticker:'OLD',realizedAt:'2026-01-01T20:00:00Z',realizedPnl:1000,realizedSource:'bracket_fill'},{ticker:'MODEL',realizedAt:'2026-10-16T20:00:00Z',realizedPnl:999},{ticker:'BAD',realizedAt:'bad',realizedPnl:999,realizedSource:'bracket_fill'}];
+ const history=performanceHistory(rows,now);assert.equal(history.days.length,1);assert.equal(history.days[0].date,'2026-10-16');assert.equal(history.days[0].pnl,15);assert.equal(history.days[0].count,2);assert.equal(history.days[0].trades[0].entry,100);
+ const ts=Date.parse('2026-10-16T20:00:00Z')/1000;
+ assert.deepEqual(equityHistory({timestamp:[ts,ts+86400,ts+2*86400,ts+3*86400],equity:[10000,0,null,-1]}).points,[{date:'2026-10-16',equity:10000},{date:'2026-10-17',equity:0}]);
+});
+test('dashboard serves authenticated assets and handles unavailable broker without invented values',async()=>{
+ const client={getAccount:async()=>{throw Error('offline');},getPositions:async()=>[]};
+ const app=server({client});await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
+ const url=`http://127.0.0.1:${app.address().port}`,headers={Authorization:'Basic '+Buffer.from('tester:long-fixture-password').toString('base64')};
+ try{
+  assert.equal((await fetch(url+'/assets/dashboard.js')).status,401);
+  for(const asset of ['dashboard.js','dashboard.css','performance.js']){const response=await fetch(url+'/assets/'+asset,{headers});assert.equal(response.status,200);assert.ok((await response.text()).length>100);}
+  const response=await fetch(url+'/api/summary',{headers});const data=await response.json();assert.match(data.error,/unavailable/);assert.equal(data.account,undefined);assert.ok(data.balance.error);assert.equal(data.settings.apiSecret,undefined);assert.equal(data.settings.apiKey,undefined);
+ }finally{await new Promise(resolve=>app.close(resolve));}
+});
+test('dashboard equity request uses the real broker adapter and preserves zero versus missing',async()=>{
+ const {createAlpacaClient}=await import('../src/broker/alpaca.js');
+ const {equityHistory}=await import('../packaging/local-dashboard.mjs');
+ const stamp=Date.parse('2026-10-16T20:00:00Z')/1000;let request;
+ const client=createAlpacaClient({baseUrl:'https://paper-api.alpaca.markets',apiKey:'fixture',apiSecret:'fixture',fetchImpl:async url=>{request=new URL(url);return new Response(JSON.stringify({timestamp:[stamp,stamp+86400,stamp+2*86400],equity:[10000,0,null]}),{status:200});}});
+ const raw=await client.getPortfolioHistory({period:'3M',timeframe:'1D',raw:true});
+ assert.equal(request.pathname,'/v2/account/portfolio/history');assert.equal(request.searchParams.get('period'),'3M');assert.equal(request.searchParams.get('raw'),null);
+ assert.deepEqual(equityHistory(raw).points,[{date:'2026-10-16',equity:10000},{date:'2026-10-17',equity:0}]);
+ const legacy=await client.getPortfolioHistory();assert.ok(Array.isArray(legacy.points));assert.equal(request.searchParams.get('period'),'1M');
+});

@@ -207,3 +207,27 @@ When the bot is running, Telegram `/pause`, `/resume`, `/status` and
 `/healthcheck` also work without using Docker Desktop. Telegram cannot restart a
 stopped container, because its bot process is stopped too. Use the control file
 on the PC for that.
+
+## RSI2 dashboard
+
+The dashboard uses the same light/dark layout as ORB: runtime status, paper
+account equity and day change, a 7/30/90-day equity chart, monthly P&L calendar
+with weekly totals and selected-day details, open positions, trade history,
+active risk settings and recent logs. Theme choice is saved in your browser.
+
+The calendar includes only broker-confirmed results from the local journal,
+grouped by the date the result was recorded (which may be after the actual
+exit). It does not import the old Firebase journal. The equity chart comes
+from Alpaca account history, including cash and open positions. Data failures
+show as unavailable or stale; pending outcomes are not counted as wins or losses.
+Trade-history controls filter the latest 200 journal entries by entry session.
+
+To update an existing installation, open PowerShell in the active RSI2 checkout:
+
+```powershell
+git pull --ff-only origin main
+.\Control-Swing.cmd Restart
+```
+
+Then refresh the dashboard page. Existing credentials, journal and pause setting
+are preserved. Dashboard-only updates do not require rebuilding the image.

@@ -1,0 +1,88 @@
+
+/* Light is the default on purpose -- the system preference is deliberately
+   NOT followed, so a phone in dark mode still opens light. The toggle in
+   the header overrides and persists in localStorage. */
+:root{
+  color-scheme:light;
+  --bg:#f6f8fa; --card:#ffffff; --line:#d8dee4; --fg:#1f2328; --mut:#59636e;
+  --up:#1a7f37; --down:#cf222e; --warn:#9a6700; --accent:#0969da;
+  --up-bg:rgba(26,127,55,.10);  --up-bd:rgba(26,127,55,.30);
+  --down-bg:rgba(207,34,46,.10); --down-bd:rgba(207,34,46,.30);
+  --warn-bg:rgba(154,103,0,.10); --warn-bd:rgba(154,103,0,.30);
+  --pre-bg:#f6f8fa; --pre-fg:#24292f;
+  --shadow:0 1px 3px rgba(31,35,40,.08);
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0d1117; --card:#161b22; --line:#26303d; --fg:#e6edf3; --mut:#8b949e;
+  --up:#3fb950; --down:#f85149; --warn:#d29922; --accent:#58a6ff;
+  --up-bg:rgba(63,185,80,.14);  --up-bd:rgba(63,185,80,.35);
+  --down-bg:rgba(248,81,73,.14); --down-bd:rgba(248,81,73,.35);
+  --warn-bg:rgba(210,153,34,.14); --warn-bd:rgba(210,153,34,.35);
+  --pre-bg:#010409; --pre-fg:#c9d1d9;
+  --shadow:none;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:12px;padding-bottom:40px}
+h1{font-size:18px;margin:0}
+.head{display:flex;justify-content:space-between;align-items:baseline;
+  gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.sub{color:var(--mut);font-size:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+  padding:14px;margin-bottom:12px;box-shadow:var(--shadow)}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--mut);margin:0 0 10px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:10px}
+.stat .k{color:var(--mut);font-size:11px;text-transform:uppercase;
+  letter-spacing:.05em}
+.stat .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;
+  margin-top:2px}
+.up{color:var(--up)} .down{color:var(--down)} .warn{color:var(--warn)}
+.mut{color:var(--mut)}
+.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;
+  font-weight:600;border:1px solid var(--line)}
+.pill.ok{background:var(--up-bg);color:var(--up);border-color:var(--up-bd)}
+.pill.bad{background:var(--down-bg);color:var(--down);
+  border-color:var(--down-bd)}
+.pill.warn{background:var(--warn-bg);color:var(--warn);
+  border-color:var(--warn-bd)}
+.tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:100%}
+th{text-align:left;color:var(--mut);font-weight:600;font-size:11px;
+  text-transform:uppercase;letter-spacing:.05em;padding:6px 10px 6px 0;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 10px 8px 0;border-bottom:1px solid rgba(38,48,61,.5);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.sym{font-weight:600}
+tr.dayhdr td{background:rgba(127,127,127,.10);font-size:11px;font-weight:600;
+  letter-spacing:.04em;color:var(--mut);padding:6px 10px;text-transform:none}
+button.daysel{padding:4px 12px;font-size:12px;border-radius:999px}
+button.daysel.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+pre{background:var(--pre-bg);border:1px solid var(--line);border-radius:8px;
+  padding:10px;overflow-x:auto;font-size:11.5px;line-height:1.5;margin:0;
+  max-height:60vh;color:var(--pre-fg)}
+.empty{color:var(--mut);font-size:13px;font-style:italic}
+button{background:var(--card);color:var(--fg);border:1px solid var(--line);
+  border-radius:7px;padding:6px 12px;font-size:12px;cursor:pointer}
+button:active{background:#21262d}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.note{font-size:11px;color:var(--mut);margin-top:10px;line-height:1.45}
+.bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;
+  margin-top:6px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.calendar-heading,.balance-heading{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;margin:12px 0}
+.calendar-heading strong{font-size:22px}.calendar-scroll{overflow-x:auto}.pnl-calendar{width:100%;min-width:760px;table-layout:fixed;border-collapse:separate;border-spacing:0}
+.pnl-calendar th{font-size:12px;color:var(--mut);padding:10px;text-align:left}.pnl-calendar td{border:1px solid var(--line);vertical-align:top;padding:0;height:105px}
+.pnl-calendar td button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;width:100%;height:100%;min-height:105px;padding:12px;border:0;border-radius:0;text-align:left;background:transparent}
+.pnl-calendar small,.week-total small{color:var(--mut);font-size:11px}.calendar-date{font-size:20px;color:var(--fg)}.pnl-calendar .selected{outline:2px solid var(--accent);outline-offset:-2px;background:var(--pre-bg)}
+.pnl-calendar .outside{background:var(--pre-bg)}.pnl-calendar button:disabled{opacity:.45;cursor:default}.week-total{padding:12px!important}.week-total>*{display:block;margin-bottom:9px}
+.positive{color:#249c62}.negative{color:#df5555}.muted{color:var(--mut)}.balance-heading strong{font-size:26px}.balance-heading span{font-size:12px}
+#balancechart svg{width:100%;display:block;min-height:180px}.chart-grid{stroke:var(--line);stroke-width:1}.chart-label{fill:var(--mut);font-size:12px}.balance-line{fill:none;stroke:var(--accent);stroke-width:3;stroke-linejoin:round}.balance-dot{fill:var(--accent);stroke:var(--card);stroke-width:2}.balance-dot:focus,.balance-dot:hover{r:7;outline:none}
+
+.head{align-items:center}.notice{margin-bottom:12px}.card h3{font-size:14px}.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px}.split .card{margin-bottom:0}.positive{color:var(--up)}.negative{color:var(--down)}
+@media(max-width:500px){body{padding:8px}.card{padding:12px}.stat .v{font-size:18px}}
+.card>.grid{margin-top:12px}#tradetotals{margin:12px 0}.notice:empty{display:none}
