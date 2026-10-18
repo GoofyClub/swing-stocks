@@ -31,7 +31,8 @@ services:
       - .:/app
       - ./data:/data
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=128m]
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=128m"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 1536m

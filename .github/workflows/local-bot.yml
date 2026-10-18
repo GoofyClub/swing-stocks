@@ -9,6 +9,9 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker compose build
       - run: docker compose config --quiet
+      - name: Check Compose container creation and temporary filesystem
+        run: |
+          docker compose run --rm --no-deps --entrypoint python3 swing -c "from pathlib import Path; Path('/tmp/compose-check').write_text('ok'); print('Compose container started')"
       - name: Test without network access or npm dependencies
         run: docker run --rm --network=none -v "$PWD:/app:ro" swing-stocks-local:latest node --test tests/local-runtime.mjs
       - run: python3 -m unittest discover -s tests -p 'test_local_runtime.py' -v
