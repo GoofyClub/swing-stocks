@@ -14,14 +14,21 @@
     latest=d;el('clock').textContent=d.now+' · refreshes every 30s';el('notice').textContent=d.error||'';el('notice').className='notice '+(d.error?'down':'');
     el('pills').replaceChildren();pill(d.paused?'PAUSED':'ACTIVE',d.paused?'warn':'ok');pill(d.dryRun?'DRY RUN':'PAPER ORDERS',d.dryRun?'warn':'ok');pill(d.market?(d.market.isOpen?'Market open':'Market closed'):'Market unavailable');
     if(d.error)pill('Broker unavailable','bad');
+    if(!d.safety||d.safety.blocked)pill(d.safety?'Safety: entries blocked':'Safety audit pending','warn');
+    if(d.eventCoverage?.required&&!d.eventCoverage.eligibleReviewedSymbols)pill('No symbols cleared by event filter','warn');
     var h=d.health||{};if(h.supervisorAge==null||h.supervisorAge>15||h.schedulerAge==null||h.schedulerAge>1300)pill('Check runtime','warn');
     stats('health',[['Strategy','RSI2'],['Supervisor',age(h.supervisorAge)],['Scheduler',age(h.schedulerAge)],['Broker updated',d.at?new Date(d.at).toLocaleTimeString('en-US',{timeZone:'America/New_York'})+' ET':'Unavailable']]);
     var a=d.account||{},delta=a.equity!=null&&a.lastEquity!=null?a.equity-a.lastEquity:null;
     stats('account',[['Equity',money(a.equity)],['Day P&L',signed(delta),tone(delta)],['Day %',a.lastEquity>0?(delta/a.lastEquity*100).toFixed(2)+'%':'—',tone(delta)],['Cash',money(a.cash)],['Buying power',money(a.buyingPower)]]);
     table('positions',['Symbol','Qty','Entry','Market value','Unrealized P&L'],(d.positions||[]).map(function(p){return [p.symbol,p.qty,money(p.avgEntry),money(p.marketValue),{text:signed(p.unrealizedPl),className:tone(p.unrealizedPl)}];}),d.error?'Positions unavailable; check broker connection.':'Flat — no open positions.');
+    var safety=d.safety,exposure=d.exposure;
+    stats('safetystats',[['Protection audit',!safety?'Pending':safety.blocked?'BLOCKED':'Clear',safety?.blocked?'down':''],['Last audit',safety?new Date(safety.at).toLocaleTimeString('en-US',{timeZone:'America/New_York'})+' ET':'—'],['Gross + pending',exposure&&!exposure.issues.length?money(exposure.gross):'Unavailable'],['Earnings-reviewed symbols',d.eventCoverage?.eligibleReviewedSymbols??0]]);
+    el('safetyissues').replaceChildren();
+    var issues=(safety?.issues||[]).concat(Object.entries(safety?.entryBlocks||{}).map(function(pair){return pair[0]+': '+pair[1]+' candidates in last scan';}));
+    issues.forEach(function(issue){var line=document.createElement('p');line.className='note warn';line.textContent=issue;el('safetyissues').append(line);});
     SwingPerformance.render(d);renderJournal();
     var c=d.settings||{},pct=function(v){return v==null?'—':v+'%';};
-    stats('config',[['Sizing',c.sizingMode||'—'],['Risk / trade',pct(c.riskPerTradePct)],['Max positions',c.maxConcurrentPositions??'—'],['Max / sector',c.maxPositionsPerSector??'—'],['Portfolio heat',pct(c.maxPortfolioHeatPct)],['Daily halt',pct(c.dailyLossHaltPct)],['Drawdown halt',pct(c.maxDrawdownHaltPct)],['Regime filter',c.respectRegime?'On':'Off'],['Slippage budget',pct(c.slippageBudgetPct)]]);
+    stats('config',[['Sizing',c.sizingMode||'—'],['Risk / trade',pct(c.riskPerTradePct)],['Max positions',c.maxConcurrentPositions??'—'],['Max / sector',c.maxPositionsPerSector??'—'],['Portfolio heat',pct(c.maxPortfolioHeatPct)],['Daily halt',pct(c.dailyLossHaltPct)],['Drawdown halt',pct(c.maxDrawdownHaltPct)],['Regime filter',c.respectRegime?'On':'Off'],['Slippage budget',pct(c.slippageBudgetPct)],['Gross cap',pct(c.maxGrossExposurePct)],['Stock cap',pct(c.maxPositionEquityPct)],['Correlated cap',pct(c.maxCorrelatedExposurePct)],['Earnings review',c.requireEventCoverage?'Required':'Disabled']]);
     el('logs').textContent=d.logs||'No logs yet';
   }
   function renderJournal(){

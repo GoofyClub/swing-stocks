@@ -49,7 +49,9 @@ all edits and commands below. Re-running preserves your credentials and journal.
 2. Visit `http://127.0.0.1:8444` on the PC. Log in with your dashboard credentials.
    On your phone, connect Tailscale and open the printed HTTPS address.
 3. New installations are **PAUSED** and **DRY_RUN=true**. Review `/config`: these
-   are fresh local defaults, not your old Firebase settings. `/set riskPerTradePct
+   are fresh local defaults, not your old Firebase settings. Safety filters also
+   require verified earnings coverage; see **Earnings and market-event review**
+   below before enabling entries. `/set riskPerTradePct
    0.25` is an example of a supported numeric setting. Other settings can be
    placed in `data/config.json`; use the names shown by `/config` and valid JSON.
 4. When ready, open `swing-config\swing.env` in Notepad in the active folder.
@@ -231,3 +233,121 @@ git pull --ff-only origin main
 
 Then refresh the dashboard page. Existing credentials, journal and pause setting
 are preserved. Dashboard-only updates do not require rebuilding the image.
+
+## Safety update: exit recovery and allocation limits
+
+The local bot now checks actual Alpaca positions and protective orders every
+minute from **09:25–16:30 New York time on weekdays**, and every 15 minutes
+otherwise. These passes are serialized with scans and maintenance: a running
+entry scan can delay the next safety pass. Checks run while new entries are
+paused; they cannot run when the PC or Docker is stopped.
+
+A missing stop on a tracked holding triggers a managed liquidation. Exit intent
+is saved before canceling orders. Retries use a stable client order ID so a lost
+response does not become another sale. The controller checks existing market
+sells, waits for reservations to release, and uses the broker's remaining share
+quantity after a terminal partial exit. If it cannot confirm liquidation, it
+attempts to restore a GTC stop, blocks new entries and queues a Telegram alert.
+If an exit reports filled but shares remain unexpectedly, it requires
+reconciliation rather than blindly selling again. Unknown/untracked holdings are
+flagged for review instead of automatically liquidated.
+
+Outside market hours, an exit is queued while existing stops remain in place;
+a missing stop is restored when the broker accepts it. A seven-session holding
+limit is audited independently of simulated historical TP/SL touches. New time
+exits can be requested near the close starting at 15:35 ET. A working exit keeps
+new entries blocked until a later audit confirms the position is flat. When
+broker state cannot be read, the audit blocks entries and sends an alert.
+
+**Stop restoration and Telegram delivery are best efforts, not guarantees.**
+Broker rejection, outages, price gaps or unavailable reservations can still
+leave risk. `/safety` and the dashboard show whether protection was confirmed.
+Act on a protection alert in Alpaca promptly. Dry-run never submits or cancels
+broker orders, including safety recovery orders.
+
+New local defaults:
+
+| Setting | Default |
+|---|---:|
+| Planned stop-distance risk per trade | 0.25% of equity |
+| Concurrent holdings/pending entry symbols | 5 |
+| Gross entry exposure | 100% of equity |
+| Individual stock allocation | 20% of equity |
+| Correlated group containing the new stock | 40% of equity |
+| Positive return-correlation threshold | 0.70 |
+| Minimum aligned historical return observations | 40 |
+
+Gross exposure includes holdings and unfilled buy quantities. Broker order IDs
+and the local journal prevent counting the same reservation twice. Existing
+holdings are valued conservatively at the larger of market value and entry cost.
+The individual percentage cap applies even if the old dollar cap is zero. Cash
+and any positive dollar cap impose additional limits; margin buying power does
+not increase these caps. A small execution buffer is reserved for pending market
+orders. Actual market fills can still move beyond that buffer.
+
+Correlation uses up to 60 aligned, completed daily returns, including holdings
+and pending buys across different sectors. Missing history blocks the candidate.
+The controls limit **new entries**; they do not automatically sell existing
+positions merely because prices move them over a percentage cap. Explicit
+values already saved in `data/config.json` are preserved: inspect `/config`.
+For example, `/set riskPerTradePct 0.25` applies the new risk default to an older
+explicit setting. Use `/set maxGrossExposurePct 100`, `/set maxPositionEquityPct
+20`, or `/set maxCorrelatedExposurePct 40` to set those limits explicitly.
+A gross percentage above 100 or an invalid limit blocks entries.
+
+### Earnings and market-event review
+
+Alpaca's price feed is **not an earnings calendar**. No automatic external
+calendar has been added or assumed. The default event policy therefore requires
+verified dates before a symbol can be entered. After updating, **symbols without
+coverage are skipped**; the dashboard and `/safety` explain this.
+
+Review the stock's upcoming **21 calendar days** in your broker or another
+reliable calendar, then tell the bot in Telegram:
+
+```text
+/earnings AAPL 2026-11-05
+/earnings MSFT none
+```
+
+Use `none` only after verifying no earnings in that reviewed period. A symbol
+with earnings within 14 calendar days of entry is skipped. Coverage expires
+after seven days or when it no longer covers the full forward window. Review
+again at least weekly. These commands do not fetch or verify the source for you.
+Do not mark every symbol `none` just to unblock trading.
+
+You can maintain multiple symbols in ignored `data/events.json` instead:
+
+```json
+{
+  "symbols": {
+    "AAPL": {
+      "checkedAt": "2026-10-18",
+      "coveredThrough": "2026-11-08",
+      "dates": ["2026-11-05"]
+    }
+  },
+  "blockedDates": ["2026-10-28"]
+}
+```
+
+Replace example dates with your actual review and calendar dates. `/eventblock
+YYYY-MM-DD` blocks all new entries on a date you identify as a market event.
+It does not close existing holdings or forecast events. Advanced users can
+explicitly set `requireEventCoverage` to false in `data/config.json`; this disables
+the coverage requirement and leaves unknown earnings unfiltered. Known dates
+and explicit blocked dates still apply. The safe default is true.
+
+### Update and verify
+
+1. Send `/pause` to the local RSI2 bot.
+2. In its active Git checkout, run `git pull --ff-only origin main`.
+3. Run `.\Control-Swing.cmd Restart`, then `/healthcheck`, `/config`, `/safety`
+   and `/positions` in Telegram. No image rebuild is needed for this source update.
+4. Review explicit old risk settings and add valid earnings coverage for symbols
+   you intend to trade. Resolve any untracked holdings or safety alerts.
+5. Send `/resume` when ready. Resume cannot clear safety blocks or disable dry-run.
+
+No test broker orders are needed. An update does not establish that the strategy
+will become profitable; validate returns in paper trading after execution and
+risk controls behave correctly.

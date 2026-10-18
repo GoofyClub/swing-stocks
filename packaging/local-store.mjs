@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { LOCAL_DEFAULTS } from './local-risk.mjs';
 import { DEFAULT_AUTOMATION } from '../src/config/automation-defaults.js';
 export const dataDir = process.env.SWING_DATA_DIR || path.resolve('data');
 export function read(name, fallback) { try{return JSON.parse(fs.readFileSync(path.join(dataDir,name),'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;} }
@@ -8,7 +9,7 @@ export function write(name, value) {
   const file=path.join(dataDir,name),temp=file+`.${process.pid}.tmp`;
   fs.writeFileSync(temp,JSON.stringify(value,null,2),{mode:0o600});fs.renameSync(temp,file);
 }
-export function config(){return {...DEFAULT_AUTOMATION,...read('config.json',{}),strategies:['rsi2'],markets:['US'],sides:['buy'],mode:'paper',enabled:!read('control.json',{paused:true}).paused};}
+export function config(){return {...DEFAULT_AUTOMATION,...LOCAL_DEFAULTS,...read('config.json',{}),strategies:['rsi2'],markets:['US'],sides:['buy'],mode:'paper',enabled:!read('control.json',{paused:true}).paused};}
 export function localStore(){
   const state=read('journal.json',{orders:{},peakEquity:0});
   const save=()=>write('journal.json',state);

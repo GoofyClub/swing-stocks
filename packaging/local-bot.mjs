@@ -3,6 +3,8 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { read,write,config } from './local-store.mjs';
+import { flushAlerts } from './local-safety.mjs';
+import { dateET } from './local-risk.mjs';
 import { broker,dryRun } from './local-worker.mjs';
 import { attachFileLog } from '../scripts/lib/logfile.mjs';
 const exec=promisify(execFile);
@@ -10,18 +12,33 @@ export function authorized(id){return (process.env.TELEGRAM_ALLOWED_CHAT_IDS||''
 export async function command(text,{client=broker(),run=exec}={}){
   const [name,arg,...extra]=text.trim().split(/\s+/);
   switch(name.split('@')[0].toLowerCase()){
-    case '/start':case '/help':return '/status /healthcheck /positions /pnl /config /pause /resume /set <key> <value> /deploycheck /deploy CONFIRM /flatten CONFIRM';
-    case '/status':return `RSI2 PAPER. Entries ${read('control.json',{paused:true}).paused?'PAUSED':'enabled'}. DRY_RUN=${dryRun()}. Pause blocks new entries; managed exits continue.`;
+    case '/start':case '/help':return '/status /healthcheck /positions /pnl /config /safety /earnings /eventblock /pause /resume /set <key> <value> /deploycheck /deploy CONFIRM /flatten CONFIRM';
+    case '/status':return `Safety ${read('safety.json',{}).blocked?'BLOCKED':'see /safety'}. RSI2 PAPER. Entries ${read('control.json',{paused:true}).paused?'PAUSED':'enabled'}. DRY_RUN=${dryRun()}. Pause blocks new entries; managed exits continue.`;
     case '/health':case '/healthcheck':return (await run('python3',['packaging/runtime.py','health'],{timeout:15000})).stdout;
+    case '/safety':{const state=read('safety.json',null);return state?JSON.stringify(state,null,2):'Safety audit has not run yet; keep entries paused.';}
+    case '/earnings':{
+      if(!arg)return 'Usage: /earnings SYMBOL YYYY-MM-DD[,YYYY-MM-DD] or /earnings SYMBOL none. Confirms you checked the next 21 calendar days. Review at least weekly.';
+      const symbol=arg.toUpperCase(),input=extra.join('');
+      if(!/^[A-Z][A-Z0-9.-]{0,14}$/.test(symbol)||!input)return 'Invalid symbol/dates';
+      const dates=input==='none'?[]:input.split(',');
+      if(dates.some(d=>!/^\d{4}-\d{2}-\d{2}$/.test(d)||!Number.isFinite(Date.parse(d))||new Date(d).toISOString().slice(0,10)!==d))return 'Invalid earnings date';
+      const now=new Date(),day=dateET(now),events=read('events.json',{}),coveredThrough=new Date(Date.parse(day+'T12:00:00Z')+21*86400000).toISOString().slice(0,10);
+      events.symbols={...events.symbols,[symbol]:{checkedAt:day,coveredThrough,dates}};write('events.json',events);
+      return `${symbol}: earnings coverage saved through ${coveredThrough}; dates ${dates.join(', ')||'none reported'}. Recheck within 7 days. No entry is guaranteed.`;
+    }
+    case '/eventblock':{
+      if(!arg||!/^\d{4}-\d{2}-\d{2}$/.test(arg)||!Number.isFinite(Date.parse(arg))||new Date(arg).toISOString().slice(0,10)!==arg)return 'Usage: /eventblock YYYY-MM-DD (blocks new entries for a market event)';
+      const events=read('events.json',{});events.blockedDates=[...new Set([...(events.blockedDates||[]),arg])];write('events.json',events);return `New entries blocked on ${arg}; existing protection and exits continue.`;
+    }
     case '/positions':{
       const rows=await client.getPositions();return rows.length?rows.map(p=>`${p.symbol}: ${p.qty} shares @ ${p.avgEntry}; unrealized $${p.unrealizedPl.toFixed(2)}`).join('\n'):'No open positions';
     }
     case '/pnl':{const a=await client.getAccount();return `Equity $${a.equity.toFixed(2)}; cash $${a.cash.toFixed(2)}; change since previous close $${(a.equity-a.lastEquity).toFixed(2)}`;}
     case '/pause':write('control.json',{paused:true});return 'New entries PAUSED. Managed exits continue.';
-    case '/resume':write('control.json',{paused:false});return `New entries enabled. DRY_RUN=${dryRun()} (change swing.env and recreate container to enable paper orders).`;
+    case '/resume':write('control.json',{paused:false});return `New entries enabled. DRY_RUN=${dryRun()} (change swing.env and recreate container to enable paper orders). Safety and event filters still apply; inspect /safety.`;
     case '/config':{const c=config();return JSON.stringify(Object.fromEntries(Object.entries(c).filter(([k])=>!['apiKey','apiSecret','updatedAt'].includes(k))),null,2);}
     case '/set':{
-      const ranges={riskPerTradePct:[0.01,2],maxConcurrentPositions:[1,50],maxPositionsPerSector:[1,50],maxPortfolioHeatPct:[0.1,20],dailyLossHaltPct:[0.1,20],maxDrawdownHaltPct:[0.1,50],maxPositionNotional:[1,100000],fixedNotional:[1,100000]};
+      const ranges={riskPerTradePct:[0.01,2],maxConcurrentPositions:[1,50],maxPositionsPerSector:[1,50],maxPortfolioHeatPct:[0.1,20],dailyLossHaltPct:[0.1,20],maxDrawdownHaltPct:[0.1,50],maxPositionNotional:[1,100000],maxGrossExposurePct:[1,100],maxPositionEquityPct:[1,100],maxCorrelatedExposurePct:[1,100],fixedNotional:[1,100000]};
       const range=ranges[arg],n=Number(extra[0]);
       if(!range||extra.length!==1||!Number.isFinite(n)||n<range[0]||n>range[1]||(/Positions/.test(arg)&&!Number.isInteger(n)))return 'Use /set with a supported numeric risk setting; see /config. Invalid or out-of-range value.';
       write('config.json',{...read('config.json',{}),[arg]:n});return `${arg}=${n}. Applies on next worker pass.`;
@@ -41,6 +58,8 @@ export async function poll(){
   let offset=read('telegram.json',{offset:0}).offset;
   for(;;){
     try{
+      const chatIds=(process.env.TELEGRAM_ALLOWED_CHAT_IDS||'').split(',').map(s=>s.trim()).filter(s=>/^-?\d+$/.test(s));
+      try{await flushAlerts((id,text)=>api('sendMessage',{chat_id:id,text:String(text).slice(0,4000)}),chatIds);}catch{console.error('[telegram] Safety alert delivery pending; will retry');}
       for(const update of await api('getUpdates',{offset,timeout:25,allowed_updates:['message']})){
         // Persist before executing to prevent replaying destructive commands.
         offset=update.update_id+1;write('telegram.json',{offset});

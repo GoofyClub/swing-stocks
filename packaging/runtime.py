@@ -54,11 +54,14 @@ def due_jobs(now, completed, broad=False):
     """DST-aware VM-equivalent schedule; never catch up an expired entry window."""
     from zoneinfo import ZoneInfo
     local = now.astimezone(ZoneInfo('America/New_York'))
-    if local.weekday() >= 5:
-        return []
     day = local.date().isoformat()
     minute = local.hour * 60 + local.minute
-    jobs = []
+    # A short safety pass also runs outside entry windows and while paused.
+    interval = 60 if local.weekday() < 5 and 565 <= minute <= 990 else 900
+    bucket = int(now.timestamp()) // interval
+    jobs = [(f'safety:{bucket}:{interval}', 'packaging/local-worker.mjs safety')]
+    if local.weekday() >= 5:
+        return [(k, s) for k, s in jobs if not completed.get(k, {}).get('done')]
     for name, threshold in [('morning', 585), ('close', 975)]:
         key = f'{day}:maintenance:{name}'
         if minute >= threshold and not completed.get(key, {}).get('done'):
@@ -67,7 +70,7 @@ def due_jobs(now, completed, broad=False):
     key = f'{day}:entry'
     if threshold <= minute < 950 and not completed.get(key, {}).get('done'):
         jobs.append((key, 'packaging/local-worker.mjs entry'))
-    return jobs
+    return [(k, s) for k, s in jobs if not completed.get(k, {}).get('done')]
 
 
 def scheduler():
@@ -166,7 +169,15 @@ def health():
     with socket.create_connection(('127.0.0.1', int(os.environ.get('DASHBOARD_PORT', 8080))), timeout=3):
         pass
     print('Workers: DRY RUN' if os.environ.get('DRY_RUN', 'true').lower() != 'false' else 'Workers: paper order execution enabled')
+    print('Safety audit: every minute 09:25-16:30 ET weekdays; every 15 minutes otherwise')
     print('Schedule: maintenance 09:45/16:15 ET; entries 15:38 broad / 15:42 core ET')
+    status_file = DATA / 'safety.json'
+    if status_file.exists():
+        status = json.loads(status_file.read_text())
+        print('Safety: BLOCKED' if status.get('blocked') else 'Safety: clear at last audit')
+        print('Audit time: ' + status.get('at', 'unknown'))
+    else:
+        print('Safety: no completed audit yet; keep entries paused')
     print('Process checks only; verify broker/Telegram connectivity separately.')
 
 
@@ -203,7 +214,8 @@ def deploy(branch='main'):
         # Existing suite verifies prospective source before services reload.
         previous = git('rev-parse', '--short', 'HEAD')
         git('merge', '--ff-only', target)
-        result = subprocess.run(['node', '--test', 'tests/local-runtime.mjs'], cwd=ROOT)
+        import glob
+        result = subprocess.run(['node', '--test', *sorted(glob.glob('tests/local-*.mjs', root_dir=ROOT))], cwd=ROOT)
         if result.returncode:
             git('reset', '--hard', previous)
             raise RuntimeError('Tests failed; checkout restored and services left running')
@@ -213,7 +225,7 @@ def deploy(branch='main'):
 
 def flatten():
     with lock('.tick.lock', blocking=True):
-        subprocess.run(['node', 'packaging/local-worker.mjs', 'flatten'], cwd=ROOT, check=True)
+        subprocess.run(['node', 'packaging/local-worker.mjs', 'flatten'], cwd=ROOT, check=True, timeout=1200)
 
 
 def main():

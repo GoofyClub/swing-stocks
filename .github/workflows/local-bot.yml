@@ -13,7 +13,7 @@ jobs:
         run: |
           docker compose run --rm --no-deps --entrypoint python3 swing -c "from pathlib import Path; Path('/tmp/compose-check').write_text('ok'); print('Compose container started')"
       - name: Test without network access or npm dependencies
-        run: docker run --rm --network=none -v "$PWD:/app:ro" swing-stocks-local:latest node --test tests/local-runtime.mjs
+        run: docker run --rm --network=none -v "$PWD:/app:ro" swing-stocks-local:latest sh -c 'node --test tests/local-*.mjs'
       - run: python3 -m unittest discover -s tests -p 'test_local_runtime.py' -v
   windows:
     runs-on: windows-latest

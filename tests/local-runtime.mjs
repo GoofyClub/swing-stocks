@@ -12,7 +12,7 @@ const {worker}=await import('../packaging/local-worker.mjs');
 const {command,authorized}=await import('../packaging/local-bot.mjs');
 const {server}=await import('../packaging/local-dashboard.mjs');
 after(()=>fs.rmSync(temp,{recursive:true,force:true}));
-const fake=()=>({getAccount:async()=>({equity:10000,lastEquity:10000,cash:5000,buyingPower:5000}),getClock:async()=>({isOpen:true}),getPositions:async()=>[],getOrderByClientId:async()=>null});
+const fake=()=>({getAccount:async()=>({equity:10000,lastEquity:10000,cash:5000,buyingPower:5000}),getClock:async()=>({isOpen:true}),getPositions:async()=>[],getOrderByClientId:async()=>null,getOpenOrders:async()=>[],getCalendar:async()=>[]});
 test('local adapter persists journal updates used by existing reconciliation',async()=>{
  write('journal.json',{orders:{a:{status:'submitted',createdAt:new Date().toISOString()}},peakEquity:0});
  const {db}=localStore();const q=db.collection('users').doc('local').collection('autoOrders');
@@ -42,13 +42,13 @@ test('dashboard requires authentication and returns broker data without cloud ac
  const app=server({client:fake()});await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
  try{const url=`http://127.0.0.1:${app.address().port}`;assert.equal((await fetch(url)).status,401);
  const r=await fetch(url+'/api/summary',{headers:{Authorization:'Basic '+Buffer.from('tester:long-fixture-password').toString('base64')}});
- assert.equal(r.status,200);const data=await r.json();assert.equal(data.account.equity,10000);assert.equal(data.dryRun,true);
+ assert.equal(r.status,200);const data=await r.json();assert.equal(data.account.equity,10000);assert.equal(data.dryRun,true);assert.equal(data.settings.maxGrossExposurePct,100);assert.equal(data.eventCoverage.required,true);
  }finally{await new Promise(resolve=>app.close(resolve));}
 });
 test('valid RSI2 entry is protected and repeated passes cannot duplicate it',async()=>{
  process.env.DRY_RUN='false';process.env.WATCHLIST_SET='core';
  write('journal.json',{orders:{},peakEquity:0});write('control.json',{paused:false});
- write('config.json',{respectRegime:false,tiers:[],maxConcurrentPositions:1});
+ write('config.json',{respectRegime:false,tiers:[],requireEventCoverage:false,maxConcurrentPositions:1});
  const now=new Date('2026-10-15T19:42:00Z');
  const bars=Array.from({length:250},(_,i)=>{const close=i<245?100+i*.25:161-(i-244)*1.1;return {date:new Date(now.getTime()-(249-i)*86400000).toISOString().slice(0,10),open:close+.1,close,high:close+.4,low:close-.4,volume:3000000};});
  let submissions=0,intent;
@@ -58,11 +58,11 @@ test('valid RSI2 entry is protected and repeated passes cannot duplicate it',asy
  await worker('entry',{client,now,wallClock:()=>now});
  assert.equal(submissions,1);assert.ok(intent.stopLoss.stopPrice<155.5);assert.ok(intent.takeProfit.limitPrice>155.5);
  assert.equal(Object.values(read('journal.json').orders)[0].brokerOrderId,'order-1');
- await worker('entry',{client:{...client,getPositions:async()=>[{symbol:Object.values(read('journal.json').orders)[0].ticker,qty:1}]},now,wallClock:()=>now});
+ await worker('entry',{client:{...client,getOpenOrders:async()=>[{id:'protect',symbol:'AAPL',side:'sell',type:'stop',status:'new',qty:'1',filled_qty:'0'}],getPositions:async()=>[{symbol:Object.values(read('journal.json').orders)[0].ticker,qty:1,avgEntry:155.5}]},now,wallClock:()=>now});
  assert.equal(submissions,1);process.env.DRY_RUN='true';
 });
 test('uncertain submission stops this scan and blocks the next until reconciled',async()=>{
- process.env.DRY_RUN='false';write('config.json',{respectRegime:false,tiers:[]});write('control.json',{paused:false});write('journal.json',{orders:{},peakEquity:0});
+ process.env.DRY_RUN='false';write('config.json',{respectRegime:false,tiers:[],requireEventCoverage:false});write('control.json',{paused:false});write('journal.json',{orders:{},peakEquity:0});
  const now=new Date('2026-10-15T19:42:00Z');
  const bars=Array.from({length:250},(_,i)=>{const close=i<245?100+i*.25:161-(i-244)*1.1;return {date:new Date(now.getTime()-(249-i)*86400000).toISOString().slice(0,10),open:close+.1,close,high:close+.4,low:close-.4,volume:3000000};});
  let attempts=0;
@@ -97,4 +97,23 @@ test('dashboard equity request uses the real broker adapter and preserves zero v
  assert.equal(request.pathname,'/v2/account/portfolio/history');assert.equal(request.searchParams.get('period'),'3M');assert.equal(request.searchParams.get('raw'),null);
  assert.deepEqual(equityHistory(raw).points,[{date:'2026-10-16',equity:10000},{date:'2026-10-17',equity:0}]);
  const legacy=await client.getPortfolioHistory();assert.ok(Array.isArray(legacy.points));assert.equal(request.searchParams.get('period'),'1M');
+});
+test('entry scan reserves pending buys and caps a cross-sector correlated group',async()=>{
+ process.env.DRY_RUN='false';process.env.WATCHLIST_SET='core';write('config.json',{respectRegime:false,tiers:[],requireEventCoverage:false,maxPositionsPerSector:20});write('control.json',{paused:false});write('journal.json',{orders:{},peakEquity:0});write('exits.json',{});
+ const now=new Date('2026-10-15T19:42:00Z');
+ const bars=Array.from({length:250},(_,i)=>{const close=i<245?100+i*.25:161-(i-244)*1.1;return {date:new Date(now.getTime()-(249-i)*86400000).toISOString().slice(0,10),open:close+.1,close,high:close+.4,low:close-.4,volume:3000000};});
+ const open=[];let submitted=0;
+ const client={...fake(),getAccount:async()=>({equity:10000,lastEquity:10000,cash:10000,buyingPower:100000}),getDailyBars:async()=>bars,getLatestPrice:async()=>155.5,getOpenOrders:async()=>open,submitBracketOrder:async intent=>{submitted++;const order={id:'buy-'+submitted,client_order_id:intent.clientOrderId,symbol:intent.symbol,qty:String(intent.qty),filled_qty:'0',side:'buy',type:'market',status:'new'};open.push(order);return order;}};
+ await worker('entry',{client,now,wallClock:()=>now});
+ assert.ok(submitted>=2);assert.ok(open.every(o=>Number(o.qty)*155.5<=2000));
+ assert.ok(open.reduce((n,o)=>n+Number(o.qty)*155.5*1.01,0)<=4000);
+ process.env.DRY_RUN='true';
+});
+test('missing earnings coverage blocks entry without sending orders',async()=>{
+ process.env.DRY_RUN='false';write('config.json',{respectRegime:false,tiers:[]});write('control.json',{paused:false});write('journal.json',{orders:{},peakEquity:0});write('exits.json',{});write('events.json',{});
+ const now=new Date('2026-10-15T19:42:00Z');
+ await worker('entry',{client:{...fake(),getDailyBars:async()=>[],submitBracketOrder:()=>assert.fail('No coverage must not trade')},now,wallClock:()=>now});
+ assert.ok(Object.keys(read('safety.json').entryBlocks).some(k=>k.includes('Earnings coverage')));
+ assert.match(await command('/earnings AAPL none'),/coverage saved/);assert.ok(read('events.json').symbols.AAPL.checkedAt);
+ assert.match(await command('/eventblock 2026-02-30'),/Usage/);process.env.DRY_RUN='true';
 });

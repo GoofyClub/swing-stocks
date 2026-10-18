@@ -33,7 +33,7 @@ const REASON_TEXT = {
   time_stop: 'time stop',
 };
 
-export async function manageExits({ db, admin, uid, client, log, dryRun = false, notify = null }) {
+export async function manageExits({ db, admin, uid, client, log, dryRun = false, notify = null, exitPosition = null }) {
   let closed = 0, checked = 0;
   try {
     const filled = await db.collection('users').doc(uid).collection('autoOrders')
@@ -92,7 +92,11 @@ export async function manageExits({ db, admin, uid, client, log, dryRun = false,
         }
         // NOTE: Alpaca positions are per-symbol — if two strategies hold the same
         // ticker this liquidates both; acceptable given the per-sector/position caps.
-        const exit = await client.closePosition(data.ticker, { cancelOrders: true });
+        const exit = exitPosition
+          ? await exitPosition(data.ticker, {...data, exitReason:verdict.exitReason})
+          : await client.closePosition(data.ticker, { cancelOrders: true });
+        if (exit?.flat) { await d.ref.update({status:'position_closed',positionClosedAt:admin.firestore.FieldValue.serverTimestamp()}); continue; }
+        if (exitPosition && !exit?.id) { log(`exit-check ${data.ticker}: durable recovery pending; new entries blocked`); continue; }
         if (!exit?.id) throw new Error('close returned no broker order id; inspect broker before retrying');
         await d.ref.update({
           status: 'exit_submitted', exitOrderId: exit.id, exitReason: verdict.exitReason,

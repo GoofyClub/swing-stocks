@@ -118,6 +118,21 @@ export function createAlpacaClient({ baseUrl, apiKey, apiSecret, dataBaseUrl = '
       return req('GET', `/v2/orders/${encodeURIComponent(orderId)}${q}`);
     },
 
+    // Local safety controller uses complete broker snapshots and stable client IDs.
+    async getOpenOrders(symbol = null) {
+      const q = new URLSearchParams({status:'open',nested:'true',limit:'500'});
+      if (symbol) q.set('symbols',symbol);
+      const rows = await req('GET', `/v2/orders?${q}`);
+      if (!Array.isArray(rows) || rows.length >= 500) throw new Error('Incomplete open-order snapshot');
+      return rows;
+    },
+    async submitMarketExit(symbol, qty, clientOrderId) {
+      return req('POST', '/v2/orders', {symbol,qty:String(qty),side:'sell',type:'market',time_in_force:'day',client_order_id:clientOrderId});
+    },
+    async submitProtectiveStop(symbol, qty, stopPrice, clientOrderId) {
+      return req('POST', '/v2/orders', {symbol,qty:String(qty),side:'sell',type:'stop',stop_price:String(stopPrice),time_in_force:'gtc',client_order_id:clientOrderId});
+    },
+
     // Cancel an order by Alpaca id. Used by the stale-entry sweep to kill a
     // prior session's unfilled entry limit so it can't fill late (strict
     // one-session freshness). Returns 204 no-content on success.

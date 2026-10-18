@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { broker,dryRun } from './local-worker.mjs';
+import { portfolioExposure,eventGate } from './local-risk.mjs';
 import { read,dataDir,config } from './local-store.mjs';
 const PAGE=fs.readFileSync(new URL('./dashboard.html',import.meta.url),'utf8');
 export function authenticated(header){
@@ -34,7 +35,7 @@ export function server({client=broker()}={}){
   let cache=null,at=0,pending,balance=null,balanceAt=0,balancePending;
   async function snapshot(){
     if(!cache||Date.now()-at>30000){
-      if(!pending)pending=Promise.all([client.getAccount(),client.getPositions(),client.getClock?.()]).then(([account,positions,clock])=>{cache={account,positions,market:clock?{isOpen:clock.isOpen,nextOpen:clock.nextOpen,nextClose:clock.nextClose}:null};at=Date.now();}).finally(()=>{pending=null;});
+      if(!pending)pending=Promise.all([client.getAccount(),client.getPositions(),client.getClock?.(),client.getOpenOrders?.()]).then(([account,positions,clock,openOrders])=>{cache={account,positions,openOrders,market:clock?{isOpen:clock.isOpen,nextOpen:clock.nextOpen,nextClose:clock.nextClose}:null};at=Date.now();}).finally(()=>{pending=null;});
       await pending;
     }
     return cache;
@@ -64,9 +65,9 @@ export function server({client=broker()}={}){
       let error=null;try{await Promise.all([snapshot(),balances()]);}catch{error='Alpaca unavailable; displayed broker data may be stale';}
       let logs='No logs yet';try{const file=path.join(dataDir,'logs/swing.log');const fd=fs.openSync(file,'r');try{const size=fs.fstatSync(fd).size,buf=Buffer.alloc(Math.min(size,24000));fs.readSync(fd,buf,0,buf.length,Math.max(0,size-buf.length));logs=buf.toString();}finally{fs.closeSync(fd);}}catch{}
       const orders=Object.values(read('journal.json',{orders:{}}).orders).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
-      const cfg=config(),settings=Object.fromEntries(['riskPerTradePct','sizingMode','fixedNotional','maxPositionNotional','maxConcurrentPositions','maxPositionsPerSector','maxPortfolioHeatPct','dailyLossHaltPct','maxDrawdownHaltPct','respectRegime','slippageBudgetPct'].map(key=>[key,cfg[key]]));
-      const now=new Date(),runtime=read('runtime.json',null),scheduler=read('scheduler.json',null);
-      res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({...cache,positions:cache?.positions||[],at:at||null,error,paused:read('control.json',{paused:true}).paused,dryRun:dryRun(),orders:orders.slice(0,200),history:performanceHistory(orders,now),balance,now:dayET(now)+' '+now.toLocaleTimeString('en-US',{timeZone:'America/New_York'})+' ET',settings,health:{supervisorAge:runtime?Math.max(0,(Date.now()/1000-runtime.at)):null,schedulerAge:scheduler?Math.max(0,(Date.now()/1000-scheduler.at)):null},logs}));
+      const cfg=config(),settings=Object.fromEntries(['riskPerTradePct','sizingMode','fixedNotional','maxPositionNotional','maxConcurrentPositions','maxPositionsPerSector','maxPortfolioHeatPct','dailyLossHaltPct','maxDrawdownHaltPct','respectRegime','slippageBudgetPct','maxGrossExposurePct','maxPositionEquityPct','maxCorrelatedExposurePct','correlationThreshold','requireEventCoverage','eventWindowDays'].map(key=>[key,cfg[key]]));
+      const now=new Date(),events=read('events.json',{}),exposure=cache&&Array.isArray(cache.openOrders)?portfolioExposure(cache.positions,cache.openOrders,read('journal.json',{orders:{}}).orders):null,coveredSymbols=Object.keys(events.symbols||{}).filter(symbol=>eventGate(symbol,events,cfg,now).ok).length,runtime=read('runtime.json',null),scheduler=read('scheduler.json',null);
+      res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({...cache,positions:cache?.positions||[],at:at||null,error,paused:read('control.json',{paused:true}).paused,dryRun:dryRun(),orders:orders.slice(0,200),history:performanceHistory(orders,now),balance,now:dayET(now)+' '+now.toLocaleTimeString('en-US',{timeZone:'America/New_York'})+' ET',settings,safety:read('safety.json',null),exposure,eventCoverage:{required:cfg.requireEventCoverage,eligibleReviewedSymbols:coveredSymbols},health:{supervisorAge:runtime?Math.max(0,(Date.now()/1000-runtime.at)):null,schedulerAge:scheduler?Math.max(0,(Date.now()/1000-scheduler.at)):null},logs}));
     }catch{res.writeHead(500);res.end('Local data unavailable; inspect container logs');}
   });
 }

@@ -21,7 +21,12 @@ class ScheduleTests(unittest.TestCase):
     def test_completed_job_not_repeated_and_weekends_skipped(self):
         done={'2026-10-15:entry':{'done':True}}
         self.assertFalse(any(k.endswith(':entry') for k,_ in self.jobs('2026-10-15T19:44:00+00:00',done)))
-        self.assertEqual(self.jobs('2026-10-17T19:44:00+00:00'),[])
+        self.assertTrue(all('safety:' in k for k,_ in self.jobs('2026-10-17T19:44:00+00:00')))
+    def test_safety_repeats_each_market_minute_and_works_outside_entry_window(self):
+        first=self.jobs('2026-10-15T13:31:00+00:00')
+        key=next(k for k,_ in first if k.startswith('safety:'))
+        self.assertFalse(any(k==key for k,_ in self.jobs('2026-10-15T13:31:30+00:00',{key:{'done':True}})))
+        self.assertTrue(any(k.startswith('safety:') and k!=key for k,_ in self.jobs('2026-10-15T13:32:00+00:00',{key:{'done':True}})))
 class ConfigureTests(unittest.TestCase):
     def test_new_install_is_paused_and_rerun_preserves_state(self):
         spec=importlib.util.spec_from_file_location('configure',Path(__file__).resolve().parents[1]/'packaging/configure.py')
