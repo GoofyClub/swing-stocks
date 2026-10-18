@@ -136,3 +136,59 @@ recognition, Tailscale conflicts and power-setting verification. The full legacy
 strategy test suite and web build also pass. A complete Windows installation and
 real Alpaca/Telegram connectivity still need verification on your PC with your
 credentials; no broker orders were placed during development testing.
+
+## Start after reboot without a person signing in
+
+The containers already use `restart: unless-stopped`: they start when the Docker
+engine starts, with their saved paused/resumed state. No daily trading trigger or
+installer run is needed. A container deliberately stopped with Stop stays stopped
+until Start is selected. Pausing only blocks new entries; it survives restarts.
+
+**Windows Docker Desktop:** the current installer starts Desktop at Windows
+sign-in. The Docker Windows service alone does not reliably start its Linux
+engine before sign-in. A Task Scheduler job that runs `docker compose up` before
+that engine exists does not solve this.
+
+For the least change to your Windows PC, you can configure Microsoft's
+[Sysinternals Autologon](https://learn.microsoft.com/en-us/sysinternals/downloads/autologon)
+locally, following its instructions. Windows then signs in automatically and the
+Docker startup shortcut starts both bots. Configure credentials only in that
+Microsoft utility, never in bot scripts or Git. This automatically opens your
+Windows session to someone with physical access to the PC. It also cannot bypass
+a firmware or disk-encryption password required before Windows boots. This option
+is not enabled by our installer.
+
+For operation **without any Windows sign-in**, run the bots on a Linux machine
+(or a Linux VM configured by your hypervisor to boot automatically with the host).
+After installing [Docker Engine with Compose](https://docs.docker.com/engine/install/ubuntu/),
+enable its boot service:
+
+```bash
+sudo systemctl enable --now docker
+```
+
+Install each bot once with its `start-*.sh` helper. Docker then restores its
+containers at boot even while the Linux login screen is displayed. Install
+Tailscale on that host and keep its daemon enabled at boot for remote access.
+A Linux VM inside a desktop application that itself starts at sign-in still has
+the same sign-in dependency. Keep the host and VM awake and network-connected.
+
+## Controls without opening Docker Desktop
+
+Double-click the `Control-Swing.cmd` file for this bot and choose Status, Pause,
+Resume, Restart, Start or Stop. Docker's engine must already be running; its
+window can remain closed. Restart recreates the container to apply saved env
+settings and waits for the running worker to finish. It preserves your state and
+does not rebuild images or download code. Use the installer/update guide for
+code or image updates.
+
+Pause keeps the scheduler, Telegram bot, dashboard and managed exits running;
+Resume preserves the configured dry-run setting. Stop shuts down all bot
+processes, including managed exits. Existing Alpaca orders stay at the broker.
+Use Pause when you only want to stop new trades. If a command fails, the menu
+shows CONTROL FAILED rather than claiming success.
+
+When the bot is running, Telegram `/pause`, `/resume`, `/status` and
+`/healthcheck` also work without using Docker Desktop. Telegram cannot restart a
+stopped container, because its bot process is stopped too. Use the control file
+on the PC for that.

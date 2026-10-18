@@ -13,7 +13,7 @@ function Assert-Rejected([scriptblock]$Action, [string]$Name) {
     try { & $Action } catch { $rejected = $true }
     Assert-True $rejected $Name
 }
-foreach ($file in @('Install-Swing.ps1', 'start-swing.ps1')) {
+foreach ($file in @('Install-Swing.ps1', 'start-swing.ps1', 'Control-Swing.ps1')) {
     $tokens = $null; $parseErrors = $null
     [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $file), [ref]$tokens, [ref]$parseErrors) | Out-Null
     Assert-True ($parseErrors.Count -eq 0) "Parse $file"
