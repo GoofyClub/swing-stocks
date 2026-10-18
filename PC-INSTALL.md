@@ -124,6 +124,21 @@ Linux/macOS: install Docker with Compose, then run `bash start-swing.sh`.
 For private remote access, install/sign into Tailscale separately and run
 `tailscale serve --bg --https=8444 http://127.0.0.1:8444`. Keep Funnel off.
 
+## If installation fails with “No system certificates available”
+
+Update the RSI2 checkout from main, then rerun its installer:
+
+```powershell
+git pull --ff-only origin main
+.\Install-Swing.cmd
+```
+
+Run these commands in the active RSI2 Git checkout (often `$HOME\Swing-PC`),
+not the ORB folder or a downloaded ZIP. Existing credentials and `data` are
+preserved. The fixed Dockerfile installs trusted certificates using Debian's
+signed package repositories before switching them to HTTPS. Do not disable
+certificate checks or delete your saved configuration to work around this error.
+
 ## Validation of this package
 
 The Docker image is built without installing npm packages. Its offline tests
