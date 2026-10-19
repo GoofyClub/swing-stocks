@@ -123,3 +123,17 @@ test('Telegram can opt out of mandatory coverage without disabling exposure or e
  await command('/earningsfilter on');assert.equal(read('config.json').requireEventCoverage,true);
  assert.match(await command('/earningsfilter invalid'),/Usage/);
 });
+
+test('both health commands include the configured dashboard even when health fails',async()=>{
+ const previous=process.env.DASHBOARD_URL;
+ try{
+  process.env.DASHBOARD_URL='https://fixture.tail.example:8444';
+  for(const text of ['/health','/healthcheck']){
+   const answer=await command(text,{client:fake(),run:async()=>({stdout:'Workers: running\n'})});
+   assert.match(answer,/Workers: running/);assert.match(answer,/Dashboard: https:\/\/fixture.tail.example:8444/);
+  }
+  assert.match(await command('/health',{client:fake(),run:async()=>{throw new Error('fixture');}}),/Health check failed.*\nDashboard: https:/);
+  delete process.env.DASHBOARD_URL;
+  assert.match(await command('/health',{client:fake(),run:async()=>({stdout:'OK'})}),/127\.0\.0\.1:8444 \(on the bot PC/);
+ }finally{if(previous===undefined)delete process.env.DASHBOARD_URL;else process.env.DASHBOARD_URL=previous;}
+});

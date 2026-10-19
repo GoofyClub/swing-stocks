@@ -14,7 +14,12 @@ export async function command(text,{client=broker(),run=exec}={}){
   switch(name.split('@')[0].toLowerCase()){
     case '/start':case '/help':return '/status /healthcheck /positions /pnl /config /safety /earnings /earningsfilter /eventblock /pause /resume /set <key> <value> /deploycheck /deploy CONFIRM /flatten CONFIRM';
     case '/status':return `Safety ${read('safety.json',{}).blocked?'BLOCKED':'see /safety'}. RSI2 PAPER. Entries ${read('control.json',{paused:true}).paused?'PAUSED':'enabled'}. DRY_RUN=${dryRun()}. Pause blocks new entries; managed exits continue.`;
-    case '/health':case '/healthcheck':return (await run('python3',['packaging/runtime.py','health'],{timeout:15000})).stdout;
+    case '/health':case '/healthcheck':{
+      const dashboard=process.env.DASHBOARD_URL?.trim();
+      const link=dashboard||'http://127.0.0.1:8444 (on the bot PC; remote URL is not configured)';
+      try{return (await run('python3',['packaging/runtime.py','health'],{timeout:15000})).stdout.trimEnd()+'\nDashboard: '+link;}
+      catch{return 'Health check failed. Inspect the dashboard logs.\nDashboard: '+link;}
+    }
     case '/safety':{const state=read('safety.json',null);return state?JSON.stringify(state,null,2):'Safety audit has not run yet; keep entries paused.';}
     case '/earnings':{
       if(!arg)return 'Usage: /earnings SYMBOL YYYY-MM-DD[,YYYY-MM-DD] or /earnings SYMBOL none. Confirms you checked the next 21 calendar days. Review at least weekly.';
