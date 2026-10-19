@@ -17,8 +17,10 @@ export async function command(text,{client=broker(),run=exec}={}){
     case '/health':case '/healthcheck':{
       const dashboard=process.env.DASHBOARD_URL?.trim();
       const link=dashboard||'http://127.0.0.1:8444 (on the bot PC; remote URL is not configured)';
-      try{return (await run('python3',['packaging/runtime.py','health'],{timeout:15000})).stdout.trimEnd()+'\nDashboard: '+link;}
-      catch{return 'Health check failed. Inspect the dashboard logs.\nDashboard: '+link;}
+      const entries=read('control.json',{paused:true}).paused?'Entries: PAUSED. Send /resume to enable entries.':'Entries: enabled (subject to schedule and safety filters).';
+      const details=entries+'\nDRY_RUN='+dryRun()+'\nPause blocks new entries; managed exits continue.\nDashboard: '+link;
+      try{return (await run('python3',['packaging/runtime.py','health'],{timeout:15000})).stdout.trimEnd()+'\n'+details;}
+      catch{return 'Health check failed. Inspect the dashboard logs.\n'+details;}
     }
     case '/safety':{const state=read('safety.json',null);return state?JSON.stringify(state,null,2):'Safety audit has not run yet; keep entries paused.';}
     case '/earnings':{

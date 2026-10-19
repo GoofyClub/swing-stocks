@@ -132,8 +132,21 @@ test('both health commands include the configured dashboard even when health fai
    const answer=await command(text,{client:fake(),run:async()=>({stdout:'Workers: running\n'})});
    assert.match(answer,/Workers: running/);assert.match(answer,/Dashboard: https:\/\/fixture.tail.example:8444/);
   }
-  assert.match(await command('/health',{client:fake(),run:async()=>{throw new Error('fixture');}}),/Health check failed.*\nDashboard: https:/);
+  assert.match(await command('/health',{client:fake(),run:async()=>{throw new Error('fixture');}}),/Health check failed[\s\S]*Dashboard: https:/);
   delete process.env.DASHBOARD_URL;
   assert.match(await command('/health',{client:fake(),run:async()=>({stdout:'OK'})}),/127\.0\.0\.1:8444 \(on the bot PC/);
  }finally{if(previous===undefined)delete process.env.DASHBOARD_URL;else process.env.DASHBOARD_URL=previous;}
+});
+
+test('health reports persisted pause state for both aliases, including failed checks',async()=>{
+ const run=async()=>({stdout:'Workers: running\n'});
+ for(const text of ['/health','/healthcheck']){
+  await command('/pause');
+  const paused=await command(text,{client:fake(),run});
+  assert.match(paused,/Entries: PAUSED/);assert.match(paused,/Send \/resume/);assert.match(paused,/DRY_RUN=true/);
+  const failed=await command(text,{client:fake(),run:async()=>{throw new Error('fixture');}});
+  assert.match(failed,/Entries: PAUSED/);
+  await command('/resume');
+  assert.match(await command(text,{client:fake(),run}),/Entries: enabled \(subject to schedule and safety filters\)/);
+ }
 });
