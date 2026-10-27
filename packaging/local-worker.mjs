@@ -79,25 +79,25 @@ export async function worker(mode='maintenance',{client=broker(),now=new Date(),
     if(!inCloseWindow(wallClock())||read('control.json',{paused:true}).paused){log('Entry window ended; remaining scan deferred');break;}
     if(held.size>=cfg.maxConcurrentPositions)break;
     scanned++;
-    if(held.has(item.t)||cfg.excludeTickers.includes(item.t))continue;
+    if(held.has(item.t)||cfg.excludeTickers.includes(item.t)){skip('Already held or excluded');continue;}
     const event=eventGate(item.t,read('events.json',{}),cfg,now);
     if(!event.ok){skip(event.reason);continue;}
     let bars;
-    try{bars=await client.getDailyBars(item.t,{start,limit:1000});}catch{failed++;continue;}
-    if(!bars.length||bars.at(-1).date!==today)continue;
-    const result=STRATEGIES.rsi2.evaluate(bars);if(!result?.envelope)continue;
+    try{bars=await client.getDailyBars(item.t,{start,limit:1000});}catch{failed++;skip('Market data request failed');continue;}
+    if(!bars.length||bars.at(-1).date!==today){skip('Missing current-day bars');continue;}
+    const result=STRATEGIES.rsi2.evaluate(bars);if(!result?.envelope){skip('No RSI2 signal');continue;}
     const e=result.envelope,{tier}=tierReasons('rsi2',result.raw);
     const signal={ticker:item.t,market:'US',strategyKey:'rsi2',tier,side:'buy',entryPrice:e.entry,tpPrice:e.tp,slPrice:e.sl,sector:item.s,index:item.index||universe[item.t]?.index,largeCap:LARGE_CAP_TICKERS.has(item.t),advUsd:advUsdFor(bars)};
-    if(!signalMatchesRules(signal,cfg).ok)continue;
+    if(!signalMatchesRules(signal,cfg).ok){skip('Signal rules rejected');continue;}
     const losses=Object.values(state.orders).filter(o=>o.realizedWinLoss==='loss').map(o=>({ticker:o.ticker,exitedAt:o.realizedAt}));
-    if(inReentryCooldown(item.t,losses,now).blocked)continue;
+    if(inReentryCooldown(item.t,losses,now).blocked){skip('Reentry cooldown');continue;}
     const id=clientOrderId('local-rsi2',`${item.t}_rsi2_${today}`);
-    if(state.orders[id]||await client.getOrderByClientId(id))continue;
+    if(state.orders[id]||await client.getOrderByClientId(id)){skip('Existing entry for this date');continue;}
     signal.slPrice=placedStopPrice(signal);
     const live=await client.getLatestPrice(item.t);
-    if(!Number.isFinite(live)||!slippageOk(cfg,e.entry,live)||!stopClearanceOk(signal,live))continue;
+    if(!Number.isFinite(live)||!slippageOk(cfg,e.entry,live)||!stopClearanceOk(signal,live)){skip('Price or stop clearance rejected');continue;}
     const sectorCount=positions.filter(p=>(universe[p.symbol]?.s||universe[p.symbol]?.sector)===item.s).length;
-    if(!passesPortfolioGuards({cfg,openCount:held.size,sectorCount,openHeatPct:held.size*cfg.riskPerTradePct,addedHeatPct:cfg.riskPerTradePct,dayRealizedPct:account.lastEquity>0?(account.equity-account.lastEquity)/account.lastEquity*100:0}).ok)continue;
+    if(!passesPortfolioGuards({cfg,openCount:held.size,sectorCount,openHeatPct:held.size*cfg.riskPerTradePct,addedHeatPct:cfg.riskPerTradePct,dayRealizedPct:account.lastEquity>0?(account.equity-account.lastEquity)/account.lastEquity*100:0}).ok){skip('Portfolio guards rejected');continue;}
     // Refresh account/holdings/open entries; margin buying power is not a
     // substitute for the gross capital and cash limits.
     const current=await client.getAccount();
@@ -121,10 +121,10 @@ export async function worker(mode='maintenance',{client=broker(),now=new Date(),
     // Verify the remaining portfolio guards against this refreshed snapshot too.
     const refreshedSymbols=new Set([...check.positions.map(p=>p.symbol),...Object.keys(exposure.bySymbol)]);
     const currentSector=[...refreshedSymbols].filter(symbol=>(universe[symbol]?.s||universe[symbol]?.sector)===item.s).length;
-    if(!passesPortfolioGuards({cfg,openCount:refreshedSymbols.size,sectorCount:currentSector,openHeatPct:refreshedSymbols.size*cfg.riskPerTradePct,addedHeatPct:cfg.riskPerTradePct,dayRealizedPct:current.lastEquity>0?(current.equity-current.lastEquity)/current.lastEquity*100:0}).ok)continue;
+    if(!passesPortfolioGuards({cfg,openCount:refreshedSymbols.size,sectorCount:currentSector,openHeatPct:refreshedSymbols.size*cfg.riskPerTradePct,addedHeatPct:cfg.riskPerTradePct,dayRealizedPct:current.lastEquity>0?(current.equity-current.lastEquity)/current.lastEquity*100:0}).ok){skip('Portfolio guards rejected');continue;}
     if(drawdownHalted({equity:current.equity,peakEquity:state.peakEquity,maxDrawdownHaltPct:cfg.maxDrawdownHaltPct}).halted)break;
     const row={ticker:item.t,side:'buy',strategyKey:'rsi2',entry:live,tp:e.tp,sl:signal.slPrice,qty:size.shares,sessionDate:today,createdAt:now.toISOString(),status:'submitted'};
-    if(dryRun()){log(`DRY RUN would buy ${size.shares} ${item.t} with TP ${e.tp}, SL ${e.sl}`);continue;}
+    if(dryRun()){skip('DRY_RUN: order simulated');log(`DRY RUN would buy ${size.shares} ${item.t} with TP ${e.tp}, SL ${e.sl}`);continue;}
     // Persist intent before the broker call. Deterministic IDs recover an
     // accepted order if the process dies before its broker id can be saved.
     if(read('control.json',{paused:true}).paused||!inCloseWindow(wallClock())||!(await client.getClock()).isOpen)break;

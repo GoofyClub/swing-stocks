@@ -150,3 +150,11 @@ test('health reports persisted pause state for both aliases, including failed ch
   assert.match(await command(text,{client:fake(),run}),/Entries: enabled \(subject to schedule and safety filters\)/);
  }
 });
+
+test('Telegram diagnostics identify common failures without exposing error contents',async()=>{
+ const {telegramFailure}=await import('../packaging/local-bot.mjs');
+ assert.match(telegramFailure({telegramStatus:409}),/another bot instance/);
+ assert.match(telegramFailure({telegramStatus:401}),/authentication failed/);
+ assert.match(telegramFailure({cause:{code:'ENOTFOUND'}}),/ENOTFOUND/);
+ assert.doesNotMatch(telegramFailure(new Error('secret-token-url')),/secret-token/);
+});

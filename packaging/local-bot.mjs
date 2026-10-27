@@ -63,10 +63,21 @@ export async function command(text,{client=broker(),run=exec}={}){
     default:return 'Unknown command. Send /help.';
   }
 }
+export function telegramFailure(error){
+  const status=Number(error?.telegramStatus);
+  if(status===409)return 'Telegram conflict (409): another bot instance is polling this token, or a webhook is configured. Stop the old instance and check webhook configuration.';
+  if(status===401)return 'Telegram authentication failed (401): check TELEGRAM_BOT_TOKEN.';
+  if(status===403)return 'Telegram access denied (403): check that the bot is allowed in the configured chat.';
+  if(status===429)return 'Telegram rate limit (429).';
+  if(Number.isInteger(status)&&status>=400)return `Telegram HTTP ${status}.`;
+  const code=error?.cause?.code||error?.code||error?.name;
+  const safe=new Set(['TimeoutError','AbortError','TypeError','ENOTFOUND','EAI_AGAIN','ECONNRESET','ECONNREFUSED','ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT','UNABLE_TO_VERIFY_LEAF_SIGNATURE','CERT_HAS_EXPIRED']);
+  return 'Telegram connection failed'+(safe.has(code)?` (${code})`:'')+'. Check Internet, DNS, proxy and certificate settings.';
+}
 export async function poll(){
   const token=process.env.TELEGRAM_BOT_TOKEN||'';
   if(!/^\d+:[A-Za-z0-9_-]+$/.test(token))throw Error('Invalid Telegram token format');
-  const api=async(method,body)=>{const r=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(40000)});const d=await r.json();if(!r.ok||!d.ok)throw Error(`Telegram HTTP ${r.status}`);return d.result;};
+  const api=async(method,body)=>{const r=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(40000)});const d=await r.json();if(!r.ok||!d.ok)throw Object.assign(new Error('Telegram request rejected'),{telegramStatus:d.error_code||r.status});return d.result;};
   let offset=read('telegram.json',{offset:0}).offset;
   for(;;){
     try{
@@ -81,7 +92,7 @@ export async function poll(){
         try{answer=await command(msg.text);}catch{answer='Command failed. Check dashboard logs; verify broker connectivity and local configuration.';}
         await api('sendMessage',{chat_id:msg.chat.id,text:String(answer).slice(0,4000)});
       }
-    }catch{console.error('[telegram] Request failed; retrying in 5 seconds');await new Promise(r=>setTimeout(r,5000));}
+    }catch(error){console.error('[telegram] '+telegramFailure(error)+' Retrying in 5 seconds');await new Promise(r=>setTimeout(r,5000));}
   }
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){attachFileLog('telegram');poll().catch(()=>{console.error('Telegram startup failed; check local token configuration');process.exitCode=1;});}
